@@ -1,0 +1,38 @@
+{
+  "require_user_selection": true,
+  "allow_user_added_profiles": true,
+  "presets": [
+    {
+      "id": "openai_compatible_custom",
+      "display_name": "OpenAI Compatible",
+      "provider": "openai_compatible",
+      "base_url_placeholder": "https://example-provider.com/v1",
+      "model_placeholder": "provider-model-name",
+      "tags": ["custom"]
+    },
+    {
+      "id": "openai_custom",
+      "display_name": "OpenAI",
+      "provider": "openai",
+      "base_url_placeholder": "https://api.openai.com/v1",
+      "model_placeholder": "replace-with-openai-model",
+      "tags": ["high_quality", "math_reasoning"]
+    },
+    {
+      "id": "doubao_custom",
+      "display_name": "Doubao / Volcano Engine",
+      "provider": "openai_compatible",
+      "base_url_placeholder": "https://ark.cn-beijing.volces.com/api/v3",
+      "model_placeholder": "replace-with-model-name",
+      "tags": ["low_latency", "china_region"]
+    },
+    {
+      "id": "qwen_custom",
+      "display_name": "Qwen / DashScope",
+      "provider": "openai_compatible",
+      "base_url_placeholder": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model_placeholder": "replace-with-model-name",
+      "tags": ["backup", "math_reasoning"]
+    }
+  ]
+}

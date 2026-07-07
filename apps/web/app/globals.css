@@ -1,0 +1,490 @@
+:root {
+  color-scheme: light;
+  --bg: #f5f7f7;
+  --ink: #172026;
+  --muted: #62727b;
+  --line: #dce4e4;
+  --panel: #ffffff;
+  --accent: #0f8b8d;
+  --accent-strong: #0b6f71;
+  --accent-soft: #e0f4f2;
+  --warn: #b84d32;
+  --student: #17324d;
+  --assistant: #f0f5f3;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Arial, "Microsoft YaHei", sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  min-height: 76px;
+  padding: 14px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  background: #ffffff;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 280px;
+}
+
+.brandMark {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  background: var(--accent);
+  border-radius: 8px;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+h2 {
+  font-size: 16px;
+}
+
+.brand p,
+.chatHeader p,
+.dialogHeader p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.modelStrip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+select,
+input,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 10px 11px;
+  outline: none;
+}
+
+select:focus,
+input:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.workspace {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(430px, 1fr) minmax(230px, 290px);
+  gap: 1px;
+  background: var(--line);
+  min-height: 0;
+}
+
+.inputPanel,
+.chatPanel,
+.debugPanel {
+  background: var(--panel);
+  min-height: calc(100vh - 76px);
+}
+
+.inputPanel,
+.debugPanel {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panelHeader,
+.chatHeader,
+.dialogHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panelHeader span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+label {
+  display: grid;
+  gap: 7px;
+  color: #26343b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+textarea {
+  min-height: 92px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.problemBox {
+  min-height: 180px;
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.segmented button {
+  border: 0;
+  background: #ffffff;
+  padding: 9px;
+  color: var(--muted);
+}
+
+.segmented .active {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.primaryButton,
+.secondaryButton,
+.iconButton {
+  border: 0;
+  border-radius: 8px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.primaryButton {
+  background: var(--accent);
+  color: #ffffff;
+  padding: 0 16px;
+  font-weight: 700;
+}
+
+.primaryButton:hover {
+  background: var(--accent-strong);
+}
+
+.secondaryButton {
+  background: #edf2f2;
+  color: #203039;
+  padding: 0 14px;
+}
+
+.iconButton {
+  width: 40px;
+  background: #edf2f2;
+  color: #203039;
+}
+
+.startButton {
+  width: 100%;
+}
+
+.emptyHint,
+.dialogStatus,
+.checkpointHint {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.chatPanel {
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  min-width: 0;
+}
+
+.chatHeader {
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.thinkingBadge {
+  align-self: center;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 7px 11px;
+  white-space: nowrap;
+}
+
+.messages {
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.welcome {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.6;
+}
+
+.message {
+  width: fit-content;
+  max-width: min(720px, 86%);
+  border-radius: 8px;
+  padding: 12px 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.message.student {
+  align-self: flex-end;
+  background: var(--student);
+  color: #ffffff;
+}
+
+.message.assistant {
+  align-self: flex-start;
+  background: var(--assistant);
+  color: var(--ink);
+}
+
+.message.system {
+  align-self: center;
+  background: #f7f1df;
+  color: #6f5617;
+  font-size: 13px;
+}
+
+.composer {
+  padding: 14px;
+  display: grid;
+  grid-template-columns: 1fr 44px;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.sendButton {
+  width: 44px;
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.errorBox {
+  margin: 0 14px 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff0ed;
+  color: var(--warn);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.debugPanel dl {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+}
+
+.debugPanel dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.debugPanel dd {
+  margin: 0 0 8px;
+  word-break: break-word;
+  line-height: 1.4;
+  font-size: 13px;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 30, 35, 0.42);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  z-index: 20;
+}
+
+.modelDialog,
+.checkpointDialog {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(20, 30, 35, 0.22);
+}
+
+.modelDialog {
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.checkpointDialog {
+  padding: 22px;
+}
+
+.checkpointKicker {
+  color: var(--accent-strong);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.checkpointDialog h2 {
+  font-size: 19px;
+  line-height: 1.45;
+  margin-bottom: 16px;
+}
+
+.optionList {
+  display: grid;
+  gap: 10px;
+}
+
+.optionButton {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+
+.optionButton:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.optionButton span {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #edf2f2;
+  color: var(--accent-strong);
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.checkpointHint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 1040px) {
+  .workspace {
+    grid-template-columns: 330px 1fr;
+  }
+
+  .debugPanel {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .topbar,
+  .modelStrip {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .inputPanel,
+  .chatPanel {
+    min-height: auto;
+  }
+}

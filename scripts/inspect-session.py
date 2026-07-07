@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DB_PATH = ROOT / "data" / "app.db"
+
+
+def print_json(title: str, rows: list[sqlite3.Row]) -> None:
+    print(f"\n===== {title} =====")
+    if not rows:
+        print("(empty)")
+        return
+    for idx, row in enumerate(rows, start=1):
+        print(f"\n--- {title} #{idx} ---")
+        print(json.dumps(dict(row), ensure_ascii=False, indent=2))
+
+
+def short(text: str, limit: int = 260) -> str:
+    text = text.replace("\r\n", "\n").strip()
+    return text if len(text) <= limit else text[:limit] + "..."
+
+
+def timeline(conn: sqlite3.Connection, session_id: str) -> None:
+    print("\n===== TIMELINE =====")
+    message_rows = conn.execute(
+        """
+        SELECT created_at AS ts, role AS kind, content AS body, metadata_json AS extra
+        FROM messages
+        WHERE session_id = ?
+        ORDER BY created_at
+        """,
+        (session_id,),
+    ).fetchall()
+    checkpoint_rows = conn.execute(
+        """
+        SELECT created_at AS ts, 'checkpoint_created' AS kind, question AS body,
+               json_object(
+                 'id', id,
+                 'correct_option_id', correct_option_id,
+                 'selected_option_id', selected_option_id,
+                 'is_correct', is_correct,
+                 'answered_at', answered_at
+               ) AS extra
+        FROM checkpoints
+        WHERE session_id = ?
+        ORDER BY created_at
+        """,
+        (session_id,),
+    ).fetchall()
+    rows = sorted([*message_rows, *checkpoint_rows], key=lambda row: row["ts"])
+    if not rows:
+        print("(empty)")
+        return
+    for row in rows:
+        print(f"\n[{row['ts']}] {row['kind']}")
+        print(short(row["body"], 600))
+        if row["extra"] and row["extra"] != "{}":
+            print("extra:", short(row["extra"], 600))
+
+
+def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8")
+    session_id = sys.argv[1] if len(sys.argv) > 1 else None
+    if not DB_PATH.exists():
+        print(f"DB not found: {DB_PATH}")
+        return 1
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+
+    if not session_id:
+        rows = conn.execute(
+            """
+            SELECT id, phase, model_profile_id, substr(problem_text, 1, 80) AS problem_preview,
+                   created_at, updated_at
+            FROM sessions
+            ORDER BY created_at DESC
+            LIMIT 10
+            """
+        ).fetchall()
+        print_json("LATEST SESSIONS", rows)
+        print("\nUsage:")
+        print("  python scripts/inspect-session.py <session_id>")
+        return 0
+
+    sessions = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchall()
+    print_json("SESSION", sessions)
+    timeline(conn, session_id)
+    messages = conn.execute(
+        """
+        SELECT id, role, content, metadata_json, created_at
+        FROM messages
+        WHERE session_id = ?
+        ORDER BY created_at
+        """,
+        (session_id,),
+    ).fetchall()
+    print_json("MESSAGES RAW", messages)
+    checkpoints = conn.execute(
+        """
+        SELECT id, question, options_json, correct_option_id, selected_option_id,
+               is_correct, elapsed_ms, created_at, answered_at
+        FROM checkpoints
+        WHERE session_id = ?
+        ORDER BY created_at
+        """,
+        (session_id,),
+    ).fetchall()
+    print_json("CHECKPOINTS RAW", checkpoints)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
