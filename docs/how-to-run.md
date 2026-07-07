@@ -78,13 +78,35 @@ scripts\inspect-session.cmd sess_c4052d2538a6
 你重点看三张表：
 
 1. `sessions`：当前阶段、题目、模型。
-2. `messages`：学生消息、AI 回复、检查点选择记录。
+2. `messages`：学生消息、AI 回复（注意：检查点答题从 v0.3 起走 `student` 角色，不再用 `student_checkpoint`）。
 3. `checkpoints`：每个检查点的问题、选项、正确答案、学生选择。
 
-如果某个检查点后只有 `student_checkpoint`，没有新的 `assistant`，说明“检查点答案已经提交成功，但下一轮 AI 回复没有成功写入”。这通常是模型请求/网络卡住，或 `/api/chat/stream` 没有完成。
+## 看全量诊断日志（推荐）
+
+SQLite 只存业务态和净化后的可见 message，看不到 LLM 原始返回、完整 prompt、是否走 fallback。看卡点推荐看 JSONL：
+
+```txt
+logs/sessions/<session_id>.jsonl
+```
+
+每行一个事件，包含完整 prompt、LLM 原始 raw、parsed_turn（含完整 checkpoint 正误标签）、耗时、parse_ok、used_fallback、error 等。详见 `docs/context-management.md`。
+
+如果你想直接看 JSONL 整理成可读时间线，可以用 Python 读它：
+
+```bat
+C:\Users\robbinpanda\miniconda3\envs\ai4edu-tutor\python.exe -c "import json,pathlib; [print(json.dumps(json.loads(l),ensure_ascii=False,indent=2)) for l in pathlib.Path('logs/sessions/sess_xxxxxxxxxxxx.jsonl').read_text(encoding='utf-8').splitlines()]"
+```
 
 ## 为什么之前会闪退
 
 之前的 `start-dev.cmd` 是后台启动脚本，双击后主窗口会立刻结束，所以看起来像闪退。现在已经改成双击友好模式，会打开两个可见服务窗口。
 
 `run-api.cmd` 和 `run-web.cmd` 是单独启动某一个服务用的脚本。现在如果服务启动失败，窗口也会停住并显示错误。
+
+## 看卡点为什么有时"没反应"
+
+历史上最常见的"没反应"三类，都已在 v0.3 修复。详见 `docs/changelog.md`：
+
+1. 答完检查点 AI 没反应 → v0.2 之前选择没进 AI 上下文
+2. 本地 demo 反复弹同一检查点 → local_demo 死循环
+3. 思考很久后没字 → 非流式整体超时返回空 content，被静默吞掉

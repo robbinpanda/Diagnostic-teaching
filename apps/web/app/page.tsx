@@ -65,7 +65,11 @@ export default function Home() {
     setMessages((current) => [...current, { id: crypto.randomUUID(), role, text }]);
   }
 
-  async function runStream(nextSessionId: string, message?: string) {
+  async function runStream(
+    nextSessionId: string,
+    message?: string,
+    checkpointAnswer?: { checkpoint_id: string; selected_option_id: string; is_correct: boolean; event: string }
+  ) {
     setStreamBusy(true);
     setError("");
     let assistantId = "";
@@ -73,7 +77,7 @@ export default function Home() {
     let receivedCheckpoint = false;
     let receivedError = false;
     try {
-      await streamChat({ session_id: nextSessionId, message }, (event) => {
+      await streamChat({ session_id: nextSessionId, message, checkpoint_answer: checkpointAnswer }, (event) => {
         if (event.event === "decision") {
           const data = event.data as { phase?: string; action?: string; breakpoint?: string };
           setPhase(data.phase ?? "-");
@@ -155,16 +159,25 @@ export default function Home() {
     if (!checkpoint || !sessionId) return;
     const elapsed = checkpointStartedAt ? Date.now() - checkpointStartedAt : 0;
     const selected = [...checkpoint.options, checkpoint.unknown_option].find((option) => option.id === optionId);
+    const optionLabel = selected ? `${selected.id} ${selected.text}` : optionId;
+    // 这一句会作为学生最新发言进入 AI 上下文，避免"答完检查点没反应"
+    const aiFacing = `我在检查点「${checkpoint.question}」选了：${optionLabel}`;
     setCheckpoint(null);
-    appendMessage("student", `检查点选择：${selected?.text ?? optionId}`);
+    setCheckpointStartedAt(null);
+    appendMessage("student", aiFacing);
     try {
-      await answerCheckpoint({
+      const answer = await answerCheckpoint({
         checkpointId: checkpoint.id,
         session_id: sessionId,
         selected_option_id: optionId,
         elapsed_ms: elapsed
       });
-      await runStream(sessionId);
+      await runStream(sessionId, aiFacing, {
+        checkpoint_id: checkpoint.id,
+        selected_option_id: optionId,
+        is_correct: answer.is_correct,
+        event: answer.event
+      });
     } catch (error) {
       setError(error instanceof Error ? error.message : "提交检查点失败");
     }

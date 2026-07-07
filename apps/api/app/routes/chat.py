@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import asyncio
 import json
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.core.schemas import ChatStreamRequest
-from app.core.teaching_controller import generate_tutor_turn
+from app.core.teaching_controller import generate_tutor_turn_stream
 from app.llm.provider import LlmProfile
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -39,12 +38,32 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
         raise HTTPException(status_code=404, detail="会话或模型不存在") from exc
 
     if payload.message and payload.message.strip():
-        request.app.state.sessions.add_message(payload.session_id, "student", payload.message.strip())
+        request.app.state.sessions.add_message(
+            payload.session_id,
+            "student",
+            payload.message.strip(),
+            {"checkpoint_answer": payload.checkpoint_answer} if payload.checkpoint_answer else None,
+        )
 
     async def event_stream():
         try:
             history = request.app.state.sessions.list_messages(payload.session_id)
-            turn = await generate_tutor_turn(profile_from_row(request, profile_row), session, history)
+            gen = generate_tutor_turn_stream(
+                profile_from_row(request, profile_row),
+                session,
+                history,
+                logger=getattr(request.app.state, "session_logger", None),
+            )
+            turn = None
+            async for kind, value in gen:
+                if kind == "message_delta":
+                    # 真打字机：LLM 一边生成一边把 message 字段的可见字符透传给前端
+                    yield sse("message_delta", {"text": value})
+                elif kind == "turn":
+                    turn = value
+            if turn is None:
+                yield sse("error", {"message": "本轮未拿到任何 teaching turn"})
+                return
             request.app.state.sessions.update_phase(
                 payload.session_id,
                 turn.phase,
@@ -60,9 +79,6 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                     "confidence": turn.breakpoint_confidence,
                 },
             )
-            for idx in range(0, len(turn.message), 18):
-                yield sse("message_delta", {"text": turn.message[idx : idx + 18]})
-                await asyncio.sleep(0)
             request.app.state.sessions.add_message(
                 payload.session_id,
                 "assistant",

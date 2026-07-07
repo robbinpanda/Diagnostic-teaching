@@ -12,6 +12,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+# TS build info（增量编译产物）
+*.tsbuildinfo
+
 data/
 logs/
 .agents/

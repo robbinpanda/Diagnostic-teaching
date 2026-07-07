@@ -8,19 +8,23 @@ from app.routes import chat, checkpoints, model_profiles, sessions
 from app.storage.database import Database
 from app.storage.repositories import ModelProfileRepository, SessionRepository
 from app.storage.security import SecretBox
+from app.storage.session_logger import SessionLogger
 
 
 def create_app() -> FastAPI:
     settings = load_settings()
     settings.log_path.parent.mkdir(parents=True, exist_ok=True)
+    settings.session_log_dir.mkdir(parents=True, exist_ok=True)
     db = Database(settings.database_path)
     secrets = SecretBox(settings.secret_path)
+    session_logger = SessionLogger(settings.session_log_dir)
 
     app = FastAPI(title="Diagnostic Math Tutor API", version="0.2.0")
     app.state.settings = settings
     app.state.db = db
     app.state.model_profiles = ModelProfileRepository(db, secrets)
     app.state.sessions = SessionRepository(db)
+    app.state.session_logger = session_logger
 
     app.add_middleware(
         CORSMiddleware,

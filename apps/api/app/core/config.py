@@ -15,6 +15,7 @@ class Settings:
     database_path: Path
     secret_path: Path
     log_path: Path
+    session_log_dir: Path
     show_debug_panel: bool
 
 
@@ -37,10 +38,14 @@ def load_settings() -> Settings:
     log_path = Path(os.getenv("LOG_PATH", root / "logs" / "events.jsonl"))
     if not log_path.is_absolute():
         log_path = root / log_path
+    session_log_dir = Path(os.getenv("SESSION_LOG_DIR", root / "logs" / "sessions"))
+    if not session_log_dir.is_absolute():
+        session_log_dir = root / session_log_dir
     return Settings(
         root=root,
         database_path=database_path,
         secret_path=secret_path,
         log_path=log_path,
+        session_log_dir=session_log_dir,
         show_debug_panel=os.getenv("SHOW_DEBUG_PANEL", "true").lower() == "true",
     )

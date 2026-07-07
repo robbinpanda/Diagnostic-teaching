@@ -29,29 +29,38 @@ def answer_checkpoint(
 
     options = json.loads(row["options_json"])["options"]
     selected = next((option for option in options if option["id"] == payload.selected_option_id), None)
+    selected_text = selected["text"] if selected else payload.selected_option_id
+    misconception = selected.get("misconception") if selected else None
     if payload.selected_option_id == "UNKNOWN":
         event = "CHECKPOINT_UNKNOWN"
-        content = f"我选择了：我不知道。检查点：{row['question']}"
         next_phase = "recovering"
     elif is_correct:
         event = "CHECKPOINT_CORRECT"
-        content = f"我选择了正确答案：{selected['text'] if selected else payload.selected_option_id}"
         next_phase = "scaffolding"
     else:
         event = "CHECKPOINT_WRONG"
-        content = f"我选择了：{selected['text'] if selected else payload.selected_option_id}。这个选择可能对应的误区：{selected.get('misconception') if selected else '未知'}"
         next_phase = "recovering"
 
-    request.app.state.sessions.add_message(
-        payload.session_id,
-        "student_checkpoint",
-        content,
-        {
-            "checkpoint_id": checkpoint_id,
-            "selected_option_id": payload.selected_option_id,
-            "is_correct": is_correct,
-            "event": event,
-        },
-    )
+    # 注意：这里不再向 messages 表写入 student_checkpoint 角色的消息。
+    # 学生的选择会由前端通过 /api/chat/stream 的 message 字段以普通 student
+    # 消息进入 AI 上下文，避免历史里出现语义模糊的非标准角色。
+    # checkpoints 表本身已记录 selected_option_id / is_correct / elapsed_ms
+    # 作为权威答题数据，此处只更新阶段，并写一条结构化诊断日志。
     request.app.state.sessions.update_phase(payload.session_id, next_phase, None, None)
+
+    logger = getattr(request.app.state, "session_logger", None)
+    if logger is not None:
+        logger.log_checkpoint_answer(
+            session_id=payload.session_id,
+            checkpoint_id=checkpoint_id,
+            question=row["question"],
+            selected_option_id=payload.selected_option_id,
+            selected_text=selected_text,
+            is_correct=bool(is_correct),
+            misconception=misconception,
+            elapsed_ms=payload.elapsed_ms,
+            event=event,
+            next_phase=next_phase,
+        )
+
     return CheckpointAnswerResponse(is_correct=is_correct, event=event, next_phase=next_phase)

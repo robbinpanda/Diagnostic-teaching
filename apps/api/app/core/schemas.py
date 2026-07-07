@@ -78,6 +78,8 @@ class SessionCreateResponse(BaseModel):
 class ChatStreamRequest(BaseModel):
     session_id: str
     message: str | None = None
+    # 当本轮 student 消息其实是检查点答题时附带，用于落库 metadata 与 AI 上下文标记，role 仍记为 student
+    checkpoint_answer: dict[str, Any] | None = None
 
 
 class CheckpointAnswerRequest(BaseModel):

@@ -106,7 +106,16 @@ export async function answerCheckpoint(input: {
 }
 
 export async function streamChat(
-  input: { session_id: string; message?: string },
+  input: {
+    session_id: string;
+    message?: string;
+    checkpoint_answer?: {
+      checkpoint_id: string;
+      selected_option_id: string;
+      is_correct: boolean;
+      event: string;
+    } | null;
+  },
   onEvent: (event: SseEvent) => void
 ) {
   const response = await fetch(`${API_BASE}/api/chat/stream`, {

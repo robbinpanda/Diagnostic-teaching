@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from sqlite3 import Row
+from typing import Any, AsyncIterator
 
 from pydantic import ValidationError
 
 from app.core.schemas import TutorCheckpoint, TutorTurn
-from app.llm.provider import LlmProfile, chat_completion
+from app.core.streaming import MessageStreamExtractor
+from app.llm.provider import LlmProfile, LlmProviderError, chat_completion, chat_stream_completion
+from app.storage.session_logger import SessionLogger
 
 
 SYSTEM_PROMPT = """你是一个面向中国初高中学生的诊断式数学答疑老师。
@@ -20,6 +24,7 @@ SYSTEM_PROMPT = """你是一个面向中国初高中学生的诊断式数学答�
 4. 学生选“我不知道”不是失败，要降低难度或讲原理。
 5. 输出必须是 JSON，不能包裹 markdown。
 6. message 必须是非空中文，必须能直接展示给学生，不能写 JSON 说明文字。
+7. 不要在内部做冗长的思考过程，直接产出最终 JSON；宁可简洁也不要长时间不出字。
 """
 
 
@@ -161,22 +166,157 @@ def validate_checkpoint(checkpoint: TutorCheckpoint) -> None:
         raise ValueError("checkpoint question is too meta")
 
 
-async def generate_tutor_turn(profile: LlmProfile, session: Row, history: list[Row]) -> TutorTurn:
-    raw = await chat_completion(profile, build_messages(session, history), max_tokens=max(profile.max_output_tokens, 2000))
+async def generate_tutor_turn(
+    profile: LlmProfile,
+    session: Row,
+    history: list[Row],
+    *,
+    logger: SessionLogger | None = None,
+) -> TutorTurn:
+    messages = build_messages(session, history)
+    started = time.perf_counter()
+    raw = ""
+    used_fallback = False
+    parse_ok = True
+    error: str | None = None
+    turn: TutorTurn | None = None
     try:
-        payload = extract_json_object(raw)
-        turn = TutorTurn.model_validate(payload)
-    except (json.JSONDecodeError, ValidationError, ValueError):
-        return recover_tutor_turn_from_raw(raw)
-    turn.message = sanitize_visible_message(turn.message)
-    if not turn.message:
-        return recover_tutor_turn_from_raw(raw)
-    if turn.checkpoint:
+        raw = await chat_completion(profile, messages, max_tokens=max(profile.max_output_tokens, 2000))
         try:
-            validate_checkpoint(turn.checkpoint)
-        except ValueError:
-            turn.debug["checkpoint_removed"] = True
-            turn.checkpoint = None
-            if turn.action == "SHOW_CHECKPOINT_MC":
-                turn.action = "EXPLAIN_LOCAL"
-    return turn
+            payload = extract_json_object(raw)
+            turn = TutorTurn.model_validate(payload)
+        except (json.JSONDecodeError, ValidationError, ValueError):
+            used_fallback = True
+            parse_ok = False
+            turn = recover_tutor_turn_from_raw(raw)
+        else:
+            turn.message = sanitize_visible_message(turn.message)
+            if not turn.message:
+                used_fallback = True
+                parse_ok = False
+                turn = recover_tutor_turn_from_raw(raw)
+        if turn.checkpoint:
+            try:
+                validate_checkpoint(turn.checkpoint)
+            except ValueError:
+                turn.debug["checkpoint_removed"] = True
+                turn.checkpoint = None
+                if turn.action == "SHOW_CHECKPOINT_MC":
+                    turn.action = "EXPLAIN_LOCAL"
+        return turn
+    except Exception as exc:
+        # 不吞 LLM/网络错误：交给 chat 路由的 try/except 转成 SSE error 事件
+        error = str(exc)
+        raise
+    finally:
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        if logger is not None:
+            parsed_dump: dict[str, Any] | None = None
+            try:
+                parsed_dump = turn.model_dump() if turn is not None else None
+                # 完整保留 checkpoint 的 is_correct/misconception 标签，不裁剪
+            except Exception:
+                parsed_dump = None
+            logger.log_tutor_turn(
+                session_id=session["id"],
+                model_profile_id=profile.id,
+                model=profile.model,
+                messages=messages,
+                raw_response=raw,
+                parsed_turn=parsed_dump,
+                latency_ms=latency_ms,
+                parse_ok=parse_ok,
+                used_fallback=used_fallback,
+                error=error,
+            )
+
+
+async def generate_tutor_turn_stream(
+    profile: LlmProfile,
+    session: Row,
+    history: list[Row],
+    *,
+    logger: SessionLogger | None = None,
+) -> AsyncIterator:
+    """流式答疑生成器：边从 LLM 收增量边 yield message 可见字符，最后 yield 完整 TutorTurn。
+
+    yield 顺序：
+        ("message_delta", "一段可见文本")   多次
+        ("turn", TutorTurn)                 最后一次
+
+    可见文本来自 LLM 原始 JSON 中 `"message":"..."` 字段的实时解码字符，
+    checkpoint / phase / action 等仍等整段 raw 完整后用 extract_json_object 解析，
+    保证结构化字段不被增量解析的边界问题污染。LLM 空响应会抛 LlmProviderError，
+    由 chat 路由转成 SSE error 事件，而不是静默断流。
+    """
+    messages = build_messages(session, history)
+    started = time.perf_counter()
+    extractor = MessageStreamExtractor()
+    raw_parts: list[str] = []
+    finish_reason: str | None = None
+    used_fallback = False
+    parse_ok = True
+    error: str | None = None
+    turn_final: TutorTurn | None = None
+
+    try:
+        async for event in chat_stream_completion(profile, messages, max_tokens=max(profile.max_output_tokens, 2000)):
+            delta = event.get("delta") or ""
+            if delta:
+                raw_parts.append(delta)
+                inc = extractor.feed(delta)
+                if inc:
+                    yield ("message_delta", inc)
+            if event.get("finish_reason"):
+                finish_reason = event["finish_reason"]
+        raw = "".join(raw_parts)
+        # 关键：raw 完整后再做 sanitize + checkpoint 解析，保证结构化字段准确
+        message_so_far = extractor.visible_so_far()
+        try:
+            payload = extract_json_object(raw)
+            turn_final = TutorTurn.model_validate(payload)
+            turn_final.message = sanitize_visible_message(turn_final.message or message_so_far)
+            if not turn_final.message:
+                used_fallback = True
+                parse_ok = False
+                turn_final = recover_tutor_turn_from_raw(raw)
+        except (json.JSONDecodeError, ValidationError, ValueError):
+            used_fallback = True
+            parse_ok = False
+            turn_final = recover_tutor_turn_from_raw(raw)
+        if turn_final.checkpoint:
+            try:
+                validate_checkpoint(turn_final.checkpoint)
+            except ValueError:
+                turn_final.debug["checkpoint_removed"] = True
+                turn_final.checkpoint = None
+                if turn_final.action == "SHOW_CHECKPOINT_MC":
+                    turn_final.action = "EXPLAIN_LOCAL"
+        yield ("turn", turn_final)
+        return
+    except Exception as exc:
+        error = str(exc)
+        # 不吞错误：交给 chat 路由的 try/except 转成 SSE error 事件。
+        # 但如果已经在中途 yield 过 message，前端已能看到部分讲解；
+        # 这里仍然把异常 raise 出去，保证主流程按"出错"处理。
+        raise
+    finally:
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        if logger is not None:
+            parsed_dump: dict[str, Any] | None = None
+            try:
+                parsed_dump = turn_final.model_dump() if turn_final is not None else None
+            except Exception:
+                parsed_dump = None
+            logger.log_tutor_turn(
+                session_id=session["id"],
+                model_profile_id=profile.id,
+                model=profile.model,
+                messages=messages,
+                raw_response="".join(raw_parts),
+                parsed_turn=parsed_dump,
+                latency_ms=latency_ms,
+                parse_ok=parse_ok,
+                used_fallback=used_fallback,
+                error=error,
+            )
