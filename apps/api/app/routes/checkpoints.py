@@ -33,20 +33,20 @@ def answer_checkpoint(
     misconception = selected.get("misconception") if selected else None
     if payload.selected_option_id == "UNKNOWN":
         event = "CHECKPOINT_UNKNOWN"
-        next_phase = "recovering"
+        next_state_hint = "recovering"
     elif is_correct:
         event = "CHECKPOINT_CORRECT"
-        next_phase = "scaffolding"
+        next_state_hint = "scaffolding"
     else:
         event = "CHECKPOINT_WRONG"
-        next_phase = "recovering"
+        next_state_hint = "recovering"
 
     # 注意：这里不再向 messages 表写入 student_checkpoint 角色的消息。
     # 学生的选择会由前端通过 /api/chat/stream 的 message 字段以普通 student
     # 消息进入 AI 上下文，避免历史里出现语义模糊的非标准角色。
     # checkpoints 表本身已记录 selected_option_id / is_correct / elapsed_ms
     # 作为权威答题数据，此处只更新阶段，并写一条结构化诊断日志。
-    request.app.state.sessions.update_phase(payload.session_id, next_phase, None, None)
+    request.app.state.sessions.update_phase(payload.session_id, next_state_hint, None, None)
 
     logger = getattr(request.app.state, "session_logger", None)
     if logger is not None:
@@ -60,7 +60,7 @@ def answer_checkpoint(
             misconception=misconception,
             elapsed_ms=payload.elapsed_ms,
             event=event,
-            next_phase=next_phase,
+            next_state_hint=next_state_hint,
         )
 
-    return CheckpointAnswerResponse(is_correct=is_correct, event=event, next_phase=next_phase)
+    return CheckpointAnswerResponse(is_correct=is_correct, event=event, next_state_hint=next_state_hint)

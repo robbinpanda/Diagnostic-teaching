@@ -182,26 +182,44 @@ def local_demo_response(messages: list[dict[str, str]]) -> str:
         (m["content"] for m in reversed(messages) if m["role"] == "user"),
         "",
     )
+    history_match = re.search(r"历史对话：\n(?P<history>.*?)(?:\n\n请决定下一步教学动作。|\Z)", last_user, re.DOTALL)
+    history_text = history_match.group("history") if history_match else last_user
     # 学生刚回答检查点的标志是 prompt 末尾出现"选了：..."字样（前端 handleCheckpoint 把
     # "我在检查点「...」选了：X 文本"作为 student 消息送进来）。注意历史里可能也含"我不知道"
     # 这类词（如学生初始思路），所以只取最后一次"选了：..."之后的内容判断，避免误判。
     answer_match = None
-    for m in re.finditer(r"选了：\s*([^\n]+)", last_user):
+    for m in re.finditer(r"选了：\s*([^\n]+)", history_text):
         answer_match = m.group(1)
-    if "选了：" in last_user and answer_match is not None:
+    if "选了：" in history_text and answer_match is not None:
         answer = answer_match.strip()
+        already_explained = "平方项 (x-3)^2 当 x=3 时为 0" in joined or "要拿到最大值，应该让平方项取到 0" in joined
         if answer.startswith("UNKNOWN") or "我不知道" in answer:
-            message = "没关系，我们从原理开始：平方项永远不小于 0，所以当它前面带负号时，平方项越大，整体反而越小。要拿到最大值，应该让平方项取到 0。再想想这道题里 x 取多少时 (x-3)^2 会等于 0？"
-            phase = "recovering"
+            state_hint = "recovering"
+            if already_explained:
+                action = "ASK_OPEN_QUESTION"
+                message = "你先试着说说：这道题里 x 取多少时 $(x-3)^2$ 会等于 0？"
+            else:
+                action = "EXPLAIN_PRINCIPLE"
+                message = "没关系，我们从原理开始：平方项永远不小于 0，所以当它前面带负号时，平方项越大，整体反而越小。要拿到最大值，应该让平方项取到 0。"
         elif answer.startswith("A") or "尽量小" in answer or "为 0" in answer:
-            message = "对了。平方项 (x-3)^2 当 x=3 时为 0，这时整体 -2(x-3)^2+5 取到最大值 5。可以继续：如果题目改成求最小值呢？"
-            phase = "scaffolding"
+            state_hint = "scaffolding"
+            if already_explained:
+                action = "ASK_OPEN_QUESTION"
+                message = "如果题目改成求最小值，你觉得还能直接用“平方项取 0”吗？先说说你的判断。"
+            else:
+                action = "EXPLAIN_LOCAL"
+                message = "对了。平方项 $(x-3)^2$ 当 $x=3$ 时为 0，这时整体 $-2(x-3)^2+5$ 取到最大值 5。"
         else:
-            message = "这里有个误区：平方项本身不会小于 0，但前面有负号，所以平方项越大整体越小，最大值出现在平方项最小（为 0）的时候。我们先把这一点钉死，再往下走。"
-            phase = "recovering"
+            state_hint = "recovering"
+            if already_explained:
+                action = "ASK_OPEN_QUESTION"
+                message = "你先用自己的话判断一下：平方项前面有负号时，要让整体最大，平方项应该大还是小？"
+            else:
+                action = "EXPLAIN_LOCAL"
+                message = "这里有个误区：平方项本身不会小于 0，但前面有负号，所以平方项越大整体越小，最大值出现在平方项最小（为 0）的时候。"
         payload = {
-            "phase": phase,
-            "action": "EXPLAIN_LOCAL",
+            "state_hint": state_hint,
+            "action": action,
             "message": message,
             "breakpoint_description": "已根据检查点选择推进",
             "breakpoint_confidence": 0.8,
@@ -223,7 +241,7 @@ def local_demo_response(messages: list[dict[str, str]]) -> str:
         "difficulty": "easy",
     }
     payload = {
-        "phase": "checking",
+        "state_hint": "checking",
         "action": "SHOW_CHECKPOINT_MC",
         "message": "我先不从头讲完整题，先抓你现在最可能卡住的一点：带负号的平方项会怎样影响最大值。",
         "breakpoint_description": "不确定平方项和负系数怎样共同影响函数最大值",

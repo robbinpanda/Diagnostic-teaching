@@ -64,6 +64,8 @@ def test_local_demo_chat_stream_emits_checkpoint(tmp_path: Path):
     events = _parse_sse_events(body)
     decision = next(d for e, d in events if e == "decision")
     assert decision["message"].strip()
+    assert "state_hint" in decision
+    assert decision["wait_for_student"] is True
 
 
 def test_checkpoint_answer_drives_followup_instead_of_loop(tmp_path: Path):
@@ -100,6 +102,9 @@ def test_checkpoint_answer_drives_followup_instead_of_loop(tmp_path: Path):
     second_events = _parse_sse_events(second.text)
     second_checkpoint = next((d for e, d in second_events if e == "checkpoint_ready"), None)
     assert second_checkpoint is None, "答完检查点后不应再次弹同一检查点（修复死循环）"
+    decisions = [d for e, d in second_events if e == "decision"]
+    assert decisions
+    assert any(d["action"] == "ASK_OPEN_QUESTION" for d in decisions)
     deltas = [d for e, d in second_events if e == "message_delta"]
     visible = "".join(d.get("text", "") for d in deltas)
     assert visible.strip(), "第二轮应输出可见讲解而非空内容"
@@ -115,7 +120,7 @@ def test_answer_unknown_triggers_recovery_phase(tmp_path: Path):
         json={"session_id": session_id, "selected_option_id": "UNKNOWN", "elapsed_ms": 500},
     )
     assert answer.json()["event"] == "CHECKPOINT_UNKNOWN"
-    assert answer.json()["next_phase"] == "recovering"
+    assert answer.json()["next_state_hint"] == "recovering"
 
 
 def test_student_message_no_longer_uses_student_checkpoint_role(tmp_path: Path):

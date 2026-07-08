@@ -81,7 +81,7 @@ def test_local_demo_stream_emits_deltas_then_finish():
 
     deltas, finish = asyncio.run(run())
     assert deltas.strip() != ""
-    assert "phase" in deltas  # local_demo 输出的 JSON
+    assert "state_hint" in deltas  # local_demo 输出的 JSON
     assert finish == "stop"
 
 

@@ -31,8 +31,9 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [checkpoint, setCheckpoint] = useState<Checkpoint | null>(null);
   const [checkpointStartedAt, setCheckpointStartedAt] = useState<number | null>(null);
-  const [phase, setPhase] = useState("未开始");
+  const [stateHint, setStateHint] = useState("未开始");
   const [action, setAction] = useState("-");
+  const [waitForStudent, setWaitForStudent] = useState(false);
   const [breakpointText, setBreakpointText] = useState("-");
   const [startBusy, setStartBusy] = useState(false);
   const [streamBusy, setStreamBusy] = useState(false);
@@ -110,9 +111,10 @@ export default function Home() {
     try {
       await streamChat({ session_id: nextSessionId, message, checkpoint_answer: checkpointAnswer }, (event) => {
         if (event.event === "decision") {
-          const data = event.data as { phase?: string; action?: string; message?: string; breakpoint?: string };
-          setPhase(data.phase ?? "-");
+          const data = event.data as { state_hint?: string; action?: string; wait_for_student?: boolean; message?: string; breakpoint?: string };
+          setStateHint(data.state_hint ?? "-");
           setAction(data.action ?? "-");
+          setWaitForStudent(Boolean(data.wait_for_student));
           setBreakpointText(data.breakpoint ?? "-");
           reconcileAssistantMessage(data.message);
         }
@@ -128,6 +130,10 @@ export default function Home() {
         if (event.event === "error") {
           receivedError = true;
           setError((event.data as { message: string }).message);
+        }
+        if (event.event === "message_done") {
+          assistantId = "";
+          assistantText = "";
         }
       });
       if (!receivedVisibleText && !receivedCheckpoint && !receivedError) {
@@ -161,7 +167,7 @@ export default function Home() {
         student_initial_thought: initialThought
       });
       setSessionId(session.session_id);
-      setPhase(session.phase);
+      setStateHint(session.state_hint);
       appendMessage("system", `已创建答疑会话，使用模型：${selectedProfile?.display_name ?? selectedProfileId}`);
       setStartBusy(false);
       await runStream(session.session_id);
@@ -325,10 +331,12 @@ export default function Home() {
           <dl>
             <dt>Session</dt>
             <dd>{sessionId || "-"}</dd>
-            <dt>Phase</dt>
-            <dd>{phase}</dd>
+            <dt>State Hint</dt>
+            <dd>{stateHint}</dd>
             <dt>Action</dt>
             <dd>{action}</dd>
+            <dt>Wait</dt>
+            <dd>{waitForStudent ? "yes" : "no"}</dd>
             <dt>Breakpoint</dt>
             <dd>{breakpointText}</dd>
             <dt>Model</dt>

@@ -83,7 +83,7 @@ class SessionLogger:
         misconception: str | None,
         elapsed_ms: int,
         event: str,
-        next_phase: str,
+        next_state_hint: str,
     ) -> None:
         self._append(
             session_id,
@@ -97,7 +97,7 @@ class SessionLogger:
                 "misconception": misconception,
                 "elapsed_ms": elapsed_ms,
                 "checkpoint_event": event,
-                "next_phase": next_phase,
+                "next_state_hint": next_state_hint,
             },
         )
 

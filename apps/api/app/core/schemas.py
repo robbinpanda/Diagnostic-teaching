@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl
 
 
 Provider = Literal["openai", "openai_compatible", "local_demo"]
@@ -71,7 +71,7 @@ class SessionCreate(BaseModel):
 
 class SessionCreateResponse(BaseModel):
     session_id: str
-    phase: str
+    state_hint: str
     model_profile_id: str
 
 
@@ -91,7 +91,7 @@ class CheckpointAnswerRequest(BaseModel):
 class CheckpointAnswerResponse(BaseModel):
     is_correct: bool
     event: Literal["CHECKPOINT_CORRECT", "CHECKPOINT_WRONG", "CHECKPOINT_UNKNOWN"]
-    next_phase: str
+    next_state_hint: str
 
 
 class TutorCheckpointOption(BaseModel):
@@ -111,10 +111,17 @@ class TutorCheckpoint(BaseModel):
 
 
 class TutorTurn(BaseModel):
-    phase: str = "diagnosing"
+    model_config = ConfigDict(populate_by_name=True)
+
+    state_hint: str = Field(default="diagnosing", validation_alias=AliasChoices("state_hint", "phase"))
     action: str = "ASK_OPEN_QUESTION"
     message: str
     breakpoint_description: str | None = None
     breakpoint_confidence: float | None = None
     checkpoint: TutorCheckpoint | None = None
+    wait_for_student: bool = False
     debug: dict[str, Any] = {}
+
+    @property
+    def phase(self) -> str:
+        return self.state_hint

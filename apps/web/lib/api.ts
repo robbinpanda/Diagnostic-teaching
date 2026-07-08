@@ -24,10 +24,10 @@ export type Checkpoint = {
 };
 
 export type SseEvent =
-  | { event: "decision"; data: { phase?: string; action?: string; message?: string; breakpoint?: string; confidence?: number } }
-  | { event: "message_delta"; data: { text: string } }
+  | { event: "decision"; data: { state_hint?: string; action?: string; wait_for_student?: boolean; message?: string; breakpoint?: string; confidence?: number; action_index?: number } }
+  | { event: "message_delta"; data: { text: string; action_index?: number } }
   | { event: "checkpoint_ready"; data: Checkpoint }
-  | { event: "message_done"; data: { ok: boolean } }
+  | { event: "message_done"; data: { ok: boolean; action_index?: number; wait_for_student?: boolean; will_continue?: boolean } }
   | { event: "error"; data: { message: string } }
   | { event: string; data: Record<string, unknown> };
 
@@ -83,7 +83,7 @@ export async function createSession(input: {
     body: JSON.stringify(input)
   });
   if (!response.ok) throw new Error(await response.text());
-  return response.json() as Promise<{ session_id: string; phase: string; model_profile_id: string }>;
+  return response.json() as Promise<{ session_id: string; state_hint: string; model_profile_id: string }>;
 }
 
 export async function answerCheckpoint(input: {

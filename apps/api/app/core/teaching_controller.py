@@ -14,13 +14,19 @@ from app.llm.provider import LlmProfile, LlmProviderError, chat_completion, chat
 from app.storage.session_logger import SessionLogger
 
 
+BLOCKING_ACTIONS = {"ASK_OPEN_QUESTION", "SHOW_CHECKPOINT_MC"}
+NONBLOCKING_ACTIONS = {"DECOMPOSE_STEP", "EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE", "RESPOND_TO_CHECKPOINT"}
+TERMINAL_ACTIONS = {"SUMMARIZE"}
+VALID_ACTIONS = BLOCKING_ACTIONS | NONBLOCKING_ACTIONS | TERMINAL_ACTIONS
+
+
 SYSTEM_PROMPT = """你是一个面向中国初高中学生的诊断式数学答疑老师。
 你的目标不是从头完整讲题，而是先判断学生卡在哪里，再从断点附近推进。
 
 强规则：
-1. 如果需要检测学生是否跟上，生成和题目强相关的选择题检查点，不要问“你懂了吗”。
+1. 每一轮只输出一个教学原子动作。讲解类动作只讲一个关键点，不要同时承担检查职责。
 2. 检查点必须有 3 个选项，且恰好 1 个正确、2 个错误；错误选项要对应常见误区。
-3. 单次讲解只讲一个关键点，避免长篇标准答案。
+3. 如果要等待学生，只能选择 ASK_OPEN_QUESTION 或 SHOW_CHECKPOINT_MC；SHOW_CHECKPOINT_MC 必须带 checkpoint。
 4. 学生选“我不知道”不是失败，要降低难度或讲原理。
 5. 输出必须是 JSON，不能包裹 markdown。
 6. message 必须是非空中文，必须能直接展示给学生，不能写 JSON 说明文字。
@@ -30,7 +36,7 @@ SYSTEM_PROMPT = """你是一个面向中国初高中学生的诊断式数学答�
 
 JSON_CONTRACT = """返回 JSON 格式：
 {
-  "phase": "diagnosing|scaffolding|explaining|checking|recovering|summarizing",
+  "state_hint": "diagnosing|scaffolding|explaining|checking|recovering|summarizing",
   "action": "ASK_OPEN_QUESTION|SHOW_CHECKPOINT_MC|DECOMPOSE_STEP|EXPLAIN_LOCAL|EXPLAIN_PRINCIPLE|RESPOND_TO_CHECKPOINT|SUMMARIZE",
   "message": "给学生看的中文内容",
   "breakpoint_description": "当前卡点，可为 null",
@@ -49,22 +55,42 @@ JSON_CONTRACT = """返回 JSON 格式：
   },
   "debug": {}
 }
+
+说明：
+- state_hint 只是教学状态提示，不是流程控制器。
+- action 是本轮唯一教学动作。
+- 不要输出 wait_for_student；后端会根据 action 强制填充。
+- 只有 ASK_OPEN_QUESTION 和 SHOW_CHECKPOINT_MC 会等待学生。
+- DECOMPOSE_STEP / EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / RESPOND_TO_CHECKPOINT 是非阻塞动作，后端会继续调用下一轮。
 """
 
 
-def build_messages(session: Row, history: list[Row]) -> list[dict[str, str]]:
+def build_messages(
+    session: Row,
+    history: list[Row],
+    *,
+    nonblocking_streak: int = 0,
+    force_blocking: bool = False,
+) -> list[dict[str, str]]:
     history_text = "\n".join(render_history_row(row) for row in history)
+    loop_instruction = (
+        "本轮已经连续执行了 3 个非阻塞教学动作；你必须选择 ASK_OPEN_QUESTION 或 SHOW_CHECKPOINT_MC，"
+        "让学生回答后再继续。若选择 SHOW_CHECKPOINT_MC，必须提供合法 checkpoint。"
+        if force_blocking
+        else f"当前连续非阻塞动作数：{nonblocking_streak}/3。若还只是在讲解，可以选择非阻塞动作；若需要学生参与，请选择 ASK_OPEN_QUESTION 或 SHOW_CHECKPOINT_MC。"
+    )
     user_prompt = f"""题目：
 {session['problem_text']}
 
 学生初始思路：
 {session['student_initial_thought'] or '学生还没有提供明确思路'}
 
-当前阶段：{session['phase']}
+当前状态提示：{session['phase']}
 历史对话：
 {history_text or '暂无'}
 
-请决定下一步教学动作。记住：如果讲解已经涉及关键跳步，优先生成一个选择题检查点。
+请决定下一步教学动作。
+{loop_instruction}
 {JSON_CONTRACT}
 """
     return [
@@ -76,7 +102,9 @@ def build_messages(session: Row, history: list[Row]) -> list[dict[str, str]]:
 def render_history_row(row: Row) -> str:
     role = row["role"]
     content = row["content"]
-    if role == "assistant" and ('```json' in content[:30] or '"phase"' in content[:200]):
+    if role == "assistant" and (
+        '```json' in content[:30] or '"phase"' in content[:200] or '"state_hint"' in content[:200]
+    ):
         content = recover_tutor_turn_from_raw(content).message
     return f"{role}: {content}"
 
@@ -138,7 +166,7 @@ def repair_unescaped_string_field(text: str, field: str) -> str:
 
     value_start = key_match.end()
     next_field = re.search(
-        r'"\s*,\s*"(?:phase|action|message|breakpoint_description|breakpoint_confidence|checkpoint|debug)"\s*:',
+        r'"\s*,\s*"(?:state_hint|phase|action|message|breakpoint_description|breakpoint_confidence|checkpoint|wait_for_student|debug)"\s*:',
         text[value_start:],
         re.DOTALL,
     )
@@ -174,7 +202,7 @@ def _json_string_field_lenient(text: str, field: str) -> str | None:
         return None
     value_start = key_match.end()
     next_field = re.search(
-        r'"\s*,\s*"(?:phase|action|message|breakpoint_description|breakpoint_confidence|checkpoint|debug)"\s*:',
+        r'"\s*,\s*"(?:state_hint|phase|action|message|breakpoint_description|breakpoint_confidence|checkpoint|wait_for_student|debug)"\s*:',
         text[value_start:],
         re.DOTALL,
     )
@@ -214,7 +242,7 @@ def recover_tutor_turn_from_raw(raw: str) -> TutorTurn:
     if message:
         message = sanitize_visible_message(message)
     else:
-        looks_like_json = text.lstrip().startswith("{") or '"phase"' in text or '"action"' in text
+        looks_like_json = text.lstrip().startswith("{") or '"phase"' in text or '"state_hint"' in text or '"action"' in text
         message = "" if looks_like_json else sanitize_visible_message(text[:800])
 
     if not message:
@@ -223,8 +251,8 @@ def recover_tutor_turn_from_raw(raw: str) -> TutorTurn:
     action = _json_string_field(text, "action") or "EXPLAIN_LOCAL"
     if action == "SHOW_CHECKPOINT_MC":
         action = "EXPLAIN_LOCAL"
-    return TutorTurn(
-        phase=_json_string_field(text, "phase") or "explaining",
+    turn = TutorTurn(
+        state_hint=_json_string_field(text, "state_hint") or _json_string_field(text, "phase") or "explaining",
         action=action,
         message=message,
         breakpoint_description=_json_string_field(text, "breakpoint_description"),
@@ -232,6 +260,8 @@ def recover_tutor_turn_from_raw(raw: str) -> TutorTurn:
         checkpoint=None,
         debug={"parse_fallback": True},
     )
+    apply_backend_action_policy(turn)
+    return turn
 
 
 def validate_checkpoint(checkpoint: TutorCheckpoint) -> None:
@@ -248,14 +278,46 @@ def validate_checkpoint(checkpoint: TutorCheckpoint) -> None:
         raise ValueError("checkpoint question is too meta")
 
 
+def apply_backend_action_policy(turn: TutorTurn, *, force_blocking: bool = False) -> None:
+    original_action = turn.action
+    if turn.action not in VALID_ACTIONS:
+        turn.debug["invalid_action"] = turn.action
+        turn.action = "EXPLAIN_LOCAL"
+
+    if turn.checkpoint and turn.action != "SHOW_CHECKPOINT_MC":
+        turn.debug["action_corrected_for_checkpoint"] = turn.action
+        turn.action = "SHOW_CHECKPOINT_MC"
+
+    if turn.action == "SHOW_CHECKPOINT_MC" and not turn.checkpoint:
+        turn.debug["checkpoint_missing_for_show_action"] = True
+        turn.action = "EXPLAIN_LOCAL"
+
+    if force_blocking and turn.action in NONBLOCKING_ACTIONS:
+        turn.debug["forced_blocking_after_action"] = turn.action
+        turn.action = "ASK_OPEN_QUESTION"
+        if not re.search(r"[？?]\s*$", turn.message):
+            turn.message = turn.message.rstrip("。！？!?") + "。你先说说：这一步你觉得下一步应该做什么？"
+
+    turn.wait_for_student = turn.action in BLOCKING_ACTIONS
+    if turn.action == "SHOW_CHECKPOINT_MC" and not turn.checkpoint:
+        turn.wait_for_student = False
+    if turn.action in TERMINAL_ACTIONS:
+        turn.wait_for_student = False
+
+    if original_action != turn.action:
+        turn.debug.setdefault("backend_action_policy", True)
+
+
 async def generate_tutor_turn(
     profile: LlmProfile,
     session: Row,
     history: list[Row],
     *,
     logger: SessionLogger | None = None,
+    nonblocking_streak: int = 0,
+    force_blocking: bool = False,
 ) -> TutorTurn:
-    messages = build_messages(session, history)
+    messages = build_messages(session, history, nonblocking_streak=nonblocking_streak, force_blocking=force_blocking)
     started = time.perf_counter()
     raw = ""
     used_fallback = False
@@ -285,6 +347,7 @@ async def generate_tutor_turn(
                 turn.checkpoint = None
                 if turn.action == "SHOW_CHECKPOINT_MC":
                     turn.action = "EXPLAIN_LOCAL"
+        apply_backend_action_policy(turn, force_blocking=force_blocking)
         return turn
     except Exception as exc:
         # 不吞 LLM/网络错误：交给 chat 路由的 try/except 转成 SSE error 事件
@@ -319,6 +382,8 @@ async def generate_tutor_turn_stream(
     history: list[Row],
     *,
     logger: SessionLogger | None = None,
+    nonblocking_streak: int = 0,
+    force_blocking: bool = False,
 ) -> AsyncIterator:
     """流式答疑生成器：边从 LLM 收增量边 yield message 可见字符，最后 yield 完整 TutorTurn。
 
@@ -331,7 +396,7 @@ async def generate_tutor_turn_stream(
     保证结构化字段不被增量解析的边界问题污染。LLM 空响应会抛 LlmProviderError，
     由 chat 路由转成 SSE error 事件，而不是静默断流。
     """
-    messages = build_messages(session, history)
+    messages = build_messages(session, history, nonblocking_streak=nonblocking_streak, force_blocking=force_blocking)
     started = time.perf_counter()
     extractor = MessageStreamExtractor()
     raw_parts: list[str] = []
@@ -376,6 +441,7 @@ async def generate_tutor_turn_stream(
                 turn_final.checkpoint = None
                 if turn_final.action == "SHOW_CHECKPOINT_MC":
                     turn_final.action = "EXPLAIN_LOCAL"
+        apply_backend_action_policy(turn_final, force_blocking=force_blocking)
         emitted_message = "".join(emitted_message_parts)
         if turn_final.message:
             if not emitted_message:

@@ -7,8 +7,9 @@ from app.storage.session_logger import SessionLogger
 def test_tutor_turn_logs_raw_and_full_checkpoint(tmp_path: Path):
     logger = SessionLogger(tmp_path)
     checkpoint_turn = {
-        "phase": "checking",
+        "state_hint": "checking",
         "action": "SHOW_CHECKPOINT_MC",
+        "wait_for_student": True,
         "message": "抓一个点",
         "checkpoint": {
             "type": "checkpoint_mc",
@@ -62,7 +63,7 @@ def test_checkpoint_answer_event_recorded(tmp_path: Path):
         misconception=None,
         elapsed_ms=800,
         event="CHECKPOINT_CORRECT",
-        next_phase="scaffolding",
+        next_state_hint="scaffolding",
     )
     events = logger.read("sess_xyz")
     assert len(events) == 1
@@ -71,7 +72,7 @@ def test_checkpoint_answer_event_recorded(tmp_path: Path):
     assert ev["checkpoint_id"] == "chk_1"
     assert ev["selected_option_id"] == "A"
     assert ev["is_correct"] is True
-    assert ev["next_phase"] == "scaffolding"
+    assert ev["next_state_hint"] == "scaffolding"
     assert ev["checkpoint_event"] == "CHECKPOINT_CORRECT"
 
 

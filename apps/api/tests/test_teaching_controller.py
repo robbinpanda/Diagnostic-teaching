@@ -4,7 +4,12 @@ import pytest
 
 from app.core.schemas import TutorCheckpoint, TutorCheckpointOption
 from app.core import teaching_controller as teaching
-from app.core.teaching_controller import extract_json_object, recover_tutor_turn_from_raw, validate_checkpoint
+from app.core.teaching_controller import (
+    apply_backend_action_policy,
+    extract_json_object,
+    recover_tutor_turn_from_raw,
+    validate_checkpoint,
+)
 from app.llm.provider import LlmProfile
 
 
@@ -36,6 +41,47 @@ def test_checkpoint_rejects_meta_question():
 
     with pytest.raises(ValueError):
         validate_checkpoint(checkpoint)
+
+
+def test_backend_policy_derives_wait_for_blocking_actions():
+    turn = teaching.TutorTurn(state_hint="scaffolding", action="ASK_OPEN_QUESTION", message="下一步你想怎么做？")
+
+    apply_backend_action_policy(turn)
+
+    assert turn.wait_for_student is True
+
+
+def test_backend_policy_corrects_checkpoint_action():
+    checkpoint = TutorCheckpoint(
+        question="平方项最小是多少？",
+        tested_point="平方项非负",
+        options=[
+            TutorCheckpointOption(id="A", text="0", is_correct=True),
+            TutorCheckpointOption(id="B", text="1", is_correct=False, misconception="误以为最小是 1"),
+            TutorCheckpointOption(id="C", text="-1", is_correct=False, misconception="误以为平方可为负"),
+        ],
+    )
+    turn = teaching.TutorTurn(
+        state_hint="checking",
+        action="EXPLAIN_LOCAL",
+        message="测一下这个点。",
+        checkpoint=checkpoint,
+    )
+
+    apply_backend_action_policy(turn)
+
+    assert turn.action == "SHOW_CHECKPOINT_MC"
+    assert turn.wait_for_student is True
+
+
+def test_backend_policy_forces_blocking_after_nonblocking_streak():
+    turn = teaching.TutorTurn(state_hint="explaining", action="EXPLAIN_LOCAL", message="先看这一小步")
+
+    apply_backend_action_policy(turn, force_blocking=True)
+
+    assert turn.action == "ASK_OPEN_QUESTION"
+    assert turn.wait_for_student is True
+    assert "你先说说" in turn.message
 
 
 def test_recover_message_from_truncated_markdown_json():

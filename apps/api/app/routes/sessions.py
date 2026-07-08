@@ -16,6 +16,6 @@ def create_session(payload: SessionCreate, request: Request) -> SessionCreateRes
     session = request.app.state.sessions.create(payload)
     return SessionCreateResponse(
         session_id=session["id"],
-        phase=session["phase"],
+        state_hint=session["phase"],
         model_profile_id=session["model_profile_id"],
     )
