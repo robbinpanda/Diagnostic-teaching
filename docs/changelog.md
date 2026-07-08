@@ -2,6 +2,51 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v0.5 — 2026-07-08
+
+### KaTeX 数学公式渲染
+
+**症状**：AI 回复和检查点中出现 `$a_3$`、`\cdot`、`\frac{}` 等 LaTeX 文本时，前端按普通字符串显示，数学符号不清晰。
+
+**修复**：
+- 新增 `apps/web/components/MathText.tsx`
+- 引入 `katex` 与 `katex/dist/katex.min.css`
+- 聊天气泡、检查点题干、检查点选项统一走 `MathText`
+- 支持 `$...$`、`$$...$$`、`\(...\)`、`\[...\]`
+
+**后续注意**：
+- 如果希望模型输出更稳定，建议在 `SYSTEM_PROMPT` 或 `JSON_CONTRACT` 中明确“数学公式使用 `$...$` 包裹”。
+- 行内公式不要使用 `overflow-x: auto`，否则浏览器会给每个小公式画出迷你滚动条。
+
+### 文档重写：LLM 主导流程
+
+**目的**：方便后续优化教学策略，明确当前系统不是硬编码状态机，而是 LLM 每轮输出 `TutorTurn` 驱动流程。
+
+**更新**：
+- `docs/state-machine.md`：重写为“LLM 输出合同 + 后端守门 + 检查点回传 + SSE + 前端呈现”
+- `docs/context-management.md`：补充 prompt 拼装、SQLite/JSONL 分工、`decision.message` 兜底、KaTeX 渲染
+- `README.md`：补充当前架构和优化入口
+
+## v0.4 — 2026-07-08
+
+### 关键修复：AI 生成了 message 但前端不显示
+
+**症状**：右侧 debug 面板的 `phase/action/breakpoint` 在更新，检查点也会弹出，但聊天区没有显示 AI 说的话。
+
+**根因**：
+- 后端只依赖 `message_delta` 做前端展示；如果增量提取器没有提到完整 message，最终解析出的 `TutorTurn.message` 没有补发给前端。
+- 前端维护 assistant 气泡时依赖闭包变量，状态更新路径不够稳。
+- 某些模型输出 `message` 内部裸引号，例如 `"这道题需要把"函数零点"和..."`，会破坏 JSON 解析。
+
+**修复**：
+- `chat.py` 的 `decision` 事件新增 `message` 字段，作为最终兜底。
+- `page.tsx` 在收到 `decision.message` 时补齐当前 assistant 气泡。
+- `generate_tutor_turn_stream` 记录已发出的 message 片段，最终解析后补齐缺失后缀。
+- `teaching_controller.py` 增加对 `message` 内部裸引号的容错修复。
+- `provider.py` 对空流、超时、HTTP 异常给出明确 `LlmProviderError`，避免空白无反馈。
+
+**影响**：即使流式增量显示失败，最终 `TutorTurn.message` 仍会显示；模型空响应也会变成可见错误。
+
 ## v0.3 — 2026-07-07
 
 ### 关键修复：检查点答完"没反应"

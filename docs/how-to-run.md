@@ -105,8 +105,11 @@ C:\Users\robbinpanda\miniconda3\envs\ai4edu-tutor\python.exe -c "import json,pat
 
 ## 看卡点为什么有时"没反应"
 
-历史上最常见的"没反应"三类，都已在 v0.3 修复。详见 `docs/changelog.md`：
+先看 `logs/sessions/<session_id>.jsonl` 的最后一条 `tutor_turn`：
 
-1. 答完检查点 AI 没反应 → v0.2 之前选择没进 AI 上下文
-2. 本地 demo 反复弹同一检查点 → local_demo 死循环
-3. 思考很久后没字 → 非流式整体超时返回空 content，被静默吞掉
+1. `parsed_turn.message` 有内容，但页面没显示：看前端 SSE / `decision.message` 兜底，详见 `docs/state-machine.md`。
+2. `raw_response` 为空或 `error` 非空：多半是模型空流、超时或网络异常，前端应显示错误。
+3. `parse_ok=false`、`used_fallback=true`：模型返回了坏 JSON，后端已尝试恢复 message。
+4. 连续重复同一检查点：检查 history 里是否有 `student: 我在检查点「...」选了：...`。
+
+历史修复与根因记录见 `docs/changelog.md`。当前完整流程说明见 `docs/state-machine.md` 与 `docs/context-management.md`。
