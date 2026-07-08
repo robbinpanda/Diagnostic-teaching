@@ -24,7 +24,7 @@ export type Checkpoint = {
 };
 
 export type SseEvent =
-  | { event: "decision"; data: Record<string, unknown> }
+  | { event: "decision"; data: { phase?: string; action?: string; message?: string; breakpoint?: string; confidence?: number } }
   | { event: "message_delta"; data: { text: string } }
   | { event: "checkpoint_ready"; data: Checkpoint }
   | { event: "message_done"; data: { ok: boolean } }

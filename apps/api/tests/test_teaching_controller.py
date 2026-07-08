@@ -1,7 +1,11 @@
+import asyncio
+
 import pytest
 
 from app.core.schemas import TutorCheckpoint, TutorCheckpointOption
-from app.core.teaching_controller import recover_tutor_turn_from_raw, validate_checkpoint
+from app.core import teaching_controller as teaching
+from app.core.teaching_controller import extract_json_object, recover_tutor_turn_from_raw, validate_checkpoint
+from app.llm.provider import LlmProfile
 
 
 def test_checkpoint_requires_exactly_one_correct_option():
@@ -50,3 +54,94 @@ def test_recover_message_from_truncated_markdown_json():
     assert "还没结束" in turn.message
     assert "韦达定理" in turn.message
     assert turn.checkpoint is None
+
+
+def test_extract_json_repairs_unescaped_quotes_inside_message():
+    raw = """```json
+{
+  "phase": "diagnosing",
+  "action": "SHOW_CHECKPOINT_MC",
+  "message": "这道题需要把"二次函数零点"和"等比数列性质"结合起来。我们先确认一下等比中项关系。",
+  "breakpoint_description": "学生尚未提供思路，需先检测是否知道等比数列中项关系",
+  "breakpoint_confidence": 0.6,
+  "checkpoint": {
+    "type": "checkpoint_mc",
+    "question": "在等比数列中，a1、a3、a5 之间满足什么关系？",
+    "options": [
+      {"id": "A", "text": "a3² = a1 · a5", "is_correct": true, "misconception": null},
+      {"id": "B", "text": "a3 = (a1 + a5) / 2", "is_correct": false, "misconception": "混淆等比和等差"},
+      {"id": "C", "text": "a3 = a1 + a5", "is_correct": false, "misconception": "误以为项之间相加"}
+    ],
+    "unknown_option": {"id": "UNKNOWN", "text": "我不知道"},
+    "tested_point": "等比中项性质",
+    "difficulty": "easy"
+  },
+  "debug": {}
+}
+```"""
+
+    payload = extract_json_object(raw)
+
+    assert payload["message"] == "这道题需要把\"二次函数零点\"和\"等比数列性质\"结合起来。我们先确认一下等比中项关系。"
+    assert payload["checkpoint"]["options"][0]["is_correct"] is True
+
+
+def test_stream_backfills_message_when_incremental_extractor_stops_early(monkeypatch):
+    raw = """```json
+{
+  "phase": "diagnosing",
+  "action": "SHOW_CHECKPOINT_MC",
+  "message": "这道题需要把"二次函数零点"和"等比数列性质"结合起来。我们先确认一下等比中项关系。",
+  "breakpoint_description": "学生尚未提供思路，需先检测是否知道等比数列中项关系",
+  "breakpoint_confidence": 0.6,
+  "checkpoint": {
+    "type": "checkpoint_mc",
+    "question": "在等比数列中，a1、a3、a5 之间满足什么关系？",
+    "options": [
+      {"id": "A", "text": "a3² = a1 · a5", "is_correct": true, "misconception": null},
+      {"id": "B", "text": "a3 = (a1 + a5) / 2", "is_correct": false, "misconception": "混淆等比和等差"},
+      {"id": "C", "text": "a3 = a1 + a5", "is_correct": false, "misconception": "误以为项之间相加"}
+    ],
+    "unknown_option": {"id": "UNKNOWN", "text": "我不知道"},
+    "tested_point": "等比中项性质",
+    "difficulty": "easy"
+  },
+  "debug": {}
+}
+```"""
+
+    async def fake_chat_stream_completion(*args, **kwargs):
+        yield {"delta": raw, "finish_reason": None}
+        yield {"delta": "", "finish_reason": "stop"}
+
+    monkeypatch.setattr(teaching, "chat_stream_completion", fake_chat_stream_completion)
+    profile = LlmProfile(
+        id="prof_test",
+        provider="openai_compatible",
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="test-model",
+        timeout_ms=30000,
+        temperature=0.2,
+        max_output_tokens=1200,
+    )
+    session = {
+        "id": "sess_test",
+        "problem_text": "已知等比数列，求 a3。",
+        "student_initial_thought": "",
+        "phase": "diagnosing",
+    }
+
+    async def collect_events():
+        events = []
+        async for event in teaching.generate_tutor_turn_stream(profile, session, []):
+            events.append(event)
+        return events
+
+    events = asyncio.run(collect_events())
+    visible = "".join(value for kind, value in events if kind == "message_delta")
+    turn = next(value for kind, value in events if kind == "turn")
+
+    assert visible == turn.message
+    assert "二次函数零点" in visible
+    assert turn.checkpoint is not None

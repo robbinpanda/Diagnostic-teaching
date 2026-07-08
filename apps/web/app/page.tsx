@@ -73,27 +73,51 @@ export default function Home() {
     setStreamBusy(true);
     setError("");
     let assistantId = "";
+    let assistantText = "";
     let receivedVisibleText = false;
     let receivedCheckpoint = false;
     let receivedError = false;
+
+    function setAssistantMessage(nextText: string) {
+      if (!nextText.trim()) return;
+      receivedVisibleText = true;
+      if (!assistantId) assistantId = crypto.randomUUID();
+      assistantText = nextText;
+      const id = assistantId;
+      const textForState = nextText;
+      setMessages((current) => {
+        const exists = current.some((item) => item.id === id);
+        if (!exists) {
+          return [...current, { id, role: "assistant", text: textForState }];
+        }
+        return current.map((item) => (item.id === id ? { ...item, text: textForState } : item));
+      });
+    }
+
+    function appendAssistantDelta(text: string) {
+      if (!text) return;
+      setAssistantMessage(assistantText + text);
+    }
+
+    function reconcileAssistantMessage(finalText?: string) {
+      if (!finalText?.trim()) return;
+      if (!assistantText || finalText.startsWith(assistantText) || finalText.length >= assistantText.length) {
+        setAssistantMessage(finalText);
+      }
+    }
+
     try {
       await streamChat({ session_id: nextSessionId, message, checkpoint_answer: checkpointAnswer }, (event) => {
         if (event.event === "decision") {
-          const data = event.data as { phase?: string; action?: string; breakpoint?: string };
+          const data = event.data as { phase?: string; action?: string; message?: string; breakpoint?: string };
           setPhase(data.phase ?? "-");
           setAction(data.action ?? "-");
           setBreakpointText(data.breakpoint ?? "-");
+          reconcileAssistantMessage(data.message);
         }
         if (event.event === "message_delta") {
           const text = (event.data as { text: string }).text;
-          if (text.trim()) receivedVisibleText = true;
-          setMessages((current) => {
-            if (!assistantId) {
-              assistantId = crypto.randomUUID();
-              return [...current, { id: assistantId, role: "assistant", text }];
-            }
-            return current.map((item) => (item.id === assistantId ? { ...item, text: item.text + text } : item));
-          });
+          appendAssistantDelta(text);
         }
         if (event.event === "checkpoint_ready") {
           receivedCheckpoint = true;

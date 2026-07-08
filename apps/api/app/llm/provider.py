@@ -120,41 +120,50 @@ async def chat_stream_completion(
     connect_timeout = min(profile.timeout_ms / 1000, 10.0)
     read_timeout = max(profile.timeout_ms / 1000, 60.0)
     timeout = httpx.Timeout(connect_timeout, read=read_timeout, write=10.0, pool=10.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        async with client.stream(
-            "POST", chat_completions_url(profile.base_url), headers=headers, json=payload
-        ) as response:
-            if response.status_code >= 400:
-                body = await response.aread()
-                raise LlmProviderError(
-                    f"模型请求失败 {response.status_code}: {body.decode('utf-8', 'ignore')[:300]}"
-                )
-            finish_reason: str | None = None
-            saw_any_data = False
-            async for line in response.aiter_lines():
-                line = line.strip()
-                if not line or not line.startswith("data:"):
-                    continue
-                saw_any_data = True
-                data_str = line[len("data:") :].strip()
-                if data_str == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data_str)
-                except json.JSONDecodeError:
-                    continue
-                try:
-                    choice = chunk["choices"][0]
-                except (KeyError, IndexError, TypeError):
-                    continue
-                delta = choice.get("delta", {}).get("content") or ""
-                if delta:
-                    yield {"delta": delta, "finish_reason": None}
-                if choice.get("finish_reason"):
-                    finish_reason = choice["finish_reason"]
-            yield {"delta": "", "finish_reason": finish_reason}
-            if not saw_any_data:
-                raise LlmProviderError("模型流式响应中没有任何 data 事件，请确认 base_url/模型配置")
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST", chat_completions_url(profile.base_url), headers=headers, json=payload
+            ) as response:
+                if response.status_code >= 400:
+                    body = await response.aread()
+                    raise LlmProviderError(
+                        f"模型请求失败 {response.status_code}: {body.decode('utf-8', 'ignore')[:300]}"
+                    )
+                finish_reason: str | None = None
+                saw_any_data = False
+                saw_content = False
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line or not line.startswith("data:"):
+                        continue
+                    saw_any_data = True
+                    data_str = line[len("data:") :].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    try:
+                        choice = chunk["choices"][0]
+                    except (KeyError, IndexError, TypeError):
+                        continue
+                    delta = choice.get("delta", {}).get("content") or ""
+                    if delta:
+                        saw_content = True
+                        yield {"delta": delta, "finish_reason": None}
+                    if choice.get("finish_reason"):
+                        finish_reason = choice["finish_reason"]
+                if not saw_any_data:
+                    raise LlmProviderError("模型流式响应中没有任何 data 事件，请确认 base_url/模型配置")
+                if not saw_content:
+                    _assert_nonempty("", finish_reason)
+                yield {"delta": "", "finish_reason": finish_reason}
+    except httpx.TimeoutException as exc:
+        raise LlmProviderError("模型流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置") from exc
+    except httpx.HTTPError as exc:
+        raise LlmProviderError(f"模型请求异常：{str(exc) or exc.__class__.__name__}") from exc
 
 
 def local_demo_stream(messages: list[dict[str, str]]) -> list[dict]:

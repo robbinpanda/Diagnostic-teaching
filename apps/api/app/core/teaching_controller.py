@@ -87,7 +87,13 @@ def extract_json_object(content: str) -> dict:
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
         text = text[start : end + 1]
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        repaired = repair_unescaped_string_field(text, "message")
+        if repaired != text:
+            return json.loads(repaired)
+        raise
 
 
 def strip_code_fence(content: str) -> str:
@@ -98,15 +104,91 @@ def strip_code_fence(content: str) -> str:
     return text
 
 
-def _json_string_field(text: str, field: str) -> str | None:
-    match = re.search(rf'"{re.escape(field)}"\s*:\s*"((?:\\.|[^"\\])*)"', text, re.DOTALL)
-    if not match:
-        return None
-    raw_value = match.group(1)
+def _decode_json_string_lenient(raw_value: str) -> str:
     try:
         return json.loads(f'"{raw_value}"')
     except json.JSONDecodeError:
-        return raw_value.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
+        pass
+
+    def replace_escape(match: re.Match[str]) -> str:
+        escape = match.group(1)
+        if escape.startswith("u") and len(escape) == 5:
+            try:
+                return chr(int(escape[1:], 16))
+            except ValueError:
+                return "\\" + escape
+        return {
+            '"': '"',
+            "\\": "\\",
+            "/": "/",
+            "n": "\n",
+            "r": "\r",
+            "t": "\t",
+            "b": "\b",
+            "f": "\f",
+        }.get(escape, "\\" + escape)
+
+    return re.sub(r"\\(u[0-9a-fA-F]{4}|[\"\\/nrtbf])", replace_escape, raw_value)
+
+
+def repair_unescaped_string_field(text: str, field: str) -> str:
+    key_match = re.search(rf'("{re.escape(field)}"\s*:\s*)"', text, re.DOTALL)
+    if not key_match:
+        return text
+
+    value_start = key_match.end()
+    next_field = re.search(
+        r'"\s*,\s*"(?:phase|action|message|breakpoint_description|breakpoint_confidence|checkpoint|debug)"\s*:',
+        text[value_start:],
+        re.DOTALL,
+    )
+    if not next_field:
+        return text
+
+    value_end_quote = value_start + next_field.start()
+    raw_value = text[value_start:value_end_quote]
+    repaired_value = json.dumps(_decode_json_string_lenient(raw_value), ensure_ascii=False)
+    return text[: key_match.start()] + key_match.group(1) + repaired_value + text[value_end_quote + 1 :]
+
+
+def _json_string_field(text: str, field: str) -> str | None:
+    match = re.search(rf'"{re.escape(field)}"\s*:\s*"((?:\\.|[^"\\])*)"', text, re.DOTALL)
+    if match:
+        after_value = text[match.end() :].lstrip()
+        if re.match(r"^[,}\]]", after_value):
+            raw_value = match.group(1)
+            try:
+                return json.loads(f'"{raw_value}"')
+            except json.JSONDecodeError:
+                return _decode_json_string_lenient(raw_value)
+
+    raw_value = _json_string_field_lenient(text, field)
+    if raw_value is None:
+        return None
+    return raw_value
+
+
+def _json_string_field_lenient(text: str, field: str) -> str | None:
+    key_match = re.search(rf'"{re.escape(field)}"\s*:\s*"', text, re.DOTALL)
+    if not key_match:
+        return None
+    value_start = key_match.end()
+    next_field = re.search(
+        r'"\s*,\s*"(?:phase|action|message|breakpoint_description|breakpoint_confidence|checkpoint|debug)"\s*:',
+        text[value_start:],
+        re.DOTALL,
+    )
+    if next_field:
+        raw_value = text[value_start : value_start + next_field.start()]
+    else:
+        match = re.search(r'((?:\\.|[^"\\])*)"', text[value_start:], re.DOTALL)
+        if not match:
+            return None
+        raw_value = match.group(1)
+    try:
+        return json.loads(f'"{raw_value}"')
+    except json.JSONDecodeError:
+        return _decode_json_string_lenient(raw_value)
 
 
 def _json_number_field(text: str, field: str) -> float | None:
@@ -253,6 +335,7 @@ async def generate_tutor_turn_stream(
     started = time.perf_counter()
     extractor = MessageStreamExtractor()
     raw_parts: list[str] = []
+    emitted_message_parts: list[str] = []
     finish_reason: str | None = None
     used_fallback = False
     parse_ok = True
@@ -266,6 +349,7 @@ async def generate_tutor_turn_stream(
                 raw_parts.append(delta)
                 inc = extractor.feed(delta)
                 if inc:
+                    emitted_message_parts.append(inc)
                     yield ("message_delta", inc)
             if event.get("finish_reason"):
                 finish_reason = event["finish_reason"]
@@ -292,6 +376,14 @@ async def generate_tutor_turn_stream(
                 turn_final.checkpoint = None
                 if turn_final.action == "SHOW_CHECKPOINT_MC":
                     turn_final.action = "EXPLAIN_LOCAL"
+        emitted_message = "".join(emitted_message_parts)
+        if turn_final.message:
+            if not emitted_message:
+                yield ("message_delta", turn_final.message)
+            elif turn_final.message.startswith(emitted_message):
+                missing_suffix = turn_final.message[len(emitted_message) :]
+                if missing_suffix:
+                    yield ("message_delta", missing_suffix)
         yield ("turn", turn_final)
         return
     except Exception as exc:

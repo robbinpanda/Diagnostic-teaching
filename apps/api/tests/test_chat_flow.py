@@ -61,6 +61,9 @@ def test_local_demo_chat_stream_emits_checkpoint(tmp_path: Path):
     assert "event: decision" in body
     assert "event: checkpoint_ready" in body
     assert "平方项" in body
+    events = _parse_sse_events(body)
+    decision = next(d for e, d in events if e == "decision")
+    assert decision["message"].strip()
 
 
 def test_checkpoint_answer_drives_followup_instead_of_loop(tmp_path: Path):

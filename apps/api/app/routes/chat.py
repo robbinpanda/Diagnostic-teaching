@@ -75,6 +75,7 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                 {
                     "phase": turn.phase,
                     "action": turn.action,
+                    "message": turn.message,
                     "breakpoint": turn.breakpoint_description,
                     "confidence": turn.breakpoint_confidence,
                 },
@@ -99,6 +100,7 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                 yield sse("checkpoint_ready", checkpoint_payload)
             yield sse("message_done", {"ok": True})
         except Exception as exc:  # pragma: no cover - surfaced to UI
-            yield sse("error", {"message": str(exc)})
+            message = str(exc).strip() or exc.__class__.__name__ or "答疑请求失败，请重试"
+            yield sse("error", {"message": message})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
