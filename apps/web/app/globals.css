@@ -317,6 +317,29 @@ textarea {
   font-size: 13px;
 }
 
+.mathText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mathInline {
+  display: inline;
+  overflow: visible;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.mathDisplay {
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 8px 0;
+}
+
+.mathDisplay .katex-display {
+  margin: 0;
+}
+
 .composer {
   padding: 14px;
   display: grid;
@@ -433,7 +456,7 @@ textarea {
   background: var(--accent-soft);
 }
 
-.optionButton span {
+.optionBadge {
   width: 28px;
   height: 28px;
   display: grid;
@@ -443,6 +466,11 @@ textarea {
   color: var(--accent-strong);
   font-weight: 700;
   flex: 0 0 auto;
+}
+
+.optionText {
+  min-width: 0;
+  line-height: 1.55;
 }
 
 .checkpointHint {

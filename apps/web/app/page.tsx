@@ -3,6 +3,7 @@
 import { Bot, Loader2, Plus, Send, Settings2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { CheckpointModal } from "../components/CheckpointModal";
+import { MathText } from "../components/MathText";
 import { ModelConfigDialog } from "../components/ModelConfigDialog";
 import {
   answerCheckpoint,
@@ -295,7 +296,7 @@ export default function Home() {
             )}
             {messages.map((message) => (
               <div key={message.id} className={`message ${message.role}`}>
-                {message.text}
+                <MathText text={message.text} />
               </div>
             ))}
           </div>

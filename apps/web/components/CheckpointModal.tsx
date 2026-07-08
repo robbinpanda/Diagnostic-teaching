@@ -2,6 +2,7 @@
 
 import { CheckCircle2, HelpCircle } from "lucide-react";
 import type { Checkpoint } from "../lib/api";
+import { MathText } from "./MathText";
 
 type Props = {
   checkpoint: Checkpoint | null;
@@ -18,12 +19,14 @@ export function CheckpointModal({ checkpoint, onChoose }: Props) {
           <HelpCircle size={18} />
           先确认一个小点
         </div>
-        <h2>{checkpoint.question}</h2>
+        <h2>
+          <MathText text={checkpoint.question} />
+        </h2>
         <div className="optionList">
           {options.map((option) => (
             <button key={option.id} className="optionButton" type="button" onClick={() => onChoose(option.id)}>
-              <span>{option.id === "UNKNOWN" ? "?" : option.id}</span>
-              {option.text}
+              <span className="optionBadge">{option.id === "UNKNOWN" ? "?" : option.id}</span>
+              <MathText className="optionText" text={option.text} />
             </button>
           ))}
         </div>
