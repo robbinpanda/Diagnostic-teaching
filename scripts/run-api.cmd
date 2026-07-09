@@ -15,9 +15,32 @@ if %errorlevel%==0 (
   pause
   exit /b 0
 )
-set "PATH=C:\Windows\System32;C:\Windows;C:\Windows\System32\WindowsPowerShell\v1.0;C:\Users\robbinpanda\miniconda3;C:\Users\robbinpanda\miniconda3\Scripts;C:\Users\robbinpanda\miniconda3\condabin;%PATH%"
+
+REM Locate conda (prefer conda.exe; fall back to common per-user install locations)
+set "CONDA_EXE="
+for /f "delims=" %%c in ('where conda 2^>nul ^| findstr /i "\.exe$"') do set "CONDA_EXE=%%c"
+if not defined CONDA_EXE if exist "%USERPROFILE%\miniconda3\Scripts\conda.exe" set "CONDA_EXE=%USERPROFILE%\miniconda3\Scripts\conda.exe"
+if not defined CONDA_EXE if exist "%USERPROFILE%\anaconda3\Scripts\conda.exe" set "CONDA_EXE=%USERPROFILE%\anaconda3\Scripts\conda.exe"
+if not defined CONDA_EXE if exist "%LOCALAPPDATA%\miniconda3\Scripts\conda.exe" set "CONDA_EXE=%LOCALAPPDATA%\miniconda3\Scripts\conda.exe"
+if not defined CONDA_EXE if exist "%LOCALAPPDATA%\anaconda3\Scripts\conda.exe" set "CONDA_EXE=%LOCALAPPDATA%\anaconda3\Scripts\conda.exe"
+if not defined CONDA_EXE (
+  echo [API] conda not found. Install Anaconda/Miniconda or add it to PATH.
+  pause
+  exit /b 1
+)
+
 cd /d "%~dp0..\apps\api"
-C:\Users\robbinpanda\miniconda3\Scripts\conda.exe run -n ai4edu-tutor uvicorn app.main:app --host 127.0.0.1 --port 8010
+REM Resolve the python interpreter of the ai4edu-tutor env and run uvicorn directly
+for /f "delims=" %%b in ('%CONDA_EXE% info --base 2^>nul') do set "CONDA_BASE=%%b"
+set "ENV_PYTHON=%CONDA_BASE%\envs\ai4edu-tutor\python.exe"
+if not exist "%ENV_PYTHON%" (
+  echo [API] conda env "ai4edu-tutor" not found at %ENV_PYTHON%.
+  echo [API] Create it with: conda create -n ai4edu-tutor python=3.11
+  echo [API] then: conda run -n ai4edu-tutor pip install -r apps/api/requirements.txt
+  pause
+  exit /b 1
+)
+"%ENV_PYTHON%" -m uvicorn app.main:app --host 127.0.0.1 --port 8010
 echo.
 echo [API] Backend stopped or failed.
 pause
