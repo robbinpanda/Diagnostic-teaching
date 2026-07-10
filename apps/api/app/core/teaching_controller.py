@@ -71,7 +71,7 @@ def build_messages(
     *,
     nonblocking_streak: int = 0,
     force_blocking: bool = False,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     history_text = "\n".join(render_history_row(row) for row in history)
     loop_instruction = (
         "本轮已经连续执行了 3 个非阻塞教学动作；你必须选择 ASK_OPEN_QUESTION 或 SHOW_CHECKPOINT_MC，"
@@ -93,9 +93,24 @@ def build_messages(
 {loop_instruction}
 {JSON_CONTRACT}
 """
+    try:
+        problem_image_data_url = session["problem_image_data_url"]
+    except (KeyError, IndexError):
+        problem_image_data_url = None
+
+    user_content: str | list[dict[str, Any]] = user_prompt
+    if problem_image_data_url:
+        user_content = [
+            {
+                "type": "text",
+                "text": f"{user_prompt}\n\n这是一道含题图的题目，请结合随本消息附带的用户原始图片判断图形关系。",
+            },
+            {"type": "image_url", "image_url": {"url": problem_image_data_url}},
+        ]
+
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_prompt},
+        {"role": "user", "content": user_content},
     ]
 
 
@@ -325,7 +340,7 @@ async def generate_tutor_turn(
     error: str | None = None
     turn: TutorTurn | None = None
     try:
-        raw = await chat_completion(profile, messages, max_tokens=max(profile.max_output_tokens, 2000))
+        raw = await chat_completion(profile, messages, max_tokens=profile.max_output_tokens)
         try:
             payload = extract_json_object(raw)
             turn = TutorTurn.model_validate(payload)
@@ -408,7 +423,7 @@ async def generate_tutor_turn_stream(
     turn_final: TutorTurn | None = None
 
     try:
-        async for event in chat_stream_completion(profile, messages, max_tokens=max(profile.max_output_tokens, 2000)):
+        async for event in chat_stream_completion(profile, messages, max_tokens=profile.max_output_tokens):
             delta = event.get("delta") or ""
             if delta:
                 raw_parts.append(delta)

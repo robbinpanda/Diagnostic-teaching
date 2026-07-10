@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
-from app.core.schemas import ModelProfileCreate, SessionCreate, TutorCheckpoint
+from app.core.schemas import ModelProfileCreate, ModelProfileUpdate, SessionCreate, TutorCheckpoint
 from app.storage.database import Database
 from app.storage.security import SecretBox, mask_api_key
 
@@ -42,8 +42,8 @@ class ModelProfileRepository:
                 INSERT INTO model_profiles (
                   id, display_name, provider, base_url, model, api_key_ciphertext,
                   api_key_mask, tags_json, enabled, timeout_ms, temperature,
-                  max_output_tokens, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+                  max_output_tokens, is_multimodal, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     profile_id,
@@ -57,6 +57,7 @@ class ModelProfileRepository:
                     payload.timeout_ms,
                     payload.temperature,
                     payload.max_output_tokens,
+                    int(payload.is_multimodal),
                     ts,
                     ts,
                 ),
@@ -86,6 +87,64 @@ class ModelProfileRepository:
     def decrypt_api_key(self, row: sqlite3.Row) -> str:
         return self.secrets.decrypt(row["api_key_ciphertext"])
 
+    def update(self, profile_id: str, payload: ModelProfileUpdate) -> sqlite3.Row:
+        changes = payload.model_dump(exclude_unset=True)
+        assignments: list[str] = []
+        values: list[object] = []
+
+        if "display_name" in changes and changes["display_name"] is not None:
+            assignments.append("display_name = ?")
+            values.append(changes["display_name"].strip())
+        if "provider" in changes and changes["provider"] is not None:
+            assignments.append("provider = ?")
+            values.append(changes["provider"])
+        if "base_url" in changes and changes["base_url"] is not None:
+            assignments.append("base_url = ?")
+            values.append(normalize_base_url(str(changes["base_url"])))
+        if "model" in changes and changes["model"] is not None:
+            assignments.append("model = ?")
+            values.append(changes["model"].strip())
+        if "tags" in changes and changes["tags"] is not None:
+            assignments.append("tags_json = ?")
+            values.append(json.dumps(changes["tags"], ensure_ascii=False))
+        if "timeout_ms" in changes and changes["timeout_ms"] is not None:
+            assignments.append("timeout_ms = ?")
+            values.append(changes["timeout_ms"])
+        if "temperature" in changes and changes["temperature"] is not None:
+            assignments.append("temperature = ?")
+            values.append(changes["temperature"])
+        if "max_output_tokens" in changes and changes["max_output_tokens"] is not None:
+            assignments.append("max_output_tokens = ?")
+            values.append(changes["max_output_tokens"])
+        if "is_multimodal" in changes and changes["is_multimodal"] is not None:
+            assignments.append("is_multimodal = ?")
+            values.append(int(changes["is_multimodal"]))
+        if "api_key" in changes and changes["api_key"]:
+            api_key = changes["api_key"].strip()
+            assignments.append("api_key_ciphertext = ?")
+            values.append(self.secrets.encrypt(api_key))
+            assignments.append("api_key_mask = ?")
+            values.append(mask_api_key(api_key))
+
+        if not assignments:
+            return self.get(profile_id)
+
+        assignments.append("updated_at = ?")
+        values.append(now_iso())
+        values.append(profile_id)
+        with self.db.connect() as conn:
+            cursor = conn.execute(
+                f"""
+                UPDATE model_profiles
+                SET {", ".join(assignments)}
+                WHERE id = ? AND deleted_at IS NULL
+                """,
+                tuple(values),
+            )
+        if cursor.rowcount == 0:
+            raise KeyError(profile_id)
+        return self.get(profile_id)
+
     def update_test_status(self, profile_id: str, status: str, latency_ms: int | None) -> None:
         with self.db.connect() as conn:
             conn.execute(
@@ -96,6 +155,20 @@ class ModelProfileRepository:
                 """,
                 (status, latency_ms, now_iso(), profile_id),
             )
+
+    def soft_delete(self, profile_id: str) -> None:
+        ts = now_iso()
+        with self.db.connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE model_profiles
+                SET enabled = 0, deleted_at = ?, updated_at = ?
+                WHERE id = ? AND deleted_at IS NULL
+                """,
+                (ts, ts, profile_id),
+            )
+        if cursor.rowcount == 0:
+            raise KeyError(profile_id)
 
 
 class SessionRepository:
@@ -110,8 +183,8 @@ class SessionRepository:
                 """
                 INSERT INTO sessions (
                   id, grade_band, subject, model_profile_id, problem_text,
-                  student_initial_thought, phase, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 'diagnosing', ?, ?)
+                  problem_image_data_url, student_initial_thought, phase, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'diagnosing', ?, ?)
                 """,
                 (
                     session_id,
@@ -119,6 +192,7 @@ class SessionRepository:
                     payload.subject,
                     payload.model_profile_id,
                     payload.problem_text.strip(),
+                    payload.problem_image_data_url,
                     payload.student_initial_thought.strip(),
                     ts,
                     ts,

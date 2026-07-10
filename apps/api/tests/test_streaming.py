@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from app.llm import provider
 from app.core.streaming import MessageStreamExtractor
 from app.llm.provider import LlmProfile, LlmProviderError, chat_stream_completion
 
@@ -90,3 +91,32 @@ def test_profile_factory_local_demo_works():
     p = _profile()
     assert p.provider == "local_demo"
     assert p.model == "local-demo"
+
+
+def test_connection_probe_uses_nihao_and_profile_token_budget(monkeypatch):
+    captured = {}
+    consumed_after_first_chunk = False
+
+    async def fake_chat_stream_completion(profile, messages, *, max_tokens=None, temperature=None):
+        nonlocal consumed_after_first_chunk
+        captured["messages"] = messages
+        captured["max_tokens"] = max_tokens
+        captured["temperature"] = temperature
+        yield {"delta": "你", "finish_reason": None}
+        consumed_after_first_chunk = True
+        yield {"delta": "好，我可以正常回复。", "finish_reason": None}
+
+    monkeypatch.setattr(provider, "chat_stream_completion", fake_chat_stream_completion)
+
+    async def run():
+        return await provider.test_connection(_profile("openai_compatible"))
+
+    ok, latency, message = asyncio.run(run())
+
+    assert ok is True
+    assert latency is not None
+    assert "连接成功" in message
+    assert captured["messages"] == [{"role": "user", "content": "你好"}]
+    assert captured["max_tokens"] == 1200
+    assert captured["temperature"] == 0
+    assert consumed_after_first_chunk is False

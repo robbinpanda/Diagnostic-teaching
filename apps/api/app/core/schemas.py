@@ -17,27 +17,48 @@ class ModelProfileCreate(BaseModel):
     tags: list[str] = []
     timeout_ms: int = Field(default=30000, ge=1000, le=120000)
     temperature: float = Field(default=0.2, ge=0, le=2)
-    max_output_tokens: int = Field(default=1200, ge=100, le=4000)
+    max_output_tokens: int = Field(default=8000, ge=100, le=64000)
+    is_multimodal: bool = False
+
+
+class ModelProfileUpdate(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=80)
+    provider: Provider | None = None
+    base_url: HttpUrl | None = None
+    api_key: str | None = Field(default=None, min_length=1)
+    model: str | None = Field(default=None, min_length=1, max_length=120)
+    tags: list[str] | None = None
+    timeout_ms: int | None = Field(default=None, ge=1000, le=120000)
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    max_output_tokens: int | None = Field(default=None, ge=100, le=64000)
+    is_multimodal: bool | None = None
 
 
 class ModelProfileTestRequest(BaseModel):
+    profile_id: str | None = None
     provider: Provider = "openai_compatible"
     base_url: HttpUrl
-    api_key: str = Field(min_length=1)
+    api_key: str | None = Field(default=None, min_length=1)
     model: str = Field(min_length=1)
     timeout_ms: int = Field(default=15000, ge=1000, le=60000)
+    max_output_tokens: int = Field(default=8000, ge=100, le=64000)
 
 
 class ModelProfilePublic(BaseModel):
     id: str
     display_name: str
     provider: Provider
+    base_url: str
     base_url_host: str
     model: str
     tags: list[str]
     status: str
     key_state: Literal["saved"]
     masked_api_key: str
+    timeout_ms: int
+    temperature: float
+    max_output_tokens: int
+    is_multimodal: bool
     last_test_status: str | None = None
     last_test_latency_ms: int | None = None
 
@@ -61,12 +82,31 @@ class ModelProfileTestResponse(BaseModel):
     message: str
 
 
+class ProblemImageAnalyzeRequest(BaseModel):
+    model_profile_id: str
+    image_base64: str = Field(min_length=1)
+    content_type: str = "image/png"
+    filename: str | None = None
+
+
+class ProblemImageAnalyzeResponse(BaseModel):
+    problem_text: str
+    student_work_summary: str = ""
+    answer_text: str = ""
+    correctness: Literal["correct", "incorrect", "unknown", "not_present"] = "unknown"
+    mistake_summary: str = ""
+    needs_diagram: bool = False
+    diagram_image_data_url: str | None = None
+    diagram_note: str | None = None
+
+
 class SessionCreate(BaseModel):
     grade_band: Literal["junior", "senior"]
     subject: Literal["math"] = "math"
     model_profile_id: str
     problem_text: str = Field(min_length=1)
     student_initial_thought: str = ""
+    problem_image_data_url: str | None = Field(default=None, max_length=17_000_000)
 
 
 class SessionCreateResponse(BaseModel):

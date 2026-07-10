@@ -34,7 +34,8 @@ class Database:
                   last_test_latency_ms INTEGER,
                   timeout_ms INTEGER NOT NULL DEFAULT 30000,
                   temperature REAL NOT NULL DEFAULT 0.2,
-                  max_output_tokens INTEGER NOT NULL DEFAULT 1200,
+                  max_output_tokens INTEGER NOT NULL DEFAULT 8000,
+                  is_multimodal INTEGER NOT NULL DEFAULT 0,
                   created_at TEXT NOT NULL,
                   updated_at TEXT NOT NULL
                 );
@@ -45,6 +46,7 @@ class Database:
                   subject TEXT NOT NULL,
                   model_profile_id TEXT NOT NULL,
                   problem_text TEXT NOT NULL,
+                  problem_image_data_url TEXT,
                   student_initial_thought TEXT NOT NULL DEFAULT '',
                   phase TEXT NOT NULL,
                   breakpoint_description TEXT,
@@ -77,3 +79,39 @@ class Database:
                 );
                 """
             )
+            added_multimodal_column = self._ensure_column(
+                conn,
+                "model_profiles",
+                "is_multimodal",
+                "INTEGER NOT NULL DEFAULT 0",
+            )
+            if added_multimodal_column:
+                conn.execute(
+                    """
+                    UPDATE model_profiles
+                    SET max_output_tokens = 8000
+                    WHERE max_output_tokens = 1200
+                    """
+                )
+            self._ensure_column(
+                conn,
+                "sessions",
+                "problem_image_data_url",
+                "TEXT",
+            )
+
+    def _ensure_column(
+        self,
+        conn: sqlite3.Connection,
+        table_name: str,
+        column_name: str,
+        definition: str,
+    ) -> bool:
+        columns = {
+            row["name"]
+            for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        }
+        if column_name not in columns:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+            return True
+        return False
