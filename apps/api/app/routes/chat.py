@@ -38,6 +38,8 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
         profile_row = request.app.state.model_profiles.get(session["model_profile_id"])
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="会话或模型不存在") from exc
+    if session["problem_image_data_url"] and not profile_row["is_multimodal"]:
+        raise HTTPException(status_code=400, detail="该会话包含题图，必须使用支持图片识别的多模态模型")
 
     if payload.message and payload.message.strip():
         request.app.state.sessions.add_message(

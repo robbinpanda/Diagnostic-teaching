@@ -1,15 +1,20 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8010";
 
 export type ModelProfile = {
   id: string;
   display_name: string;
   provider: "openai" | "openai_compatible" | "local_demo";
+  base_url: string;
   base_url_host: string;
   model: string;
   tags: string[];
   status: string;
   key_state: "saved";
   masked_api_key: string;
+  timeout_ms: number;
+  temperature: number;
+  max_output_tokens: number;
+  is_multimodal: boolean;
   last_test_status?: string | null;
   last_test_latency_ms?: number | null;
 };
@@ -45,6 +50,10 @@ export async function createModelProfile(input: {
   api_key: string;
   model: string;
   tags: string[];
+  timeout_ms: number;
+  temperature: number;
+  max_output_tokens: number;
+  is_multimodal: boolean;
 }) {
   const response = await fetch(`${API_BASE}/api/model-profiles`, {
     method: "POST",
@@ -55,11 +64,37 @@ export async function createModelProfile(input: {
   return response.json();
 }
 
+export async function updateModelProfile(
+  profileId: string,
+  input: {
+    display_name: string;
+    provider: "openai" | "openai_compatible" | "local_demo";
+    base_url: string;
+    api_key?: string;
+    model: string;
+    tags: string[];
+    timeout_ms: number;
+    temperature: number;
+    max_output_tokens: number;
+    is_multimodal: boolean;
+  }
+) {
+  const response = await fetch(`${API_BASE}/api/model-profiles/${profileId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json() as Promise<ModelProfile>;
+}
+
 export async function testModelProfile(input: {
+  profile_id?: string;
   provider: "openai" | "openai_compatible" | "local_demo";
   base_url: string;
-  api_key: string;
+  api_key?: string;
   model: string;
+  max_output_tokens: number;
 }) {
   const response = await fetch(`${API_BASE}/api/model-profiles/test`, {
     method: "POST",
@@ -70,12 +105,44 @@ export async function testModelProfile(input: {
   return response.json() as Promise<{ ok: boolean; latency_ms: number | null; message: string }>;
 }
 
+export async function analyzeProblemImage(input: {
+  model_profile_id: string;
+  image_base64: string;
+  content_type: string;
+  filename?: string;
+}) {
+  const response = await fetch(`${API_BASE}/api/problem-images/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json() as Promise<{
+    problem_text: string;
+    student_work_summary: string;
+    answer_text: string;
+    correctness: "correct" | "incorrect" | "unknown" | "not_present";
+    mistake_summary: string;
+    needs_diagram: boolean;
+    diagram_image_data_url?: string | null;
+    diagram_note?: string | null;
+  }>;
+}
+
+export async function deleteModelProfile(profileId: string) {
+  const response = await fetch(`${API_BASE}/api/model-profiles/${profileId}`, {
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await response.text());
+}
+
 export async function createSession(input: {
   grade_band: "junior" | "senior";
   subject: "math";
   model_profile_id: string;
   problem_text: string;
   student_initial_thought: string;
+  problem_image_data_url?: string | null;
 }) {
   const response = await fetch(`${API_BASE}/api/sessions`, {
     method: "POST",

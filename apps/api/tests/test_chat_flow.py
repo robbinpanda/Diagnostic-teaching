@@ -159,3 +159,53 @@ def test_streamed_message_arrives_as_multiple_small_deltas(tmp_path: Path):
     joined = "".join(d.get("text", "") for d in deltas)
     assert joined.strip()
     assert "平方项" in joined or "我先不从头讲完整题" in joined
+
+
+def test_session_with_problem_image_requires_multimodal_tutoring_model(tmp_path: Path):
+    app = create_app()
+    db = Database(tmp_path / "app.db")
+    app.state.db = db
+    app.state.model_profiles = ModelProfileRepository(db, SecretBox(tmp_path / "secret.key"))
+    app.state.sessions = SessionRepository(db)
+    client = TestClient(app)
+
+    text_profile = app.state.model_profiles.create(
+        ModelProfileCreate(
+            display_name="Text Model",
+            provider="openai_compatible",
+            base_url="https://example.com/v1",
+            api_key="text-key",
+            model="text-model",
+            is_multimodal=False,
+        )
+    )
+    session_payload = {
+        "grade_band": "junior",
+        "subject": "math",
+        "model_profile_id": text_profile["id"],
+        "problem_text": "根据图形求角 A。",
+        "student_initial_thought": "",
+        "problem_image_data_url": "data:image/png;base64,aW1hZ2U=",
+    }
+
+    rejected = client.post("/api/sessions", json=session_payload)
+
+    assert rejected.status_code == 400
+    assert "多模态" in rejected.json()["detail"]
+
+    vision_profile = app.state.model_profiles.create(
+        ModelProfileCreate(
+            display_name="Vision Model",
+            provider="openai_compatible",
+            base_url="https://example.com/v1",
+            api_key="vision-key",
+            model="vision-model",
+            is_multimodal=True,
+        )
+    )
+    session_payload["model_profile_id"] = vision_profile["id"]
+    created = client.post("/api/sessions", json=session_payload)
+
+    assert created.status_code == 200
+    session = app.state.sessions.get(created.json()["session_id"])
+    assert session["problem_image_data_url"] == session_payload["problem_image_data_url"]

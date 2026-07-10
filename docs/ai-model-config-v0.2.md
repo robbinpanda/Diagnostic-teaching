@@ -136,6 +136,8 @@ POST /api/model-profiles/test
 }
 ```
 
+`latency_ms` 记录从发起请求到收到第一个非空可见文本 chunk 的首字延迟（TTFT），不等待完整回复结束。
+
 测试连接应使用极短 prompt，避免明显成本。
 
 ### 5.3 新增模型配置
@@ -156,7 +158,8 @@ POST /api/model-profiles
   "tags": ["国内低延迟"],
   "timeout_ms": 30000,
   "temperature": 0.2,
-  "max_output_tokens": 1200
+  "max_output_tokens": 8000,
+  "is_multimodal": false
 }
 ```
 
@@ -187,7 +190,8 @@ PATCH /api/model-profiles/{profile_id}
 6. `timeout_ms`
 7. `temperature`
 8. `max_output_tokens`
-9. `api_key`，仅在用户重新输入时替换
+9. `is_multimodal`，是否支持图片识别
+10. `api_key`，仅在用户重新输入时替换
 
 ### 5.5 删除模型配置
 
@@ -218,7 +222,8 @@ CREATE TABLE model_profiles (
   last_test_latency_ms INTEGER,
   timeout_ms INTEGER NOT NULL DEFAULT 30000,
   temperature REAL NOT NULL DEFAULT 0.2,
-  max_output_tokens INTEGER NOT NULL DEFAULT 1200,
+  max_output_tokens INTEGER NOT NULL DEFAULT 8000,
+  is_multimodal INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

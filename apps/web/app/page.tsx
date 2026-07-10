@@ -1,13 +1,15 @@
 "use client";
 
-import { Bot, Loader2, Plus, Send, Settings2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Bot, ImageUp, Loader2, Pencil, Plus, Send, Settings2, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckpointModal } from "../components/CheckpointModal";
 import { MathText } from "../components/MathText";
 import { ModelConfigDialog } from "../components/ModelConfigDialog";
 import {
   answerCheckpoint,
+  analyzeProblemImage,
   createSession,
+  deleteModelProfile,
   fetchProfiles,
   ModelProfile,
   Checkpoint,
@@ -26,6 +28,11 @@ export default function Home() {
   const [gradeBand, setGradeBand] = useState<"junior" | "senior">("junior");
   const [problemText, setProblemText] = useState("");
   const [initialThought, setInitialThought] = useState("");
+  const [visionProfileId, setVisionProfileId] = useState("");
+  const [diagramImage, setDiagramImage] = useState<string | null>(null);
+  const [diagramNote, setDiagramNote] = useState("");
+  const [originalProblemImage, setOriginalProblemImage] = useState<string | null>(null);
+  const [problemNeedsImage, setProblemNeedsImage] = useState(false);
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -37,26 +44,55 @@ export default function Home() {
   const [breakpointText, setBreakpointText] = useState("-");
   const [startBusy, setStartBusy] = useState(false);
   const [streamBusy, setStreamBusy] = useState(false);
+  const [deleteBusyId, setDeleteBusyId] = useState("");
+  const [imageBusy, setImageBusy] = useState(false);
   const [error, setError] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingProfile, setEditingProfile] = useState<ModelProfile | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId),
     [profiles, selectedProfileId]
   );
+  const multimodalProfiles = useMemo(
+    () => profiles.filter((profile) => profile.is_multimodal),
+    [profiles]
+  );
+  const selectedVisionProfile = useMemo(
+    () => multimodalProfiles.find((profile) => profile.id === visionProfileId),
+    [multimodalProfiles, visionProfileId]
+  );
+  const deleteButtonTitle = sessionId
+    ? "当前会话已绑定模型，重新开始前不删除配置"
+    : selectedProfile
+      ? `删除模型配置：${selectedProfile.display_name}`
+      : "先选择一个模型配置";
 
   useEffect(() => {
     refreshProfiles();
   }, []);
 
+  useEffect(() => {
+    if (visionProfileId && !multimodalProfiles.some((profile) => profile.id === visionProfileId)) {
+      setVisionProfileId("");
+    }
+  }, [multimodalProfiles, visionProfileId]);
+
   async function refreshProfiles(selectId?: string) {
     try {
       const nextProfiles = await fetchProfiles();
       setProfiles(nextProfiles);
-      if (selectId) {
+      const nextSelectedId = selectId ?? selectedProfileId;
+      const selectionStillExists = nextProfiles.some((profile) => profile.id === nextSelectedId);
+      if (selectId && selectionStillExists) {
         setSelectedProfileId(selectId);
-      } else if (!selectedProfileId && nextProfiles.length === 1) {
+      } else if (nextSelectedId && selectionStillExists) {
+        setSelectedProfileId(nextSelectedId);
+      } else if (nextProfiles.length === 1) {
         setSelectedProfileId(nextProfiles[0].id);
+      } else {
+        setSelectedProfileId("");
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : "模型列表加载失败");
@@ -65,6 +101,15 @@ export default function Home() {
 
   function appendMessage(role: ChatMessage["role"], text: string) {
     setMessages((current) => [...current, { id: crypto.randomUUID(), role, text }]);
+  }
+
+  function readFileAsDataUrl(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error ?? new Error("图片读取失败"));
+      reader.readAsDataURL(file);
+    });
   }
 
   async function runStream(
@@ -155,6 +200,14 @@ export default function Home() {
       setError("请先粘贴一道数学题。");
       return;
     }
+    if (problemNeedsImage && !selectedProfile?.is_multimodal) {
+      setError("这道题包含必须查看的题图，请选择一个支持图片识别的多模态模型进行答疑。");
+      return;
+    }
+    if (problemNeedsImage && !originalProblemImage) {
+      setError("题目原图已丢失，请重新上传图片。");
+      return;
+    }
     setStartBusy(true);
     setError("");
     setMessages([]);
@@ -164,7 +217,8 @@ export default function Home() {
         subject: "math",
         model_profile_id: selectedProfileId,
         problem_text: problemText,
-        student_initial_thought: initialThought
+        student_initial_thought: initialThought,
+        problem_image_data_url: problemNeedsImage ? originalProblemImage : null
       });
       setSessionId(session.session_id);
       setStateHint(session.state_hint);
@@ -175,6 +229,69 @@ export default function Home() {
       setError(error instanceof Error ? error.message : "创建会话失败");
     } finally {
       setStartBusy(false);
+    }
+  }
+
+  async function handleDeleteProfile() {
+    if (!selectedProfile) return;
+    if (sessionId) {
+      setError("当前答疑会话已绑定这个模型。请在开始新答疑前删除模型配置。");
+      return;
+    }
+    const confirmed = window.confirm(`删除模型配置“${selectedProfile.display_name}”？删除后不会再出现在新答疑选择里。`);
+    if (!confirmed) return;
+
+    setDeleteBusyId(selectedProfile.id);
+    setError("");
+    try {
+      await deleteModelProfile(selectedProfile.id);
+      await refreshProfiles();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "删除模型配置失败");
+    } finally {
+      setDeleteBusyId("");
+    }
+  }
+
+  async function handleImageFile(file?: File) {
+    if (!file) return;
+    if (!selectedVisionProfile) {
+      setError("请先选择一个已标记为多模态的模型配置，再上传图片。");
+      return;
+    }
+    setProblemText("");
+    setInitialThought("");
+    setDiagramImage(null);
+    setDiagramNote("");
+    setOriginalProblemImage(null);
+    setProblemNeedsImage(false);
+    setImageBusy(true);
+    setError("");
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const result = await analyzeProblemImage({
+        model_profile_id: selectedVisionProfile.id,
+        image_base64: dataUrl,
+        content_type: file.type || "image/png",
+        filename: file.name
+      });
+      setProblemText(result.problem_text);
+      setInitialThought(result.student_work_summary.trim());
+      setProblemNeedsImage(result.needs_diagram);
+      setOriginalProblemImage(dataUrl);
+      setDiagramImage(result.needs_diagram ? result.diagram_image_data_url ?? null : null);
+      setDiagramNote(result.diagram_note ?? "");
+      if (result.needs_diagram) {
+        setSelectedProfileId((current) => {
+          const profile = profiles.find((item) => item.id === current);
+          return profile?.is_multimodal ? current : "";
+        });
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "图片识别失败");
+    } finally {
+      setImageBusy(false);
+      if (imageInputRef.current) imageInputRef.current.value = "";
     }
   }
 
@@ -227,15 +344,46 @@ export default function Home() {
           </div>
         </div>
         <div className="modelStrip">
-          <select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)} disabled={startBusy || streamBusy}>
+          <select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)} disabled={startBusy || streamBusy || Boolean(deleteBusyId)}>
             <option value="">选择本次模型</option>
             {profiles.map((profile) => (
-              <option key={profile.id} value={profile.id}>
-                {profile.display_name} · {profile.model}
+              <option key={profile.id} value={profile.id} disabled={problemNeedsImage && !profile.is_multimodal}>
+                {profile.display_name} · {profile.model}{profile.is_multimodal ? " · 多模态" : ""}
               </option>
             ))}
           </select>
-          <button className="secondaryButton" type="button" onClick={() => setDialogOpen(true)}>
+          <button
+            className="iconButton dangerIconButton"
+            type="button"
+            onClick={handleDeleteProfile}
+            disabled={!selectedProfile || startBusy || streamBusy || Boolean(sessionId) || Boolean(deleteBusyId)}
+            title={deleteButtonTitle}
+            aria-label="删除模型配置"
+          >
+            {deleteBusyId && deleteBusyId === selectedProfileId ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
+          </button>
+          <button
+            className="iconButton"
+            type="button"
+            onClick={() => {
+              setEditingProfile(selectedProfile ?? null);
+              setDialogOpen(true);
+            }}
+            disabled={!selectedProfile || startBusy || streamBusy || Boolean(sessionId) || Boolean(deleteBusyId)}
+            title={sessionId ? "当前会话已绑定模型，重新开始前再修改配置" : "修改模型配置"}
+            aria-label="修改模型配置"
+          >
+            <Pencil size={16} />
+          </button>
+          <button
+            className="secondaryButton"
+            type="button"
+            onClick={() => {
+              setEditingProfile(null);
+              setDialogOpen(true);
+            }}
+            disabled={Boolean(deleteBusyId)}
+          >
             <Plus size={16} />
             添加模型配置
           </button>
@@ -246,7 +394,7 @@ export default function Home() {
         <aside className="inputPanel">
           <div className="panelHeader">
             <h2>题目</h2>
-            <span>文本输入</span>
+            <span>文本 / 图片输入</span>
           </div>
           <label>
             年级
@@ -265,9 +413,45 @@ export default function Home() {
               className="problemBox"
               value={problemText}
               onChange={(event) => setProblemText(event.target.value)}
-              placeholder="粘贴一道初中或高中数学题。现在先不支持图片。"
+              placeholder="粘贴一道初中或高中数学题，或用下方按钮上传题目图片自动识别。"
             />
           </label>
+          <div className="imageTools">
+            <select value={visionProfileId} onChange={(event) => setVisionProfileId(event.target.value)} disabled={imageBusy || multimodalProfiles.length === 0}>
+              <option value="">选择图片识别模型</option>
+              {multimodalProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.display_name} · {profile.model}
+                </option>
+              ))}
+            </select>
+            <input
+              ref={imageInputRef}
+              className="hiddenFileInput"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(event) => handleImageFile(event.target.files?.[0])}
+            />
+            <button
+              className="secondaryButton"
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={imageBusy || !selectedVisionProfile}
+            >
+              {imageBusy ? <Loader2 size={16} className="spin" /> : <ImageUp size={16} />}
+              上传图片
+            </button>
+          </div>
+          {multimodalProfiles.length === 0 && <p className="emptyHint">要上传图片，请先添加或修改一个“支持图片识别”的模型配置。</p>}
+          {diagramImage && (
+            <div className="diagramPreview">
+              <img src={diagramImage} alt="题目中的图" />
+              {diagramNote && <p>{diagramNote}</p>}
+            </div>
+          )}
+          {problemNeedsImage && (
+            <p className="emptyHint">已识别为含题图的题目。答疑模型必须选择“多模态”模型，答疑时会发送你上传的原图。</p>
+          )}
           <label>
             你已经想到哪一步
             <textarea
@@ -276,7 +460,18 @@ export default function Home() {
               placeholder="例：我知道要看平方项，但不知道为什么最大值是 5。"
             />
           </label>
-          <button className="primaryButton startButton" type="button" onClick={handleStart} disabled={startBusy || streamBusy || !problemText.trim() || !selectedProfileId}>
+          <button
+            className="primaryButton startButton"
+            type="button"
+            onClick={handleStart}
+            disabled={
+              startBusy ||
+              streamBusy ||
+              !problemText.trim() ||
+              !selectedProfileId ||
+              (problemNeedsImage && (!selectedProfile?.is_multimodal || !originalProblemImage))
+            }
+          >
             {startBusy ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
             {sessionId ? "重新开始答疑" : "开始答疑"}
           </button>
@@ -347,8 +542,9 @@ export default function Home() {
 
       <ModelConfigDialog
         open={dialogOpen}
+        profile={editingProfile}
         onClose={() => setDialogOpen(false)}
-        onCreated={(profileId) => refreshProfiles(profileId)}
+        onSaved={(profileId) => refreshProfiles(profileId)}
       />
       <CheckpointModal checkpoint={checkpoint} onChoose={handleCheckpoint} />
     </main>

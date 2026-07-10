@@ -25,6 +25,27 @@ class LlmProviderError(RuntimeError):
     pass
 
 
+IMAGE_ANALYSIS_PROMPT = """你是数学题图片录入助手。请识别图片中的数学题，并只返回 JSON，不要 Markdown。
+
+必须返回这些字段：
+{
+  "problem_text": "题目文字，包含题干、条件、问题；如果有图形信息，也要用文字描述关键几何/函数/统计图信息",
+  "needs_diagram": true,
+  "diagram_bbox": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0} 或 null,
+  "student_work_summary": "图片中学生过程、答案、批改痕迹的简短总结；没有则为空字符串",
+  "answer_text": "学生写出的答案；没有则为空字符串",
+  "correctness": "correct|incorrect|unknown|not_present",
+  "mistake_summary": "如果能看出错误，简述错误；否则为空字符串"
+}
+
+要求：
+- 如果图片里有多个区域，优先提取题目本身，其次总结学生已写过程。
+- diagram_bbox 使用整张图片归一化坐标，x/y/width/height 都在 0 到 1 之间，框住题目需要保留的图形区域。
+- 如果题目没有必要展示图，needs_diagram=false 且 diagram_bbox=null。
+- 如果无法识别题目文字，problem_text 返回空字符串。
+"""
+
+
 def chat_completions_url(base_url: str) -> str:
     clean = base_url.rstrip("/")
     if clean.endswith("/chat/completions"):
@@ -36,26 +57,30 @@ async def test_connection(profile: LlmProfile) -> tuple[bool, int | None, str]:
     started = time.perf_counter()
     if profile.provider == "local_demo":
         return True, 1, "本地演示模型可用"
+    stream = chat_stream_completion(
+        profile,
+        [{"role": "user", "content": "你好"}],
+        max_tokens=min(max(profile.max_output_tokens, 1024), 8192),
+        temperature=0,
+    )
     try:
-        await chat_completion(
-            profile,
-            [
-                {"role": "system", "content": "Return exactly: ok"},
-                {"role": "user", "content": "ping"},
-            ],
-            max_tokens=8,
-            temperature=0,
-        )
-        latency = int((time.perf_counter() - started) * 1000)
-        return True, latency, "连接成功"
+        async for event in stream:
+            delta = event.get("delta") or ""
+            if delta.strip():
+                latency = int((time.perf_counter() - started) * 1000)
+                preview = delta.strip().replace("\n", " ")[:40]
+                return True, latency, f"连接成功，模型已开始回复：{preview}"
+        raise LlmProviderError("模型没有返回可见内容")
     except Exception as exc:  # pragma: no cover - exact provider errors vary
         latency = int((time.perf_counter() - started) * 1000)
         return False, latency, str(exc)
+    finally:
+        await stream.aclose()
 
 
 async def chat_completion(
     profile: LlmProfile,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     *,
     max_tokens: int | None = None,
     temperature: float | None = None,
@@ -74,22 +99,55 @@ async def chat_completion(
         if event.get("finish_reason"):
             finish_reason = event["finish_reason"]
     content = "".join(chunks)
-    _assert_nonempty(content, finish_reason)
+    _assert_nonempty(content, finish_reason, max_tokens or profile.max_output_tokens)
     return content
 
 
-def _assert_nonempty(content: str, finish_reason: str | None) -> None:
+async def analyze_problem_image(profile: LlmProfile, image_data_url: str) -> str:
+    if profile.provider == "local_demo":
+        return json.dumps(
+            {
+                "problem_text": "已知函数 y=-2(x-3)^2+5，求函数的最大值，并说明此时 x 的取值。",
+                "needs_diagram": False,
+                "diagram_bbox": None,
+                "student_work_summary": "",
+                "answer_text": "",
+                "correctness": "not_present",
+                "mistake_summary": "",
+            },
+            ensure_ascii=False,
+        )
+
+    return await chat_completion(
+        profile,
+        [
+            {"role": "system", "content": IMAGE_ANALYSIS_PROMPT},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "请分析这张数学题图片，按指定 JSON 返回。"},
+                    {"type": "image_url", "image_url": {"url": image_data_url}},
+                ],
+            },
+        ],
+        max_tokens=min(max(profile.max_output_tokens, 4000), 16000),
+        temperature=0,
+    )
+
+
+def _assert_nonempty(content: str, finish_reason: str | None, max_tokens: int | None = None) -> None:
     if not content:
         if finish_reason == "length":
+            token_hint = f"={max_tokens}" if max_tokens is not None else ""
             raise LlmProviderError(
-                "模型因 max_tokens 截断未输出任何可见内容，请调大 max_output_tokens 或精简历史"
+                f"模型因 max_tokens{token_hint} 截断未输出任何可见内容，请调大 max_output_tokens 或精简历史"
             )
         raise LlmProviderError("模型返回了空内容，请重试或换一道题")
 
 
 async def chat_stream_completion(
     profile: LlmProfile,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     *,
     max_tokens: int | None = None,
     temperature: float | None = None,
@@ -108,11 +166,12 @@ async def chat_stream_completion(
         "Authorization": f"Bearer {profile.api_key}",
         "Content-Type": "application/json",
     }
+    requested_max_tokens = max_tokens or profile.max_output_tokens
     payload: dict[str, Any] = {
         "model": profile.model,
         "messages": messages,
         "temperature": profile.temperature if temperature is None else temperature,
-        "max_tokens": max_tokens or profile.max_output_tokens,
+        "max_tokens": requested_max_tokens,
         "stream": True,
     }
     # connect 慢点不要紧，但读阶段一旦长时间没新 chunk 就要尽快报错；
@@ -158,7 +217,7 @@ async def chat_stream_completion(
                 if not saw_any_data:
                     raise LlmProviderError("模型流式响应中没有任何 data 事件，请确认 base_url/模型配置")
                 if not saw_content:
-                    _assert_nonempty("", finish_reason)
+                    _assert_nonempty("", finish_reason, requested_max_tokens)
                 yield {"delta": "", "finish_reason": finish_reason}
     except httpx.TimeoutException as exc:
         raise LlmProviderError("模型流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置") from exc
@@ -166,7 +225,19 @@ async def chat_stream_completion(
         raise LlmProviderError(f"模型请求异常：{str(exc) or exc.__class__.__name__}") from exc
 
 
-def local_demo_stream(messages: list[dict[str, str]]) -> list[dict]:
+def message_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            str(item.get("text") or "")
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        )
+    return str(content or "")
+
+
+def local_demo_stream(messages: list[dict[str, Any]]) -> list[dict]:
     """local_demo 的等价流式：把 local_demo_response 拆成小 chunk 发出。"""
     full = local_demo_response(messages)
     # 按 ~4 个字符一组模拟流式打字
@@ -176,10 +247,10 @@ def local_demo_stream(messages: list[dict[str, str]]) -> list[dict]:
     yield {"delta": "", "finish_reason": "stop"}
 
 
-def local_demo_response(messages: list[dict[str, str]]) -> str:
-    joined = "\n".join(message["content"] for message in messages[-3:])
+def local_demo_response(messages: list[dict[str, Any]]) -> str:
+    joined = "\n".join(message_text(message["content"]) for message in messages[-3:])
     last_user = next(
-        (m["content"] for m in reversed(messages) if m["role"] == "user"),
+        (message_text(m["content"]) for m in reversed(messages) if m["role"] == "user"),
         "",
     )
     history_match = re.search(r"历史对话：\n(?P<history>.*?)(?:\n\n请决定下一步教学动作。|\Z)", last_user, re.DOTALL)

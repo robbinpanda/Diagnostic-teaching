@@ -6,6 +6,7 @@ from app.core.schemas import TutorCheckpoint, TutorCheckpointOption
 from app.core import teaching_controller as teaching
 from app.core.teaching_controller import (
     apply_backend_action_policy,
+    build_messages,
     extract_json_object,
     recover_tutor_turn_from_raw,
     validate_checkpoint,
@@ -82,6 +83,24 @@ def test_backend_policy_forces_blocking_after_nonblocking_streak():
     assert turn.action == "ASK_OPEN_QUESTION"
     assert turn.wait_for_student is True
     assert "你先说说" in turn.message
+
+
+def test_build_messages_attaches_original_problem_image_to_tutoring_request():
+    image_data_url = "data:image/png;base64,b3JpZ2luYWw="
+    session = {
+        "problem_text": "根据图中的立体几何关系求角度。",
+        "student_initial_thought": "我找到了一个直角。",
+        "phase": "diagnosing",
+        "problem_image_data_url": image_data_url,
+    }
+
+    messages = build_messages(session, [])
+
+    user_content = messages[-1]["content"]
+    assert isinstance(user_content, list)
+    assert user_content[0]["type"] == "text"
+    assert "立体几何" in user_content[0]["text"]
+    assert user_content[1] == {"type": "image_url", "image_url": {"url": image_data_url}}
 
 
 def test_recover_message_from_truncated_markdown_json():
