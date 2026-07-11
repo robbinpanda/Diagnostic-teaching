@@ -18,6 +18,7 @@ BLOCKING_ACTIONS = {"ASK_OPEN_QUESTION", "SHOW_CHECKPOINT_MC"}
 NONBLOCKING_ACTIONS = {"DECOMPOSE_STEP", "EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE", "RESPOND_TO_CHECKPOINT"}
 TERMINAL_ACTIONS = {"SUMMARIZE"}
 VALID_ACTIONS = BLOCKING_ACTIONS | NONBLOCKING_ACTIONS | TERMINAL_ACTIONS
+FORMAT_RETRY_LIMIT = 1
 
 
 SYSTEM_PROMPT = """你是一个面向中国初高中学生的诊断式数学答疑老师。
@@ -323,6 +324,32 @@ def apply_backend_action_policy(turn: TutorTurn, *, force_blocking: bool = False
         turn.debug.setdefault("backend_action_policy", True)
 
 
+def parse_and_validate_tutor_turn(raw: str, *, force_blocking: bool = False) -> TutorTurn:
+    payload = extract_json_object(raw)
+    turn = TutorTurn.model_validate(payload)
+    turn.message = sanitize_visible_message(turn.message)
+    if not turn.message:
+        raise ValueError("message must not be empty")
+    if turn.checkpoint:
+        validate_checkpoint(turn.checkpoint)
+    apply_backend_action_policy(turn, force_blocking=force_blocking)
+    return turn
+
+
+def build_format_retry_messages(messages: list[dict[str, Any]], raw: str) -> list[dict[str, Any]]:
+    return [
+        *messages,
+        {"role": "assistant", "content": raw},
+        {
+            "role": "user",
+            "content": (
+                "你刚才的输出不是完整、合法且满足合同的 JSON。请重新生成本轮结果。"
+                "只输出一个完整 JSON 对象，不要解释、不要 Markdown，也不要省略任何必需字段。"
+            ),
+        },
+    ]
+
+
 async def generate_tutor_turn(
     profile: LlmProfile,
     session: Row,
@@ -340,30 +367,23 @@ async def generate_tutor_turn(
     error: str | None = None
     turn: TutorTurn | None = None
     try:
-        raw = await chat_completion(profile, messages, max_tokens=profile.max_output_tokens)
-        try:
-            payload = extract_json_object(raw)
-            turn = TutorTurn.model_validate(payload)
-        except (json.JSONDecodeError, ValidationError, ValueError):
-            used_fallback = True
-            parse_ok = False
-            turn = recover_tutor_turn_from_raw(raw)
-        else:
-            turn.message = sanitize_visible_message(turn.message)
-            if not turn.message:
-                used_fallback = True
-                parse_ok = False
-                turn = recover_tutor_turn_from_raw(raw)
-        if turn.checkpoint:
+        request_messages = messages
+        for attempt in range(FORMAT_RETRY_LIMIT + 1):
+            raw = await chat_completion(profile, request_messages, max_tokens=profile.max_output_tokens)
             try:
-                validate_checkpoint(turn.checkpoint)
-            except ValueError:
-                turn.debug["checkpoint_removed"] = True
-                turn.checkpoint = None
-                if turn.action == "SHOW_CHECKPOINT_MC":
-                    turn.action = "EXPLAIN_LOCAL"
-        apply_backend_action_policy(turn, force_blocking=force_blocking)
-        return turn
+                turn = parse_and_validate_tutor_turn(raw, force_blocking=force_blocking)
+            except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+                parse_ok = False
+                if attempt < FORMAT_RETRY_LIMIT:
+                    used_fallback = True
+                    request_messages = build_format_retry_messages(messages, raw)
+                    continue
+                raise LlmProviderError("模型连续返回不完整或不合法的 JSON，请重试") from exc
+            if attempt:
+                turn.debug["format_retry_count"] = attempt
+            parse_ok = True
+            return turn
+        raise LlmProviderError("模型未生成有效的教学结果")
     except Exception as exc:
         # 不吞 LLM/网络错误：交给 chat 路由的 try/except 转成 SSE error 事件
         error = str(exc)
@@ -413,9 +433,7 @@ async def generate_tutor_turn_stream(
     """
     messages = build_messages(session, history, nonblocking_streak=nonblocking_streak, force_blocking=force_blocking)
     started = time.perf_counter()
-    extractor = MessageStreamExtractor()
-    raw_parts: list[str] = []
-    emitted_message_parts: list[str] = []
+    raw = ""
     finish_reason: str | None = None
     used_fallback = False
     parse_ok = True
@@ -423,50 +441,52 @@ async def generate_tutor_turn_stream(
     turn_final: TutorTurn | None = None
 
     try:
-        async for event in chat_stream_completion(profile, messages, max_tokens=profile.max_output_tokens):
-            delta = event.get("delta") or ""
-            if delta:
-                raw_parts.append(delta)
-                inc = extractor.feed(delta)
-                if inc:
-                    emitted_message_parts.append(inc)
-                    yield ("message_delta", inc)
-            if event.get("finish_reason"):
-                finish_reason = event["finish_reason"]
-        raw = "".join(raw_parts)
-        # 关键：raw 完整后再做 sanitize + checkpoint 解析，保证结构化字段准确
-        message_so_far = extractor.visible_so_far()
-        try:
-            payload = extract_json_object(raw)
-            turn_final = TutorTurn.model_validate(payload)
-            turn_final.message = sanitize_visible_message(turn_final.message or message_so_far)
-            if not turn_final.message:
-                used_fallback = True
-                parse_ok = False
-                turn_final = recover_tutor_turn_from_raw(raw)
-        except (json.JSONDecodeError, ValidationError, ValueError):
-            used_fallback = True
-            parse_ok = False
-            turn_final = recover_tutor_turn_from_raw(raw)
-        if turn_final.checkpoint:
+        request_messages = messages
+        for attempt in range(FORMAT_RETRY_LIMIT + 1):
+            extractor = MessageStreamExtractor()
+            raw_parts: list[str] = []
+            emitted_message_parts: list[str] = []
+            async for event in chat_stream_completion(
+                profile,
+                request_messages,
+                max_tokens=profile.max_output_tokens,
+            ):
+                delta = event.get("delta") or ""
+                if delta:
+                    raw_parts.append(delta)
+                    inc = extractor.feed(delta)
+                    if inc:
+                        emitted_message_parts.append(inc)
+                        yield ("message_delta", inc)
+                if event.get("finish_reason"):
+                    finish_reason = event["finish_reason"]
+            raw = "".join(raw_parts)
             try:
-                validate_checkpoint(turn_final.checkpoint)
-            except ValueError:
-                turn_final.debug["checkpoint_removed"] = True
-                turn_final.checkpoint = None
-                if turn_final.action == "SHOW_CHECKPOINT_MC":
-                    turn_final.action = "EXPLAIN_LOCAL"
-        apply_backend_action_policy(turn_final, force_blocking=force_blocking)
-        emitted_message = "".join(emitted_message_parts)
-        if turn_final.message:
-            if not emitted_message:
-                yield ("message_delta", turn_final.message)
-            elif turn_final.message.startswith(emitted_message):
-                missing_suffix = turn_final.message[len(emitted_message) :]
-                if missing_suffix:
-                    yield ("message_delta", missing_suffix)
-        yield ("turn", turn_final)
-        return
+                turn_final = parse_and_validate_tutor_turn(raw, force_blocking=force_blocking)
+            except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+                parse_ok = False
+                if emitted_message_parts:
+                    yield ("message_reset", "")
+                if attempt < FORMAT_RETRY_LIMIT:
+                    used_fallback = True
+                    request_messages = build_format_retry_messages(messages, raw)
+                    continue
+                raise LlmProviderError("模型连续返回不完整或不合法的 JSON，请重试") from exc
+
+            if attempt:
+                turn_final.debug["format_retry_count"] = attempt
+            parse_ok = True
+            emitted_message = "".join(emitted_message_parts)
+            if turn_final.message:
+                if not emitted_message:
+                    yield ("message_delta", turn_final.message)
+                elif turn_final.message.startswith(emitted_message):
+                    missing_suffix = turn_final.message[len(emitted_message) :]
+                    if missing_suffix:
+                        yield ("message_delta", missing_suffix)
+            yield ("turn", turn_final)
+            return
+        raise LlmProviderError("模型未生成有效的教学结果")
     except Exception as exc:
         error = str(exc)
         # 不吞错误：交给 chat 路由的 try/except 转成 SSE error 事件。
@@ -486,7 +506,7 @@ async def generate_tutor_turn_stream(
                 model_profile_id=profile.id,
                 model=profile.model,
                 messages=messages,
-                raw_response="".join(raw_parts),
+                raw_response=raw,
                 parsed_turn=parsed_dump,
                 latency_ms=latency_ms,
                 parse_ok=parse_ok,

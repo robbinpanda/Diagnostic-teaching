@@ -118,3 +118,37 @@ def test_logger_failure_does_not_raise(tmp_path: Path):
         parse_ok=True,
         used_fallback=False,
     )
+
+
+def test_problem_image_is_logged_once_then_replaced_with_placeholder(tmp_path: Path):
+    logger = SessionLogger(tmp_path)
+    image_data_url = "data:image/png;base64," + "a" * 100
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "看图答题"},
+                {"type": "image_url", "image_url": {"url": image_data_url}},
+            ],
+        }
+    ]
+
+    for _ in range(2):
+        logger.log_tutor_turn(
+            session_id="sess_image",
+            model_profile_id="prof_1",
+            model="vision-model",
+            messages=messages,
+            raw_response="{}",
+            parsed_turn=None,
+            latency_ms=1,
+            parse_ok=True,
+            used_fallback=False,
+        )
+
+    events = logger.read("sess_image")
+    first_url = events[0]["prompt_messages"][0]["content"][1]["image_url"]["url"]
+    second_url = events[1]["prompt_messages"][0]["content"][1]["image_url"]["url"]
+    assert first_url == image_data_url
+    assert second_url.startswith("[题目原图已在本会话首次")
+    assert messages[0]["content"][1]["image_url"]["url"] == image_data_url

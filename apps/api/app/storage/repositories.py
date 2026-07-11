@@ -306,10 +306,20 @@ class SessionRepository:
         checkpoint_id: str,
         selected_option_id: str,
         elapsed_ms: int,
+        *,
+        session_id: str | None = None,
     ) -> tuple[sqlite3.Row, bool]:
-        row = self.get_checkpoint(checkpoint_id)
-        is_correct = selected_option_id == row["correct_option_id"]
         with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM checkpoints WHERE id = ?",
+                (checkpoint_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(checkpoint_id)
+            if session_id is not None and row["session_id"] != session_id:
+                raise PermissionError(checkpoint_id)
+
+            is_correct = selected_option_id == row["correct_option_id"]
             conn.execute(
                 """
                 UPDATE checkpoints
@@ -318,4 +328,8 @@ class SessionRepository:
                 """,
                 (selected_option_id, int(is_correct), elapsed_ms, now_iso(), checkpoint_id),
             )
-        return self.get_checkpoint(checkpoint_id), is_correct
+            updated = conn.execute(
+                "SELECT * FROM checkpoints WHERE id = ?",
+                (checkpoint_id,),
+            ).fetchone()
+        return updated, is_correct

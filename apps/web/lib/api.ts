@@ -31,6 +31,7 @@ export type Checkpoint = {
 export type SseEvent =
   | { event: "decision"; data: { state_hint?: string; action?: string; wait_for_student?: boolean; message?: string; breakpoint?: string; confidence?: number; action_index?: number } }
   | { event: "message_delta"; data: { text: string; action_index?: number } }
+  | { event: "message_reset"; data: { action_index?: number } }
   | { event: "checkpoint_ready"; data: Checkpoint }
   | { event: "message_done"; data: { ok: boolean; action_index?: number; wait_for_student?: boolean; will_continue?: boolean } }
   | { event: "error"; data: { message: string } }
@@ -190,7 +191,10 @@ export async function streamChat(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input)
   });
-  if (!response.ok || !response.body) throw new Error("答疑流启动失败");
+  if (!response.ok || !response.body) {
+    const detail = await response.text();
+    throw new Error(detail || "答疑流启动失败");
+  }
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();

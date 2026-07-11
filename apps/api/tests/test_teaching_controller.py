@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 
@@ -210,3 +211,55 @@ def test_stream_backfills_message_when_incremental_extractor_stops_early(monkeyp
     assert visible == turn.message
     assert "二次函数零点" in visible
     assert turn.checkpoint is not None
+
+
+def test_stream_retries_invalid_json_and_resets_partial_message(monkeypatch):
+    responses = [
+        '{"state_hint":"diagnosing","action":"ASK_OPEN_QUESTION","message":"残缺内容',
+        json.dumps(
+            {
+                "state_hint": "diagnosing",
+                "action": "ASK_OPEN_QUESTION",
+                "message": "请重新说说你目前想到哪一步？",
+                "checkpoint": None,
+                "debug": {},
+            },
+            ensure_ascii=False,
+        ),
+    ]
+    requests = []
+
+    async def fake_chat_stream_completion(profile, messages, **kwargs):
+        requests.append(messages)
+        raw = responses[len(requests) - 1]
+        yield {"delta": raw, "finish_reason": None}
+        yield {"delta": "", "finish_reason": "stop"}
+
+    monkeypatch.setattr(teaching, "chat_stream_completion", fake_chat_stream_completion)
+    profile = LlmProfile(
+        id="prof_test",
+        provider="openai_compatible",
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="test-model",
+        timeout_ms=30000,
+        temperature=0.2,
+        max_output_tokens=1200,
+    )
+    session = {
+        "id": "sess_test",
+        "problem_text": "求函数最大值。",
+        "student_initial_thought": "",
+        "phase": "diagnosing",
+    }
+
+    async def collect_events():
+        return [event async for event in teaching.generate_tutor_turn_stream(profile, session, [])]
+
+    events = asyncio.run(collect_events())
+    assert len(requests) == 2
+    assert any(kind == "message_reset" for kind, _ in events)
+    turn = next(value for kind, value in events if kind == "turn")
+    assert turn.message == "请重新说说你目前想到哪一步？"
+    assert turn.debug["format_retry_count"] == 1
+    assert "完整、合法" in requests[1][-1]["content"]

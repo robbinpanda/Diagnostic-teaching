@@ -146,6 +146,16 @@ export default function Home() {
       setAssistantMessage(assistantText + text);
     }
 
+    function resetAssistantMessage() {
+      const id = assistantId;
+      assistantId = "";
+      assistantText = "";
+      receivedVisibleText = false;
+      if (id) {
+        setMessages((current) => current.filter((item) => item.id !== id));
+      }
+    }
+
     function reconcileAssistantMessage(finalText?: string) {
       if (!finalText?.trim()) return;
       if (!assistantText || finalText.startsWith(assistantText) || finalText.length >= assistantText.length) {
@@ -166,6 +176,9 @@ export default function Home() {
         if (event.event === "message_delta") {
           const text = (event.data as { text: string }).text;
           appendAssistantDelta(text);
+        }
+        if (event.event === "message_reset") {
+          resetAssistantMessage();
         }
         if (event.event === "checkpoint_ready") {
           receivedCheckpoint = true;

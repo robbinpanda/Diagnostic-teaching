@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-import os
 import threading
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,7 +25,52 @@ class SessionLogger:
     def __init__(self, log_dir: Path):
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._sessions_with_logged_images: set[str] = set()
+
+    def _existing_log_contains_image(self, session_id: str) -> bool:
+        path = self.log_dir / f"{session_id}.jsonl"
+        if not path.exists():
+            return False
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return any("data:image/" in line for line in f)
+        except OSError:
+            return False
+
+    def _prepare_prompt_messages(
+        self,
+        session_id: str,
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        prepared = deepcopy(messages)
+        image_urls: list[dict[str, Any]] = []
+        for message in prepared:
+            content = message.get("content")
+            if not isinstance(content, list):
+                continue
+            for item in content:
+                if not isinstance(item, dict) or item.get("type") != "image_url":
+                    continue
+                image_url = item.get("image_url")
+                if isinstance(image_url, dict) and isinstance(image_url.get("url"), str):
+                    image_urls.append(image_url)
+
+        if not image_urls:
+            return prepared
+
+        with self._lock:
+            image_already_logged = (
+                session_id in self._sessions_with_logged_images
+                or self._existing_log_contains_image(session_id)
+            )
+            self._sessions_with_logged_images.add(session_id)
+
+        first_url_to_keep = 0 if not image_already_logged else -1
+        for index, image_url in enumerate(image_urls):
+            if index != first_url_to_keep:
+                image_url["url"] = "[题目原图已在本会话首次 tutor_turn 日志中保存，此处省略]"
+        return prepared
 
     def _append(self, session_id: str, record: dict[str, Any]) -> None:
         record.setdefault("ts", _now_iso())
@@ -61,7 +106,7 @@ class SessionLogger:
                 "event": "tutor_turn",
                 "model_profile_id": model_profile_id,
                 "model": model,
-                "prompt_messages": messages,
+                "prompt_messages": self._prepare_prompt_messages(session_id, messages),
                 "raw_response": raw_response,
                 "parsed_turn": parsed_turn,
                 "latency_ms": latency_ms,

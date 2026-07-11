@@ -25,6 +25,7 @@ def create_app() -> FastAPI:
     app.state.model_profiles = ModelProfileRepository(db, secrets)
     app.state.sessions = SessionRepository(db)
     app.state.session_logger = session_logger
+    app.state.chat_streams = chat.SessionStreamCoordinator()
 
     app.add_middleware(
         CORSMiddleware,

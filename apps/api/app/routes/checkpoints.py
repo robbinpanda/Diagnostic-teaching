@@ -20,11 +20,11 @@ def answer_checkpoint(
             checkpoint_id,
             payload.selected_option_id,
             payload.elapsed_ms,
+            session_id=payload.session_id,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="检查点不存在") from exc
-
-    if row["session_id"] != payload.session_id:
+    except PermissionError as exc:
         raise HTTPException(status_code=400, detail="检查点不属于当前会话")
 
     options = json.loads(row["options_json"])["options"]

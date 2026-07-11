@@ -1,4 +1,5 @@
 import json
+import asyncio
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -9,6 +10,7 @@ from app.storage.database import Database
 from app.storage.repositories import ModelProfileRepository, SessionRepository
 from app.storage.security import SecretBox
 from app.storage.session_logger import SessionLogger
+from app.routes.chat import SessionStreamCoordinator
 
 
 def _bootstrap_app(tmp_path: Path) -> tuple[TestClient, str]:
@@ -121,6 +123,45 @@ def test_answer_unknown_triggers_recovery_phase(tmp_path: Path):
     )
     assert answer.json()["event"] == "CHECKPOINT_UNKNOWN"
     assert answer.json()["next_state_hint"] == "recovering"
+
+
+def test_checkpoint_session_mismatch_does_not_mutate_checkpoint(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    first = client.post("/api/chat/stream", json={"session_id": session_id})
+    checkpoint_id = next(d["id"] for e, d in _parse_sse_events(first.text) if e == "checkpoint_ready")
+    original = client.app.state.sessions.get_checkpoint(checkpoint_id)
+
+    other_session = client.app.state.sessions.create(
+        SessionCreate(
+            grade_band="junior",
+            subject="math",
+            model_profile_id=client.app.state.sessions.get(session_id)["model_profile_id"],
+            problem_text="另一道题",
+            student_initial_thought="",
+        )
+    )
+    response = client.post(
+        f"/api/checkpoints/{checkpoint_id}/answer",
+        json={"session_id": other_session["id"], "selected_option_id": "A", "elapsed_ms": 50},
+    )
+
+    assert response.status_code == 400
+    current = client.app.state.sessions.get_checkpoint(checkpoint_id)
+    assert original["selected_option_id"] is None
+    assert current["selected_option_id"] is None
+    assert current["answered_at"] is None
+
+
+def test_session_stream_coordinator_rejects_second_active_stream():
+    async def exercise():
+        coordinator = SessionStreamCoordinator()
+        assert await coordinator.try_start("sess_1") is True
+        assert await coordinator.try_start("sess_1") is False
+        assert await coordinator.try_start("sess_2") is True
+        await coordinator.finish("sess_1")
+        assert await coordinator.try_start("sess_1") is True
+
+    asyncio.run(exercise())
 
 
 def test_student_message_no_longer_uses_student_checkpoint_role(tmp_path: Path):
