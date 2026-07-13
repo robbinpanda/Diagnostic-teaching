@@ -143,6 +143,37 @@ def test_build_messages_uses_structured_roles_and_keeps_full_history():
     assert "checkpoint_result" in messages[0]["content"]
 
 
+def test_build_messages_ends_nonblocking_continuation_with_user_control_message():
+    session = {
+        "grade_band": "senior",
+        "subject": "math",
+        "problem_text": "求 a3。",
+        "student_initial_thought": "我算到正负一。",
+        "phase": "recovering",
+        "problem_image_data_url": None,
+    }
+    history = [
+        {
+            "role": "assistant",
+            "content": "先解释符号关系。",
+            "action_id": "act_explain",
+            "action": "EXPLAIN_PRINCIPLE",
+            "in_reply_to_action_id": None,
+            "metadata_json": json.dumps({"state_hint": "recovering"}),
+        }
+    ]
+
+    messages = build_messages(session, history, nonblocking_streak=1)
+
+    assert messages[-2]["role"] == "assistant"
+    assert messages[-1]["role"] == "user"
+    control = json.loads(messages[-1]["content"])
+    assert control["kind"] == "workflow_continue"
+    assert control["nonblocking_streak"] == 1
+    assert "上一 action 已经展示" in control["instruction"]
+    assert "不要复述或回显" in control["instruction"]
+
+
 def test_build_messages_deduplicates_legacy_initial_thought():
     session = {
         "grade_band": "junior",
@@ -337,3 +368,108 @@ def test_stream_retries_invalid_json_and_resets_partial_message(monkeypatch):
     assert turn.message == "请重新说说你目前想到哪一步？"
     assert turn.debug["format_retry_count"] == 1
     assert "完整、合法" in requests[1][-1]["content"]
+
+
+def test_stream_retries_missing_action_with_action_specific_instruction(monkeypatch):
+    responses = [
+        json.dumps(
+            {
+                "kind": "teaching_action",
+                "message_action": {
+                    "id": "act_previous",
+                    "type": "EXPLAIN_PRINCIPLE",
+                    "blocking": False,
+                },
+                "message": "这是被错误回显的上一条消息。",
+                "state_hint": "recovering",
+            },
+            ensure_ascii=False,
+        ),
+        json.dumps(
+            {
+                "state_hint": "recovering",
+                "action": "ASK_OPEN_QUESTION",
+                "message": "现在请你说说，为什么 $a_3$ 与 $a_1$ 同号？",
+                "breakpoint_description": "需要学生说明符号关系",
+                "breakpoint_confidence": 0.8,
+                "checkpoint": None,
+                "debug": {},
+            },
+            ensure_ascii=False,
+        ),
+    ]
+    requests = []
+
+    async def fake_chat_stream_completion(profile, messages, **kwargs):
+        requests.append(messages)
+        raw = responses[len(requests) - 1]
+        yield {"delta": raw, "finish_reason": None}
+        yield {"delta": "", "finish_reason": "stop"}
+
+    monkeypatch.setattr(teaching, "chat_stream_completion", fake_chat_stream_completion)
+    profile = LlmProfile(
+        id="prof_test",
+        provider="openai_compatible",
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="test-model",
+        timeout_ms=30000,
+        temperature=0.2,
+        max_output_tokens=1200,
+    )
+    session = {
+        "id": "sess_test",
+        "problem_text": "已知等比数列，求 a3。",
+        "student_initial_thought": "我算到正负一。",
+        "phase": "recovering",
+    }
+
+    async def collect_events():
+        return [event async for event in teaching.generate_tutor_turn_stream(profile, session, [])]
+
+    events = asyncio.run(collect_events())
+
+    assert len(requests) == 2
+    assert any(kind == "message_reset" for kind, _ in events)
+    assert "action 不对" in requests[1][-1]["content"]
+    assert "ASK_OPEN_QUESTION" in requests[1][-1]["content"]
+    turn = next(value for kind, value in events if kind == "turn")
+    assert turn.action == "ASK_OPEN_QUESTION"
+    assert turn.debug["format_retry_count"] == 1
+
+
+@pytest.mark.parametrize("action", [None, "NOT_A_REAL_ACTION"])
+def test_tutor_turn_requires_present_and_valid_action(action):
+    payload = {
+        "state_hint": "explaining",
+        "message": "测试 action 合同。",
+        "checkpoint": None,
+        "debug": {},
+    }
+    if action is not None:
+        payload["action"] = action
+
+    with pytest.raises(teaching.TutorTurnActionError):
+        teaching.parse_and_validate_tutor_turn(json.dumps(payload, ensure_ascii=False))
+
+
+def test_tutor_turn_rejects_history_envelope_extra_fields():
+    raw = json.dumps(
+        {
+            "kind": "teaching_action",
+            "message_action": {
+                "id": "act_previous",
+                "type": "EXPLAIN_LOCAL",
+                "blocking": False,
+            },
+            "state_hint": "explaining",
+            "action": "EXPLAIN_LOCAL",
+            "message": "不能把历史 envelope 当成新的 TutorTurn。",
+            "checkpoint": None,
+            "debug": {},
+        },
+        ensure_ascii=False,
+    )
+
+    with pytest.raises(teaching.ValidationError):
+        teaching.parse_and_validate_tutor_turn(raw)

@@ -20,6 +20,10 @@ TERMINAL_ACTIONS = {"SUMMARIZE"}
 VALID_ACTIONS = BLOCKING_ACTIONS | NONBLOCKING_ACTIONS | TERMINAL_ACTIONS
 FORMAT_RETRY_LIMIT = 1
 
+
+class TutorTurnActionError(ValueError):
+    """The model omitted action or returned an action outside the protocol."""
+
 TEACHING_ACTION_DEFINITIONS = [
     {
         "name": "ASK_OPEN_QUESTION",
@@ -176,11 +180,29 @@ def build_messages(
         ]
 
     system = f"{SYSTEM_PROMPT}\n{ACTION_PROTOCOL}\n{JSON_CONTRACT}\n\n当前工作流约束：{loop_instruction}"
-    return [
+    messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user_content},
         *(render_history_message(row) for row in history),
     ]
+    if nonblocking_streak > 0:
+        workflow_continue = {
+            "kind": "workflow_continue",
+            "instruction": (
+                "上一 action 已经展示给学生，但它是非阻塞 action，因此当前教学流程需要继续。"
+                "请根据完整上下文生成下一条且仅一条新的教学 action。"
+                "不要复述或回显上一条 assistant 消息；输出必须遵守 system 中的 TutorTurn JSON 合同。"
+            ),
+            "nonblocking_streak": nonblocking_streak,
+            "force_blocking": force_blocking,
+        }
+        messages.append(
+            {
+                "role": "user",
+                "content": json.dumps(workflow_continue, ensure_ascii=False),
+            }
+        )
+    return messages
 
 
 def _row_value(row: Row | dict, key: str, default=None):
@@ -465,6 +487,12 @@ def apply_backend_action_policy(turn: TutorTurn, *, force_blocking: bool = False
 
 def parse_and_validate_tutor_turn(raw: str, *, force_blocking: bool = False) -> TutorTurn:
     payload = extract_json_object(raw)
+    action = payload.get("action")
+    if not isinstance(action, str) or action not in VALID_ACTIONS:
+        allowed = "|".join(sorted(VALID_ACTIONS))
+        raise TutorTurnActionError(
+            f"action must be one of {allowed}; received {action!r}"
+        )
     turn = TutorTurn.model_validate(payload)
     turn.message = sanitize_visible_message(turn.message)
     if not turn.message:
@@ -475,16 +503,29 @@ def parse_and_validate_tutor_turn(raw: str, *, force_blocking: bool = False) -> 
     return turn
 
 
-def build_format_retry_messages(messages: list[dict[str, Any]], raw: str) -> list[dict[str, Any]]:
+def build_format_retry_messages(
+    messages: list[dict[str, Any]],
+    raw: str,
+    error: Exception,
+) -> list[dict[str, Any]]:
+    if isinstance(error, TutorTurnActionError):
+        retry_instruction = (
+            "你刚才返回的 action 不对：action 缺失，或不在允许的 action 列表中。"
+            f"action 必须且只能是以下值之一：{'、'.join(sorted(VALID_ACTIONS))}。"
+            "请修正 action，并重新生成本轮完整 TutorTurn JSON。"
+            "只输出一个完整 JSON 对象，不要解释、不要 Markdown，也不要省略任何必需字段。"
+        )
+    else:
+        retry_instruction = (
+            "你刚才的输出不是完整、合法且满足合同的 JSON。请重新生成本轮结果。"
+            "只输出一个完整 JSON 对象，不要解释、不要 Markdown，也不要省略任何必需字段。"
+        )
     return [
         *messages,
         {"role": "assistant", "content": raw},
         {
             "role": "user",
-            "content": (
-                "你刚才的输出不是完整、合法且满足合同的 JSON。请重新生成本轮结果。"
-                "只输出一个完整 JSON 对象，不要解释、不要 Markdown，也不要省略任何必需字段。"
-            ),
+            "content": retry_instruction,
         },
     ]
 
@@ -515,7 +556,7 @@ async def generate_tutor_turn(
                 parse_ok = False
                 if attempt < FORMAT_RETRY_LIMIT:
                     used_fallback = True
-                    request_messages = build_format_retry_messages(messages, raw)
+                    request_messages = build_format_retry_messages(messages, raw, exc)
                     continue
                 raise LlmProviderError("模型连续返回不完整或不合法的 JSON，请重试") from exc
             if attempt:
@@ -608,7 +649,7 @@ async def generate_tutor_turn_stream(
                     yield ("message_reset", "")
                 if attempt < FORMAT_RETRY_LIMIT:
                     used_fallback = True
-                    request_messages = build_format_retry_messages(messages, raw)
+                    request_messages = build_format_retry_messages(messages, raw, exc)
                     continue
                 raise LlmProviderError("模型连续返回不完整或不合法的 JSON，请重试") from exc
 

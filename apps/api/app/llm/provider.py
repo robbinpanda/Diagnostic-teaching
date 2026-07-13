@@ -237,6 +237,15 @@ def message_text(content: Any) -> str:
     return str(content or "")
 
 
+def is_workflow_control_message(content: Any) -> bool:
+    text = message_text(content)
+    try:
+        payload = json.loads(text)
+    except (TypeError, json.JSONDecodeError):
+        return False
+    return isinstance(payload, dict) and payload.get("kind") == "workflow_continue"
+
+
 def local_demo_stream(messages: list[dict[str, Any]]) -> list[dict]:
     """local_demo 的等价流式：把 local_demo_response 拆成小 chunk 发出。"""
     full = local_demo_response(messages)
@@ -250,7 +259,11 @@ def local_demo_stream(messages: list[dict[str, Any]]) -> list[dict]:
 def local_demo_response(messages: list[dict[str, Any]]) -> str:
     joined = "\n".join(message_text(message["content"]) for message in messages[-3:])
     last_user = next(
-        (message_text(m["content"]) for m in reversed(messages) if m["role"] == "user"),
+        (
+            message_text(m["content"])
+            for m in reversed(messages)
+            if m["role"] == "user" and not is_workflow_control_message(m["content"])
+        ),
         "",
     )
     history_match = re.search(r"历史对话：\n(?P<history>.*?)(?:\n\n请决定下一步教学动作。|\Z)", last_user, re.DOTALL)

@@ -198,10 +198,10 @@ class TutorCheckpoint(BaseModel):
 
 
 class TutorTurn(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     state_hint: str = Field(default="diagnosing", validation_alias=AliasChoices("state_hint", "phase"))
-    action: str = "ASK_OPEN_QUESTION"
+    action: str
     message: str
     breakpoint_description: str | None = None
     breakpoint_confidence: float | None = None
