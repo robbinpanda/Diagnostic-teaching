@@ -6,7 +6,13 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
-from app.core.schemas import ModelProfileCreate, ModelProfileUpdate, SessionCreate, TutorCheckpoint
+from app.core.schemas import (
+    ModelProfileCreate,
+    ModelProfileUpdate,
+    SessionCreate,
+    TutorCheckpoint,
+    TutorTurn,
+)
 from app.storage.database import Database
 from app.storage.security import SecretBox, mask_api_key
 
@@ -263,6 +269,98 @@ class SessionRepository:
             )
         with self.db.connect() as conn:
             return conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
+
+    def record_tutor_action(
+        self,
+        session_id: str,
+        turn: TutorTurn,
+        *,
+        action_index: int,
+    ) -> tuple[sqlite3.Row, sqlite3.Row | None]:
+        """Atomically save the session state, assistant action, and optional checkpoint."""
+        message_id = new_id("msg")
+        action_id = new_id("act")
+        checkpoint_id = new_id("chk") if turn.checkpoint else None
+        ts = now_iso()
+        metadata = {
+            "state_hint": turn.state_hint,
+            "action": turn.action,
+            "wait_for_student": turn.wait_for_student,
+            "breakpoint": turn.breakpoint_description,
+            "action_index": action_index,
+            "checkpoint_id": checkpoint_id,
+            "checkpoint": turn.checkpoint.model_dump() if turn.checkpoint else None,
+        }
+
+        with self.db.connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE sessions
+                SET phase = ?, breakpoint_description = ?,
+                    breakpoint_confidence = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    turn.state_hint,
+                    turn.breakpoint_description,
+                    turn.breakpoint_confidence,
+                    ts,
+                    session_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(session_id)
+
+            conn.execute(
+                """
+                INSERT INTO messages (
+                  id, session_id, role, content, action_id, action,
+                  in_reply_to_action_id, metadata_json, created_at
+                ) VALUES (?, ?, 'assistant', ?, ?, ?, NULL, ?, ?)
+                """,
+                (
+                    message_id,
+                    session_id,
+                    turn.message,
+                    action_id,
+                    turn.action,
+                    json.dumps(metadata, ensure_ascii=False),
+                    ts,
+                ),
+            )
+
+            checkpoint_row = None
+            if turn.checkpoint and checkpoint_id:
+                correct = [option for option in turn.checkpoint.options if option.is_correct]
+                conn.execute(
+                    """
+                    INSERT INTO checkpoints (
+                      id, session_id, question, options_json, correct_option_id,
+                      tested_point, source_action_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        checkpoint_id,
+                        session_id,
+                        turn.checkpoint.question,
+                        turn.checkpoint.model_dump_json(),
+                        correct[0].id,
+                        turn.checkpoint.tested_point,
+                        action_id,
+                        ts,
+                    ),
+                )
+                checkpoint_row = conn.execute(
+                    "SELECT * FROM checkpoints WHERE id = ?",
+                    (checkpoint_id,),
+                ).fetchone()
+
+            assistant_row = conn.execute(
+                "SELECT * FROM messages WHERE id = ?",
+                (message_id,),
+            ).fetchone()
+
+        return assistant_row, checkpoint_row
 
     def list_messages(self, session_id: str, limit: int | None = None) -> list[sqlite3.Row]:
         with self.db.connect() as conn:

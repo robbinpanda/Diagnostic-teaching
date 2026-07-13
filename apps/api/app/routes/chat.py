@@ -9,7 +9,6 @@ from fastapi.responses import StreamingResponse
 from app.core.schemas import ChatStreamRequest
 from app.core.teaching_controller import NONBLOCKING_ACTIONS, generate_tutor_turn_stream
 from app.llm.provider import LlmProfile
-from app.storage.repositories import new_id
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -122,23 +121,28 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                         yield sse("error", {"message": "本轮未拿到任何 teaching turn"})
                         return
 
-                    request.app.state.sessions.update_phase(
+                    assistant_row, checkpoint_row = request.app.state.sessions.record_tutor_action(
                         payload.session_id,
-                        turn.state_hint,
-                        turn.breakpoint_description,
-                        turn.breakpoint_confidence,
+                        turn,
+                        action_index=action_index,
                     )
-                    action_id = new_id("act")
-                    checkpoint_row = None
+                    action_id = assistant_row["action_id"]
                     checkpoint_payload = None
                     if turn.checkpoint:
-                        checkpoint_row = request.app.state.sessions.create_checkpoint(
-                            payload.session_id,
-                            turn.checkpoint,
-                            source_action_id=action_id,
-                        )
                         checkpoint_payload = turn.checkpoint.model_dump()
                         checkpoint_payload["id"] = checkpoint_row["id"]
+
+                    logger = getattr(request.app.state, "session_logger", None)
+                    if logger is not None:
+                        logger.log_message(
+                            session_id=payload.session_id,
+                            message_id=assistant_row["id"],
+                            role="assistant",
+                            action_id=assistant_row["action_id"],
+                            action=assistant_row["action"],
+                            in_reply_to_action_id=assistant_row["in_reply_to_action_id"],
+                            content=assistant_row["content"],
+                        )
                     yield sse(
                         "decision",
                         {
@@ -152,33 +156,6 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                             "action_index": action_index,
                         },
                     )
-                    assistant_row = request.app.state.sessions.add_message(
-                        payload.session_id,
-                        "assistant",
-                        turn.message,
-                        action=turn.action,
-                        action_id=action_id,
-                        metadata={
-                            "state_hint": turn.state_hint,
-                            "action": turn.action,
-                            "wait_for_student": turn.wait_for_student,
-                            "breakpoint": turn.breakpoint_description,
-                            "action_index": action_index,
-                            "checkpoint_id": checkpoint_row["id"] if checkpoint_row else None,
-                            "checkpoint": turn.checkpoint.model_dump() if turn.checkpoint else None,
-                        },
-                    )
-                    logger = getattr(request.app.state, "session_logger", None)
-                    if logger is not None:
-                        logger.log_message(
-                            session_id=payload.session_id,
-                            message_id=assistant_row["id"],
-                            role="assistant",
-                            action_id=assistant_row["action_id"],
-                            action=assistant_row["action"],
-                            in_reply_to_action_id=assistant_row["in_reply_to_action_id"],
-                            content=assistant_row["content"],
-                        )
                     if checkpoint_payload:
                         for option in checkpoint_payload["options"]:
                             option.pop("is_correct", None)
