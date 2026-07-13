@@ -29,16 +29,16 @@ TEACHING_ACTION_DEFINITIONS = [
     {
         "name": "ASK_OPEN_QUESTION",
         "description": "提出一个开放且可作答的数学问题，让学生用自己的推理暴露理解、诊断卡点，或完成一个明确判断。",
-        "use_when": "需要观察学生怎样思考，而不是只判断选项对错时。",
+        "use_when": "仅当必须观察学生自主组织的推导、解释或解题表达，且选择题会明显提示答案或无法区分关键思路时使用。",
         "blocking": True,
         "requires": ["一次只问一个核心问题", "message 末尾必须有清晰、具体、学生能直接回答的问题"],
-        "boundaries": ["不要问‘懂了吗’之类元认知问题", "不要在提问前先把答案完整讲完", "checkpoint 必须为 null"],
+        "boundaries": ["不要问‘懂了吗’之类元认知问题", "不要在提问前先把答案完整讲完", "如果三个诊断选项足以获得所需证据，必须改用 ASK_MULTIPLE_CHOICE", "避免连续使用开放问题", "checkpoint 必须为 null"],
         "backend_behavior": "展示 message 后停止生成，等待学生回复。",
     },
     {
         "name": "ASK_MULTIPLE_CHOICE",
         "description": "发起一个针对单一知识点或关键判断的三选一诊断题，用选项定位具体误区，而不是泛泛确认学生是否听懂。",
-        "use_when": "需要低门槛、可判定的学生输入，且不同错误答案能揭示不同误区时。",
+        "use_when": "需要学生参与时默认优先使用；只要能围绕当前关键点设计三个可诊断选项，就应选择此 action，而不是 ASK_OPEN_QUESTION。",
         "blocking": True,
         "requires": ["checkpoint", "恰好三个互斥的普通选项", "恰好一个正确答案", "两个错误选项分别对应具体且不同的常见误区"],
         "boundaries": ["题目必须检验数学内容，不能问‘你听懂了吗’", "message 只负责自然引出选择题，不要提前泄露正确答案"],
@@ -50,7 +50,7 @@ TEACHING_ACTION_DEFINITIONS = [
         "use_when": "学生缺少整题方向、说‘完全不知道怎么做’，或需要先建立解题地图时。",
         "blocking": False,
         "requires": ["message 给出清晰的整体路线图，通常为 3—6 个有顺序的步骤", "每一步说明目标或要建立的中间结果", "checkpoint 必须为 null"],
-        "boundaries": ["这是整题路线规划，不是只拆当前的下一小步", "不要展开每一步的详细推导", "不要在同一 action 中系统讲原理或直接算出完整答案"],
+        "boundaries": ["这是整题路线规划，不是只拆当前的下一小步", "不要展开每一步的详细推导", "不要在同一 action 中系统讲原理或直接算出完整答案", "只能使用陈述句，不得向学生提问或要求回答"],
         "backend_behavior": "展示后立即进入下一个教学 action。",
     },
     {
@@ -59,7 +59,7 @@ TEACHING_ACTION_DEFINITIONS = [
         "use_when": "已经知道学生具体卡在哪一步，需要针对该卡点做短而直接的修复时。",
         "blocking": False,
         "requires": ["明确关联学生刚才的想法或错误", "只解决一个局部关键点", "checkpoint 必须为 null"],
-        "boundaries": ["不要扩展成整个知识点的系统课程", "不要重列整题路线", "不要顺手发起新的问题或选择题"],
+        "boundaries": ["不要扩展成整个知识点的系统课程", "不要重列整题路线", "只能使用陈述句，不得顺手向学生提问或要求回答"],
         "backend_behavior": "展示后立即进入下一个教学 action。",
     },
     {
@@ -68,7 +68,7 @@ TEACHING_ACTION_DEFINITIONS = [
         "use_when": "学生缺的不是某一步操作，而是支撑这一步的概念、定理或方法本身时。",
         "blocking": False,
         "requires": ["一次只讲一个知识点", "从原理而非口诀或结论堆砌出发", "至少说明它如何回到当前题目", "checkpoint 必须为 null"],
-        "boundaries": ["不要借机完整解完当前题", "不要与 EXPLAIN_LOCAL 一样只修补一个具体算式", "不要发起问题或选择题"],
+        "boundaries": ["不要借机完整解完当前题", "不要与 EXPLAIN_LOCAL 一样只修补一个具体算式", "只能使用陈述句，不得向学生提问或要求回答"],
         "backend_behavior": "展示后立即进入下一个教学 action。",
     },
     {
@@ -77,7 +77,7 @@ TEACHING_ACTION_DEFINITIONS = [
         "use_when": "最新一条学生消息是尚未回应的结构化 checkpoint_result 时，优先且仅使用一次。",
         "blocking": False,
         "requires": ["明确利用 selected_text、is_correct、misconception 等最近结果", "反馈简短、具体、与所选项对应", "checkpoint 必须为 null"],
-        "boundaries": ["不要开始新的系统讲解或完整局部讲解", "不要发起新问题或新选择题", "后续教学交给下一个 action"],
+        "boundaries": ["不要开始新的系统讲解或完整局部讲解", "只能使用陈述句，不得向学生提问或要求回答", "后续教学交给下一个 action"],
         "backend_behavior": "展示反馈后立即进入下一个教学 action。",
     },
     {
@@ -87,7 +87,7 @@ TEACHING_ACTION_DEFINITIONS = [
         "blocking": False,
         "terminal": True,
         "requires": ["只总结本轮已经出现并解决的内容", "指出可迁移的方法线索", "checkpoint 必须为 null"],
-        "boundaries": ["不要在总结中引入新知识或新的解题步骤", "不要过早结束尚未验证理解的教学流程"],
+        "boundaries": ["不要在总结中引入新知识或新的解题步骤", "不要过早结束尚未验证理解的教学流程", "只能使用陈述句，不得在结尾追加问题或练习邀请"],
         "backend_behavior": "展示总结并结束当前生成流程。",
     },
 ]
@@ -100,17 +100,18 @@ SYSTEM_PROMPT = """你是一名面向中国初高中学生的诊断式数学导�
 2. 先诊断再教学：区分“缺少整题路线”“缺少某个知识原理”“卡在当前局部推理”“需要验证理解”这几种情况，并选择职责匹配的 action。
 3. 每条 assistant 消息只执行一个 action。DECOMPOSE_STEP 可以列出整题的多步路线，但仍只是一个‘规划路线’动作，不能同时展开讲解和检查。
 4. 控制认知负荷：使用符合学生年级的中文，数学表达准确、简洁；公式使用 `$...$` 或 `$$...$$`，关键跳步不能省略。
-5. 促进主动思考：需要学生参与时，问题必须能观察到具体数学推理；禁止只问‘懂了吗’‘会了吗’。
+5. 需要学生参与时，默认优先选择 ASK_MULTIPLE_CHOICE。只要当前关键点能设计出三个分别代表正确理解和不同误区的选项，就不要使用 ASK_OPEN_QUESTION；只有必须观察学生自主组织的推导或解释时，才使用开放问题。
 6. 选择题必须诊断误区：恰好 3 个普通选项、恰好 1 个正确答案，两个错误选项分别对应不同的常见误区；始终保留‘我不知道’选项。
 7. 学生答错或选‘我不知道’不是失败。先用 RESPOND_TO_CHECKPOINT 准确闭环反馈，再在后续 action 中降低台阶、解释局部或讲清原理。
 8. 只有教学目标确实完成时才能 SUMMARIZE；总结不得引入新知识。
+9. 只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以向学生提问或要求学生回答。DECOMPOSE_STEP、EXPLAIN_LOCAL、EXPLAIN_PRINCIPLE、RESPOND_TO_CHECKPOINT、SUMMARIZE 的 message 必须全部使用陈述句，不得出现问号、反问句，也不得用‘你能……’‘请你……’‘想一想……’等方式隐性提问。
 
 action 选择提示：
 - 学生缺少整题方向或希望知道‘这题分几步做’：优先 DECOMPOSE_STEP。
 - 学生缺少一个概念、定理或方法的系统理解：选择 EXPLAIN_PRINCIPLE。
 - 学生已经有路线，但卡在一个具体连接、符号、计算或误区：选择 EXPLAIN_LOCAL。
 - 最新学生消息是尚未回应的 checkpoint_result：先选择 RESPOND_TO_CHECKPOINT，且只回应一次。
-- 需要学生展示推理：选择 ASK_OPEN_QUESTION；需要用选项定位误区：选择 ASK_MULTIPLE_CHOICE。
+- 需要新的学生证据时，默认优先选择 ASK_MULTIPLE_CHOICE；仅在自由表达本身就是必须观察的证据、且选项会明显提示答案时，才选择 ASK_OPEN_QUESTION。
 - 问题已解决并有足够理解证据：选择 SUMMARIZE。
 
 输出规则：
@@ -129,6 +130,8 @@ ACTION_PROTOCOL = f"""教学 action 协议：
 - 收到尚未回应的 checkpoint_result 后，先用且只用一次 RESPOND_TO_CHECKPOINT 闭环反馈；下一 action 再决定是否解释、提问或总结。
 - action 必须准确描述 message 真正在做的事情，不能用一个 action 的名字承载另一个 action 的内容。
 - 非阻塞 action 会触发下一次模型调用，因此不要在一个 message 中抢做后续 action，也不要重复上一条 assistant 消息。
+- 提问权只属于 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE。其他 action 必须纯陈述，不得包含显性问题、反问或任何要求学生作答的表达。
+- 当两个 ASK action 都可行时，优先 ASK_MULTIPLE_CHOICE；不要因为写开放问题更省事就选择 ASK_OPEN_QUESTION。
 
 可用 action 定义：
 {json.dumps(TEACHING_ACTION_DEFINITIONS, ensure_ascii=False, indent=2)}
@@ -163,6 +166,7 @@ JSON_CONTRACT = """返回 JSON 格式：
 - 不要输出 wait_for_student；后端会根据 action 强制填充。
 - 只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 会等待学生。
 - DECOMPOSE_STEP / EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / RESPOND_TO_CHECKPOINT 是非阻塞动作，后端会继续调用下一轮。
+- 只有两个 ASK action 可以提问；其余 action 的 message 必须为纯陈述句且不得出现问号。
 """
 
 
@@ -175,10 +179,10 @@ def build_messages(
 ) -> list[dict[str, Any]]:
     history = _without_legacy_initial_thought(session, history)
     loop_instruction = (
-        "本轮已经连续执行了 3 个非阻塞教学动作；你必须选择 ASK_OPEN_QUESTION 或 ASK_MULTIPLE_CHOICE，"
-        "获取新的学生证据后再继续。需要观察推理时用开放问题；需要用选项定位误区时用选择题。"
+        "本轮已经连续执行了 3 个非阻塞教学动作；你必须获取新的学生证据。"
+        "默认选择 ASK_MULTIPLE_CHOICE；仅当必须观察学生自由组织的推导或解释、且选项会提示答案时，才选择 ASK_OPEN_QUESTION。"
         if force_blocking
-        else f"当前连续非阻塞动作数：{nonblocking_streak}/3。若当前职责是规划、讲解或反馈，可以选择对应的非阻塞动作；若需要新的学生证据，请选择 ASK_OPEN_QUESTION 或 ASK_MULTIPLE_CHOICE。"
+        else f"当前连续非阻塞动作数：{nonblocking_streak}/3。若当前职责是规划、讲解或反馈，必须使用纯陈述句，不得提问；若需要新的学生证据，默认优先选择 ASK_MULTIPLE_CHOICE，只有自由表达不可替代时才选择 ASK_OPEN_QUESTION。"
     )
     session_context = {
         "kind": "session_context",
@@ -224,6 +228,8 @@ def build_messages(
                 "请根据完整上下文生成下一条且仅一条新的教学 action。"
                 "下一 action 必须承担不同且必要的教学职责；不要复述、改写或回显上一条 assistant 消息。"
                 "RESPOND_TO_CHECKPOINT 只可紧接尚未回应的 checkpoint_result 使用一次。"
+                "只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以提问；其他 action 必须使用纯陈述句。"
+                "需要学生作答时优先 ASK_MULTIPLE_CHOICE，只有自由表达不可替代时才用 ASK_OPEN_QUESTION。"
                 "输出必须遵守 system 中的 TutorTurn JSON 合同。"
             ),
             "nonblocking_streak": nonblocking_streak,

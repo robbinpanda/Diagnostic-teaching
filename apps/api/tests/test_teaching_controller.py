@@ -98,7 +98,10 @@ def test_action_protocol_keeps_teaching_responsibilities_distinct():
     assert "只对最近一次" in definitions["RESPOND_TO_CHECKPOINT"]["description"]
     assert "后续教学交给下一个 action" in definitions["RESPOND_TO_CHECKPOINT"]["boundaries"]
     assert "学生缺少整题方向" in teaching.SYSTEM_PROMPT
-    assert "需要用选项定位误区" in teaching.SYSTEM_PROMPT
+    assert "三个分别代表正确理解和不同误区的选项" in teaching.SYSTEM_PROMPT
+    assert "默认优先选择 ASK_MULTIPLE_CHOICE" in teaching.SYSTEM_PROMPT
+    assert "只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以向学生提问" in teaching.SYSTEM_PROMPT
+    assert "其余 action 的 message 必须为纯陈述句" in teaching.JSON_CONTRACT
 
 
 def test_build_messages_attaches_original_problem_image_to_tutoring_request():
