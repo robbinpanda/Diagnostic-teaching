@@ -48,10 +48,10 @@ docs/how-to-run.md
 
 ```txt
 学生输入/检查点选择
-  -> SQLite 取最近历史
-  -> build_messages 拼 prompt
+  -> SQLite 取完整结构化历史
+  -> build_messages 按 system / user / assistant 多轮消息拼 prompt
   -> LLM 产出 TutorTurn JSON
-  -> 后端校验 checkpoint + 落库 + JSONL
+  -> 后端校验 checkpoint + SQLite 落库 + 追加诊断日志
   -> SSE 流式推给前端
   -> 前端展示 message / KaTeX 公式 / checkpoint 弹窗
 ```
@@ -61,8 +61,8 @@ docs/how-to-run.md
 - Frontend: Next.js + React + TypeScript
 - Math Rendering: KaTeX（聊天气泡和检查点题干/选项支持 `$...$`、`$$...$$`、`\(...\)`、`\[...\]`）
 - Backend: FastAPI
-- Database: SQLite（业务态主存储）
-- Diagnostic Log: JSONL（`logs/sessions/<session_id>.jsonl`，全量诊断回放）
+- Database: SQLite（session、结构化消息、checkpoint 的权威存储，也是历史恢复来源）
+- Diagnostic Log: JSONL（机器审计）+ Markdown（留白充足的人类阅读版）
 - Model API: OpenAI-compatible chat completions（**已支持流式 stream=true**）
 
 ## 目录
@@ -72,7 +72,7 @@ apps/api   FastAPI 后端
   app/core/teaching_controller.py    LLM 决策合同 + prompt + 流式生成器 + fallback
   app/core/streaming.py              增量 JSON message 解析器（打字机）
   app/llm/provider.py                流式 chat completions
-  app/storage/session_logger.py      SessionLogger（jsonl 全量记录）
+  app/storage/session_logger.py      SessionLogger（JSONL + Markdown 诊断记录）
 apps/web   Next.js 前端
   components/MathText.tsx            KaTeX 数学公式渲染
 docs       文档
@@ -82,13 +82,14 @@ config     模型配置预设示例
 
 ## 诊断卡点怎么看
 
-跑一次会话后，每个 session 的全量诊断日志写到：
+跑一次会话后，每个 session 同时生成两份诊断日志：
 
 ```txt
 logs/sessions/<session_id>.jsonl
+logs/sessions/<session_id>.log.md
 ```
 
-每行一个事件，包含完整 prompt、LLM 原始返回（含 markdown/fence）、是否走 fallback、检查点全选项正误标签、耗时等。SQLite 仍是业务态主存储，JSONL 只写不读，专门用于“看卡点”。
+`.jsonl` 每行一个事件，适合脚本处理和审计；`.log.md` 按事件和消息分段并保留大量空行，适合直接阅读。两者都只写不读，不参与 session 恢复。历史会话列表与恢复全部从 SQLite 读取，恢复时复制为一个新的 session，保留原 session 不变。
 
 读取示例：
 

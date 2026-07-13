@@ -198,14 +198,6 @@ class SessionRepository:
                     ts,
                 ),
             )
-            if payload.student_initial_thought.strip():
-                conn.execute(
-                    """
-                    INSERT INTO messages (id, session_id, role, content, metadata_json, created_at)
-                    VALUES (?, ?, 'student', ?, '{}', ?)
-                    """,
-                    (new_id("msg"), session_id, payload.student_initial_thought.strip(), ts),
-                )
         return self.get(session_id)
 
     def get(self, session_id: str) -> sqlite3.Row:
@@ -237,41 +229,94 @@ class SessionRepository:
         session_id: str,
         role: str,
         content: str,
+        *,
+        action: str,
+        action_id: str | None = None,
+        in_reply_to_action_id: str | None = None,
         metadata: dict | None = None,
     ) -> sqlite3.Row:
         message_id = new_id("msg")
+        action_id = action_id or new_id("act")
         with self.db.connect() as conn:
             conn.execute(
                 """
-                INSERT INTO messages (id, session_id, role, content, metadata_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO messages (
+                  id, session_id, role, content, action_id, action,
+                  in_reply_to_action_id, metadata_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message_id,
                     session_id,
                     role,
                     content,
+                    action_id,
+                    action,
+                    in_reply_to_action_id,
                     json.dumps(metadata or {}, ensure_ascii=False),
                     now_iso(),
                 ),
             )
+            conn.execute(
+                "UPDATE sessions SET updated_at = ? WHERE id = ?",
+                (now_iso(), session_id),
+            )
         with self.db.connect() as conn:
             return conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
 
-    def list_messages(self, session_id: str, limit: int = 20) -> list[sqlite3.Row]:
+    def list_messages(self, session_id: str, limit: int | None = None) -> list[sqlite3.Row]:
         with self.db.connect() as conn:
+            if limit is None:
+                return conn.execute(
+                    """
+                    SELECT * FROM messages
+                    WHERE session_id = ?
+                    ORDER BY created_at ASC, rowid ASC
+                    """,
+                    (session_id,),
+                ).fetchall()
             rows = conn.execute(
                 """
                 SELECT * FROM messages
                 WHERE session_id = ?
-                ORDER BY created_at DESC
+                ORDER BY created_at DESC, rowid DESC
                 LIMIT ?
                 """,
                 (session_id, limit),
             ).fetchall()
         return list(reversed(rows))
 
-    def create_checkpoint(self, session_id: str, checkpoint: TutorCheckpoint) -> sqlite3.Row:
+    def latest_blocking_action_id(self, session_id: str) -> str | None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT action_id FROM messages
+                WHERE session_id = ? AND role = 'assistant'
+                  AND action IN ('ASK_OPEN_QUESTION', 'SHOW_CHECKPOINT_MC')
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT 1
+                """,
+                (session_id,),
+            ).fetchone()
+            if not row or not row["action_id"]:
+                return None
+            answered = conn.execute(
+                """
+                SELECT 1 FROM messages
+                WHERE session_id = ? AND role = 'student' AND in_reply_to_action_id = ?
+                LIMIT 1
+                """,
+                (session_id, row["action_id"]),
+            ).fetchone()
+        return None if answered else row["action_id"]
+
+    def create_checkpoint(
+        self,
+        session_id: str,
+        checkpoint: TutorCheckpoint,
+        *,
+        source_action_id: str,
+    ) -> sqlite3.Row:
         correct = [opt for opt in checkpoint.options if opt.is_correct]
         checkpoint_id = new_id("chk")
         with self.db.connect() as conn:
@@ -279,8 +324,8 @@ class SessionRepository:
                 """
                 INSERT INTO checkpoints (
                   id, session_id, question, options_json, correct_option_id,
-                  tested_point, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                  tested_point, source_action_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     checkpoint_id,
@@ -289,8 +334,13 @@ class SessionRepository:
                     checkpoint.model_dump_json(),
                     correct[0].id,
                     checkpoint.tested_point,
+                    source_action_id,
                     now_iso(),
                 ),
+            )
+            conn.execute(
+                "UPDATE sessions SET updated_at = ? WHERE id = ?",
+                (now_iso(), session_id),
             )
         return self.get_checkpoint(checkpoint_id)
 
@@ -301,14 +351,32 @@ class SessionRepository:
             raise KeyError(checkpoint_id)
         return row
 
-    def answer_checkpoint(
+    def list_checkpoints(self, session_id: str) -> list[sqlite3.Row]:
+        with self.db.connect() as conn:
+            return conn.execute(
+                """
+                SELECT * FROM checkpoints
+                WHERE session_id = ?
+                ORDER BY created_at ASC, rowid ASC
+                """,
+                (session_id,),
+            ).fetchall()
+
+    def record_checkpoint_response(
         self,
         checkpoint_id: str,
         selected_option_id: str,
         elapsed_ms: int,
         *,
-        session_id: str | None = None,
-    ) -> tuple[sqlite3.Row, bool]:
+        session_id: str,
+        student_message: str,
+        checkpoint_result: dict,
+        next_state_hint: str,
+    ) -> tuple[sqlite3.Row, bool, sqlite3.Row]:
+        """Atomically save the student's checkpoint result and conversation message."""
+        message_id = new_id("msg")
+        action_id = new_id("act")
+        ts = now_iso()
         with self.db.connect() as conn:
             row = conn.execute(
                 "SELECT * FROM checkpoints WHERE id = ?",
@@ -316,8 +384,10 @@ class SessionRepository:
             ).fetchone()
             if row is None:
                 raise KeyError(checkpoint_id)
-            if session_id is not None and row["session_id"] != session_id:
+            if row["session_id"] != session_id:
                 raise PermissionError(checkpoint_id)
+            if row["answered_at"] is not None:
+                raise FileExistsError(checkpoint_id)
 
             is_correct = selected_option_id == row["correct_option_id"]
             conn.execute(
@@ -326,10 +396,153 @@ class SessionRepository:
                 SET selected_option_id = ?, is_correct = ?, elapsed_ms = ?, answered_at = ?
                 WHERE id = ?
                 """,
-                (selected_option_id, int(is_correct), elapsed_ms, now_iso(), checkpoint_id),
+                (selected_option_id, int(is_correct), elapsed_ms, ts, checkpoint_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO messages (
+                  id, session_id, role, content, action_id, action,
+                  in_reply_to_action_id, metadata_json, created_at
+                ) VALUES (?, ?, 'student', ?, ?, 'CHECKPOINT_RESPONSE', ?, ?, ?)
+                """,
+                (
+                    message_id,
+                    session_id,
+                    student_message,
+                    action_id,
+                    row["source_action_id"],
+                    json.dumps({"checkpoint_result": checkpoint_result}, ensure_ascii=False),
+                    ts,
+                ),
+            )
+            conn.execute(
+                """
+                UPDATE sessions
+                SET phase = ?, breakpoint_description = NULL,
+                    breakpoint_confidence = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (next_state_hint, ts, session_id),
             )
             updated = conn.execute(
                 "SELECT * FROM checkpoints WHERE id = ?",
                 (checkpoint_id,),
             ).fetchone()
-        return updated, is_correct
+            student_row = conn.execute(
+                "SELECT * FROM messages WHERE id = ?",
+                (message_id,),
+            ).fetchone()
+        return updated, is_correct, student_row
+
+    def list_history(self) -> list[sqlite3.Row]:
+        with self.db.connect() as conn:
+            return conn.execute(
+                """
+                SELECT s.*,
+                       COALESCE(mp.display_name, '已删除的模型') AS model_display_name,
+                       (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count,
+                       (SELECT COUNT(*) FROM checkpoints c WHERE c.session_id = s.id) AS checkpoint_count
+                FROM sessions s
+                LEFT JOIN model_profiles mp ON mp.id = s.model_profile_id
+                ORDER BY s.updated_at DESC
+                """
+            ).fetchall()
+
+    def restore(self, source_session_id: str, model_profile_id: str) -> sqlite3.Row:
+        """Copy one SQLite session into a new resumable session."""
+        source = self.get(source_session_id)
+        messages = self.list_messages(source_session_id)
+        checkpoints = self.list_checkpoints(source_session_id)
+        new_session_id = new_id("sess")
+        ts = now_iso()
+        action_ids = {
+            message["action_id"]
+            for message in messages
+            if message["action_id"]
+        }
+        action_map = {action_id: new_id("act") for action_id in action_ids}
+        checkpoint_map = {checkpoint["id"]: new_id("chk") for checkpoint in checkpoints}
+
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO sessions (
+                  id, grade_band, subject, model_profile_id, problem_text,
+                  problem_image_data_url, student_initial_thought, phase,
+                  breakpoint_description, breakpoint_confidence, restored_from,
+                  created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    new_session_id,
+                    source["grade_band"],
+                    source["subject"],
+                    model_profile_id,
+                    source["problem_text"],
+                    source["problem_image_data_url"],
+                    source["student_initial_thought"],
+                    source["phase"],
+                    source["breakpoint_description"],
+                    source["breakpoint_confidence"],
+                    source["id"],
+                    ts,
+                    ts,
+                ),
+            )
+
+            for checkpoint in checkpoints:
+                conn.execute(
+                    """
+                    INSERT INTO checkpoints (
+                      id, session_id, question, options_json, correct_option_id,
+                      tested_point, source_action_id, selected_option_id,
+                      is_correct, elapsed_ms, created_at, answered_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        checkpoint_map[checkpoint["id"]],
+                        new_session_id,
+                        checkpoint["question"],
+                        checkpoint["options_json"],
+                        checkpoint["correct_option_id"],
+                        checkpoint["tested_point"],
+                        action_map.get(checkpoint["source_action_id"], checkpoint["source_action_id"]),
+                        checkpoint["selected_option_id"],
+                        checkpoint["is_correct"],
+                        checkpoint["elapsed_ms"],
+                        checkpoint["created_at"],
+                        checkpoint["answered_at"],
+                    ),
+                )
+
+            for message in messages:
+                try:
+                    metadata = json.loads(message["metadata_json"] or "{}")
+                except json.JSONDecodeError:
+                    metadata = {}
+                if metadata.get("checkpoint_id") in checkpoint_map:
+                    metadata["checkpoint_id"] = checkpoint_map[metadata["checkpoint_id"]]
+                result = metadata.get("checkpoint_result") or metadata.get("checkpoint_answer")
+                if isinstance(result, dict) and result.get("checkpoint_id") in checkpoint_map:
+                    result["checkpoint_id"] = checkpoint_map[result["checkpoint_id"]]
+                conn.execute(
+                    """
+                    INSERT INTO messages (
+                      id, session_id, role, content, action_id, action,
+                      in_reply_to_action_id, metadata_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        new_id("msg"),
+                        new_session_id,
+                        message["role"],
+                        message["content"],
+                        action_map.get(message["action_id"], new_id("act")),
+                        message["action"],
+                        action_map.get(message["in_reply_to_action_id"], message["in_reply_to_action_id"]),
+                        json.dumps(metadata, ensure_ascii=False),
+                        message["created_at"],
+                    ),
+                )
+
+        return self.get(new_session_id)

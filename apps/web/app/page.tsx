@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, ImageUp, Loader2, Pencil, Plus, Send, Settings2, Trash2 } from "lucide-react";
+import { Bot, History, ImageUp, Loader2, Pencil, Plus, RotateCcw, Send, Settings2, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckpointModal } from "../components/CheckpointModal";
 import { MathText } from "../components/MathText";
@@ -11,8 +11,11 @@ import {
   createSession,
   deleteModelProfile,
   fetchProfiles,
+  fetchSessionHistory,
   ModelProfile,
   Checkpoint,
+  restoreSession,
+  SessionHistoryItem,
   streamChat
 } from "../lib/api";
 
@@ -20,6 +23,7 @@ type ChatMessage = {
   id: string;
   role: "student" | "assistant" | "system";
   text: string;
+  action?: string;
 };
 
 export default function Home() {
@@ -49,6 +53,10 @@ export default function Home() {
   const [error, setError] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ModelProfile | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyItems, setHistoryItems] = useState<SessionHistoryItem[]>([]);
+  const [selectedHistoryId, setSelectedHistoryId] = useState("");
+  const [historyBusy, setHistoryBusy] = useState(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedProfile = useMemo(
@@ -99,8 +107,79 @@ export default function Home() {
     }
   }
 
-  function appendMessage(role: ChatMessage["role"], text: string) {
-    setMessages((current) => [...current, { id: crypto.randomUUID(), role, text }]);
+  function appendMessage(role: ChatMessage["role"], text: string, action?: string) {
+    setMessages((current) => [...current, { id: crypto.randomUUID(), role, text, action }]);
+  }
+
+  async function openHistory() {
+    setHistoryOpen(true);
+    setHistoryBusy(true);
+    setError("");
+    try {
+      const items = await fetchSessionHistory();
+      setHistoryItems(items);
+      setSelectedHistoryId((current) => current || items[0]?.session_id || "");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "历史会话加载失败");
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
+
+  async function handleRestoreSession() {
+    const source = historyItems.find((item) => item.session_id === selectedHistoryId);
+    if (!source) return;
+    const originalProfileAvailable = profiles.some((profile) => profile.id === source.model_profile_id);
+    const restoreProfileId = originalProfileAvailable ? source.model_profile_id : selectedProfileId;
+    if (!restoreProfileId) {
+      setError("原会话模型已不可用，请先在顶部选择一个替代模型再恢复。");
+      return;
+    }
+    setHistoryBusy(true);
+    setError("");
+    try {
+      const restored = await restoreSession({
+        session_id: source.session_id,
+        model_profile_id: restoreProfileId
+      });
+      const lastAssistant = [...restored.messages].reverse().find((message) => message.role === "assistant");
+      const lastMessage = restored.messages.at(-1);
+      const restoredImage = restored.problem_image_data_url ?? null;
+      setSessionId(restored.session_id);
+      setSelectedProfileId(restored.model_profile_id);
+      setGradeBand(restored.grade_band);
+      setProblemText(restored.problem_text);
+      setInitialThought(restored.student_initial_thought);
+      setOriginalProblemImage(restoredImage);
+      setProblemNeedsImage(Boolean(restoredImage));
+      setDiagramImage(restoredImage);
+      setDiagramNote(restoredImage ? "从 SQLite 历史会话恢复的题目原图" : "");
+      setMessages([
+        { id: crypto.randomUUID(), role: "system", text: `已从 SQLite 会话 ${source.session_id} 恢复为新会话。` },
+        ...restored.messages.map((message) => ({
+          id: message.id,
+          role: message.role,
+          text: message.text,
+          action: message.action
+        }))
+      ]);
+      setStateHint(restored.state_hint);
+      setAction(lastAssistant?.action ?? "-");
+      setWaitForStudent(
+        Boolean(
+          restored.pending_checkpoint ||
+          (lastMessage?.role === "assistant" && ["ASK_OPEN_QUESTION", "SHOW_CHECKPOINT_MC"].includes(lastMessage.action))
+        )
+      );
+      setBreakpointText(restored.breakpoint_description ?? "-");
+      setCheckpoint(restored.pending_checkpoint ?? null);
+      setCheckpointStartedAt(restored.pending_checkpoint ? Date.now() : null);
+      setHistoryOpen(false);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "恢复历史会话失败");
+    } finally {
+      setHistoryBusy(false);
+    }
   }
 
   function readFileAsDataUrl(file: File) {
@@ -114,8 +193,7 @@ export default function Home() {
 
   async function runStream(
     nextSessionId: string,
-    message?: string,
-    checkpointAnswer?: { checkpoint_id: string; selected_option_id: string; is_correct: boolean; event: string }
+    message?: string
   ) {
     setStreamBusy(true);
     setError("");
@@ -164,7 +242,7 @@ export default function Home() {
     }
 
     try {
-      await streamChat({ session_id: nextSessionId, message, checkpoint_answer: checkpointAnswer }, (event) => {
+      await streamChat({ session_id: nextSessionId, message }, (event) => {
         if (event.event === "decision") {
           const data = event.data as { state_hint?: string; action?: string; wait_for_student?: boolean; message?: string; breakpoint?: string };
           setStateHint(data.state_hint ?? "-");
@@ -172,6 +250,10 @@ export default function Home() {
           setWaitForStudent(Boolean(data.wait_for_student));
           setBreakpointText(data.breakpoint ?? "-");
           reconcileAssistantMessage(data.message);
+          if (assistantId && data.action) {
+            const id = assistantId;
+            setMessages((current) => current.map((item) => (item.id === id ? { ...item, action: data.action } : item)));
+          }
         }
         if (event.event === "message_delta") {
           const text = (event.data as { text: string }).text;
@@ -312,20 +394,17 @@ export default function Home() {
     if (!sessionId || !input.trim()) return;
     const text = input.trim();
     setInput("");
-    appendMessage("student", text);
+    appendMessage("student", text, "STUDENT_RESPONSE");
     await runStream(sessionId, text);
   }
 
   async function handleCheckpoint(optionId: string) {
     if (!checkpoint || !sessionId) return;
+    const activeCheckpoint = checkpoint;
+    const startedAt = checkpointStartedAt;
     const elapsed = checkpointStartedAt ? Date.now() - checkpointStartedAt : 0;
-    const selected = [...checkpoint.options, checkpoint.unknown_option].find((option) => option.id === optionId);
-    const optionLabel = selected ? `${selected.id} ${selected.text}` : optionId;
-    // 这一句会作为学生最新发言进入 AI 上下文，避免"答完检查点没反应"
-    const aiFacing = `我在检查点「${checkpoint.question}」选了：${optionLabel}`;
     setCheckpoint(null);
     setCheckpointStartedAt(null);
-    appendMessage("student", aiFacing);
     try {
       const answer = await answerCheckpoint({
         checkpointId: checkpoint.id,
@@ -333,13 +412,11 @@ export default function Home() {
         selected_option_id: optionId,
         elapsed_ms: elapsed
       });
-      await runStream(sessionId, aiFacing, {
-        checkpoint_id: checkpoint.id,
-        selected_option_id: optionId,
-        is_correct: answer.is_correct,
-        event: answer.event
-      });
+      appendMessage("student", answer.student_message, "CHECKPOINT_RESPONSE");
+      await runStream(sessionId);
     } catch (error) {
+      setCheckpoint(activeCheckpoint);
+      setCheckpointStartedAt(startedAt);
       setError(error instanceof Error ? error.message : "提交检查点失败");
     }
   }
@@ -357,6 +434,10 @@ export default function Home() {
           </div>
         </div>
         <div className="modelStrip">
+          <button className="secondaryButton" type="button" onClick={openHistory} disabled={startBusy || streamBusy || historyBusy}>
+            <History size={16} />
+            历史会话
+          </button>
           <select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)} disabled={startBusy || streamBusy || Boolean(deleteBusyId)}>
             <option value="">选择本次模型</option>
             {profiles.map((profile) => (
@@ -559,6 +640,50 @@ export default function Home() {
         onClose={() => setDialogOpen(false)}
         onSaved={(profileId) => refreshProfiles(profileId)}
       />
+      {historyOpen && (
+        <div className="modalBackdrop" role="dialog" aria-modal="true" aria-label="恢复历史会话">
+          <section className="historyDialog">
+            <div className="dialogHeader">
+              <div>
+                <h2>从 SQLite 恢复会话</h2>
+                <p>恢复会复制为新会话，原历史不会被修改。</p>
+              </div>
+              <button className="iconButton" type="button" onClick={() => setHistoryOpen(false)} aria-label="关闭">
+                <X size={17} />
+              </button>
+            </div>
+            {historyBusy && historyItems.length === 0 ? (
+              <div className="historyLoading"><Loader2 size={18} className="spin" /> 正在读取 SQLite…</div>
+            ) : historyItems.length === 0 ? (
+              <p className="emptyHint">SQLite 中还没有可恢复的会话。</p>
+            ) : (
+              <div className="historyList">
+                {historyItems.map((item) => (
+                  <button
+                    key={item.session_id}
+                    type="button"
+                    className={`historyItem ${selectedHistoryId === item.session_id ? "active" : ""}`}
+                    onClick={() => setSelectedHistoryId(item.session_id)}
+                  >
+                    <strong>{item.title || "未命名题目"}</strong>
+                    <span>{item.model_display_name} · {item.grade_band === "junior" ? "初中" : "高中"}</span>
+                    {item.restored_from && <span>恢复分支 · 来源 {item.restored_from}</span>}
+                    <span>{item.message_count} 条消息 · {item.checkpoint_count} 个检查点 · {item.state_hint}</span>
+                    <time>{new Date(item.updated_at).toLocaleString("zh-CN")}</time>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="dialogActions">
+              <button className="secondaryButton" type="button" onClick={() => setHistoryOpen(false)}>取消</button>
+              <button className="primaryButton" type="button" onClick={handleRestoreSession} disabled={!selectedHistoryId || historyBusy}>
+                {historyBusy ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}
+                恢复为新会话
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
       <CheckpointModal checkpoint={checkpoint} onChoose={handleCheckpoint} />
     </main>
   );

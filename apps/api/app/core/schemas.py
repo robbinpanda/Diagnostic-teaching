@@ -115,10 +115,55 @@ class SessionCreateResponse(BaseModel):
     model_profile_id: str
 
 
+class SessionHistoryItem(BaseModel):
+    session_id: str
+    restored_from: str | None = None
+    title: str
+    grade_band: Literal["junior", "senior"]
+    model_profile_id: str
+    model_display_name: str
+    message_count: int
+    checkpoint_count: int
+    state_hint: str
+    created_at: str
+    updated_at: str
+
+
+class SessionHistoryListResponse(BaseModel):
+    sessions: list[SessionHistoryItem]
+
+
+class SessionRestoreRequest(BaseModel):
+    session_id: str
+    model_profile_id: str
+
+
+class SessionRestoredMessage(BaseModel):
+    id: str
+    role: Literal["student", "assistant"]
+    text: str
+    action_id: str | None = None
+    action: str
+
+
+class SessionRestoreResponse(BaseModel):
+    session_id: str
+    restored_from: str
+    state_hint: str
+    breakpoint_description: str | None = None
+    model_profile_id: str
+    grade_band: Literal["junior", "senior"]
+    problem_text: str
+    student_initial_thought: str
+    problem_image_data_url: str | None = None
+    messages: list[SessionRestoredMessage]
+    pending_checkpoint: dict[str, Any] | None = None
+
+
 class ChatStreamRequest(BaseModel):
     session_id: str
     message: str | None = None
-    # 当本轮 student 消息其实是检查点答题时附带，用于落库 metadata 与 AI 上下文标记，role 仍记为 student
+    # 仅兼容旧前端；新流程由 checkpoint answer 接口原子写入 CHECKPOINT_RESPONSE。
     checkpoint_answer: dict[str, Any] | None = None
 
 
@@ -132,6 +177,8 @@ class CheckpointAnswerResponse(BaseModel):
     is_correct: bool
     event: Literal["CHECKPOINT_CORRECT", "CHECKPOINT_WRONG", "CHECKPOINT_UNKNOWN"]
     next_state_hint: str
+    student_message: str
+    action_id: str
 
 
 class TutorCheckpointOption(BaseModel):

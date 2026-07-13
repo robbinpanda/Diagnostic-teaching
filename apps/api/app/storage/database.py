@@ -51,6 +51,7 @@ class Database:
                   phase TEXT NOT NULL,
                   breakpoint_description TEXT,
                   breakpoint_confidence REAL,
+                  restored_from TEXT,
                   created_at TEXT NOT NULL,
                   updated_at TEXT NOT NULL
                 );
@@ -60,6 +61,9 @@ class Database:
                   session_id TEXT NOT NULL,
                   role TEXT NOT NULL,
                   content TEXT NOT NULL,
+                  action_id TEXT,
+                  action TEXT NOT NULL DEFAULT 'LEGACY_MESSAGE',
+                  in_reply_to_action_id TEXT,
                   metadata_json TEXT NOT NULL DEFAULT '{}',
                   created_at TEXT NOT NULL
                 );
@@ -71,6 +75,7 @@ class Database:
                   options_json TEXT NOT NULL,
                   correct_option_id TEXT NOT NULL,
                   tested_point TEXT NOT NULL,
+                  source_action_id TEXT,
                   selected_option_id TEXT,
                   is_correct INTEGER,
                   elapsed_ms INTEGER,
@@ -99,6 +104,16 @@ class Database:
                 "problem_image_data_url",
                 "TEXT",
             )
+            self._ensure_column(conn, "sessions", "restored_from", "TEXT")
+            self._ensure_column(conn, "messages", "action_id", "TEXT")
+            self._ensure_column(
+                conn,
+                "messages",
+                "action",
+                "TEXT NOT NULL DEFAULT 'LEGACY_MESSAGE'",
+            )
+            self._ensure_column(conn, "messages", "in_reply_to_action_id", "TEXT")
+            self._ensure_column(conn, "checkpoints", "source_action_id", "TEXT")
 
     def _ensure_column(
         self,

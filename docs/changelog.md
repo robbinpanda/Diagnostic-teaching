@@ -2,6 +2,23 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v0.7 — 2026-07-13
+
+### 结构化多轮上下文与 SQLite 恢复
+
+- LLM 输入改为真实的 `system / user / assistant` 多轮 messages；每条历史消息独立发送，不再拼成单个历史文本块。
+- 应用层取消最近 20 条限制，不做上下文摘要或压缩。
+- system prompt 新增 `ACTION_PROTOCOL`，逐项说明教学 action 的功能、格式、阻塞性和后端行为。
+- `messages` 新增 `action_id / action / in_reply_to_action_id`，`checkpoints` 新增 `source_action_id`。
+- checkpoint 答案由答题接口直接保存为结构化 `CHECKPOINT_RESPONSE / checkpoint_result`，下一轮不再由前端重复提交。
+- 新增 SQLite 历史列表与恢复接口；恢复会复制为新 session，并重建 action/checkpoint 引用关系，JSONL 不参与恢复。
+
+### 人与机器分开的日志
+
+- `<session_id>.jsonl` 保持严格一行一事件，供脚本分析和审计。
+- 同步生成 `<session_id>.log.md`，按消息和事件分节、增加空行，供人工直接阅读。
+- 日志仍是只追加诊断数据；SQLite 是唯一可恢复的权威状态。
+
 ## v0.5 — 2026-07-08
 
 ### KaTeX 数学公式渲染

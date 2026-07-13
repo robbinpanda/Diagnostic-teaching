@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "data" / "app.db"
+LOG_DIR = ROOT / "logs" / "sessions"
 
 
 def print_json(title: str, rows: list[sqlite3.Row]) -> None:
@@ -29,7 +30,14 @@ def timeline(conn: sqlite3.Connection, session_id: str) -> None:
     print("\n===== TIMELINE =====")
     message_rows = conn.execute(
         """
-        SELECT created_at AS ts, role AS kind, content AS body, metadata_json AS extra
+        SELECT created_at AS ts, role AS kind, content AS body,
+               json_object(
+                 'message_id', id,
+                 'action_id', action_id,
+                 'action', action,
+                 'in_reply_to_action_id', in_reply_to_action_id,
+                 'metadata_json', metadata_json
+               ) AS extra
         FROM messages
         WHERE session_id = ?
         ORDER BY created_at
@@ -41,6 +49,7 @@ def timeline(conn: sqlite3.Connection, session_id: str) -> None:
         SELECT created_at AS ts, 'checkpoint_created' AS kind, question AS body,
                json_object(
                  'id', id,
+                 'source_action_id', source_action_id,
                  'correct_option_id', correct_option_id,
                  'selected_option_id', selected_option_id,
                  'is_correct', is_correct,
@@ -89,10 +98,16 @@ def main() -> int:
 
     sessions = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchall()
     print_json("SESSION", sessions)
+    readable_log = LOG_DIR / f"{session_id}.log.md"
+    jsonl_log = LOG_DIR / f"{session_id}.jsonl"
+    print("\n===== LOG FILES =====")
+    print(f"Human-readable: {readable_log}{'' if readable_log.exists() else ' (not found)'}")
+    print(f"Machine JSONL:  {jsonl_log}{'' if jsonl_log.exists() else ' (not found)'}")
     timeline(conn, session_id)
     messages = conn.execute(
         """
-        SELECT id, role, content, metadata_json, created_at
+        SELECT id, role, action_id, action, in_reply_to_action_id,
+               content, metadata_json, created_at
         FROM messages
         WHERE session_id = ?
         ORDER BY created_at
@@ -102,7 +117,7 @@ def main() -> int:
     print_json("MESSAGES RAW", messages)
     checkpoints = conn.execute(
         """
-        SELECT id, question, options_json, correct_option_id, selected_option_id,
+        SELECT id, source_action_id, question, options_json, correct_option_id, selected_option_id,
                is_correct, elapsed_ms, created_at, answered_at
         FROM checkpoints
         WHERE session_id = ?

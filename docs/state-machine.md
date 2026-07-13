@@ -1,7 +1,7 @@
 # 答疑状态机与 LLM 主导流程
 
-版本：v0.6
-日期：2026-07-08
+版本：v0.7
+日期：2026-07-13
 适用项目：诊断式数学答疑 MVP
 
 本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作；后端根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop，直到需要学生回答或完成总结。**
@@ -13,7 +13,7 @@
 - `MAX_NONBLOCKING_ACTIONS` 的 bounded loop 上限
 - `validate_checkpoint()` 的检查点质量约束
 - `build_messages()` 拼给模型的上下文
-- 前端 `handleCheckpoint()` 回传给模型的学生答题表达
+- `ACTION_PROTOCOL` 的 action 用途、格式和阻塞说明
 
 ## 1. 总体闭环
 
@@ -21,19 +21,21 @@
 sequenceDiagram
   participant Student as 学生/前端
   participant API as FastAPI
-  participant Store as SQLite + JSONL
+  participant DB as SQLite
+  participant Log as JSONL + Markdown
   participant LLM as 语言模型
 
   Student->>API: 创建会话或发送消息 / 答检查点
-  API->>Store: 写 student message / checkpoint answer
+  API->>DB: 写 student message / checkpoint answer
   loop 最多 3 个连续非阻塞 action
-    API->>Store: 读取 session + 最近 20 条 messages
-    API->>LLM: system prompt + user prompt(JSON_CONTRACT + loop instruction)
+    API->>DB: 读取 session + 全部 messages
+    API->>LLM: system + SESSION_START + 结构化 user/assistant 多轮消息
     LLM-->>API: stream=true 原始 JSON token
     API-->>Student: SSE message_delta(本 action 可见内容)
     API->>API: raw 完整后解析 TutorTurn
     API->>API: validate checkpoint + apply_backend_action_policy()
-    API->>Store: update state_hint + add assistant message + JSONL tutor_turn
+    API->>DB: update state_hint + add assistant message/action
+    API->>Log: 追加 JSONL 事件和 Markdown 阅读版
     API-->>Student: decision + message_done
   end
   API-->>Student: checkpoint_ready 或等待开放问题回复 / 或 SUMMARIZE 结束
@@ -47,6 +49,7 @@ sequenceDiagram
 - `DECOMPOSE_STEP`、`EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是非阻塞动作，后端会继续调用下一轮 LLM。
 - 连续 3 个非阻塞动作后，下一轮 prompt 会强制要求阻塞动作；若模型仍输出非阻塞动作，后端会转成 `ASK_OPEN_QUESTION`。
 - `SUMMARIZE` 是终止动作，不等待学生。
+- 项目不主动截断、压缩或摘要历史；模型供应商自身的硬上下文限制仍然存在。
 
 ## 2. LLM 输出合同：TutorTurn
 
@@ -92,6 +95,8 @@ sequenceDiagram
 ## 4. action 是真正的教学动作
 
 `action` 现在是工作流控制的核心字段。
+
+system prompt 会在 `ACTION_PROTOCOL` 中逐项告诉模型每个 action 的功能、必需字段、阻塞性和后端行为。action 只是教学控制协议，不是外部 tool call。
 
 | action | 类型 | 后端行为 |
 |---|---|---|
@@ -160,23 +165,22 @@ RESPOND_TO_CHECKPOINT
 
 ## 7. 检查点如何反馈给 LLM
 
-学生答检查点仍分两步：
+学生答检查点仍有“保存答案”和“继续生成”两个请求，但学生结果只入库一次：
 
 1. `POST /api/checkpoints/{id}/answer`
    - 写 `selected_option_id / is_correct / elapsed_ms`
    - `CHECKPOINT_CORRECT -> next_state_hint = scaffolding`
    - `CHECKPOINT_WRONG -> next_state_hint = recovering`
    - `CHECKPOINT_UNKNOWN -> next_state_hint = recovering`
+   - 同时直接写 role=`student`、action=`CHECKPOINT_RESPONSE` 的 message
+   - metadata 保存结构化 `checkpoint_result`
+   - `in_reply_to_action_id` 指向产生检查点的 `SHOW_CHECKPOINT_MC`
 
 2. 前端立刻再调 `POST /api/chat/stream`
-   - message 形如：
-     ```text
-     我在检查点「{checkpoint.question}」选了：{option.id} {option.text}
-     ```
-   - 这条消息以普通 `student` role 入库
-   - metadata 中附带 `checkpoint_answer`
+   - 不再重复提交 message
+   - 后端从 SQLite 完整 history 中读取刚保存的 `checkpoint_result`
 
-真正影响 LLM 的不是隐藏状态，而是历史对话里这句自然语言学生反馈。
+checkpoint 类似一次需要结果的调用，但结果来自学生，而不是电脑工具。下一轮 LLM 同时看到可读的学生选择和结构化的正误、误区、耗时、event 与 next_state_hint。
 
 ## 8. SSE 事件顺序
 
@@ -207,7 +211,7 @@ message_done
 
 ## 9. 日志口径
 
-JSONL 中每一次 LLM 调用都会单独写一条 `tutor_turn`：
+每次 LLM 调用都会同时追加严格 JSONL 和留白充足的 Markdown。JSONL 中每一次调用单独写一条 `tutor_turn`：
 
 - `prompt_messages`
 - `raw_response`
@@ -217,7 +221,7 @@ JSONL 中每一次 LLM 调用都会单独写一条 `tutor_turn`：
 - `used_fallback`
 - `error`
 
-所以 bounded loop 中的每个 action 都能单独复盘。检查点答案事件使用 `next_state_hint` 记录后端预置的下一轮状态提示。
+所以 bounded loop 中的每个 action 都能单独复盘。检查点答案事件使用 `next_state_hint` 记录后端预置的下一轮状态提示。两种日志都不参与 session 恢复；历史恢复只读 SQLite。
 
 做运行分析时优先看：
 

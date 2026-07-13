@@ -20,6 +20,58 @@ TERMINAL_ACTIONS = {"SUMMARIZE"}
 VALID_ACTIONS = BLOCKING_ACTIONS | NONBLOCKING_ACTIONS | TERMINAL_ACTIONS
 FORMAT_RETRY_LIMIT = 1
 
+TEACHING_ACTION_DEFINITIONS = [
+    {
+        "name": "ASK_OPEN_QUESTION",
+        "description": "向学生提出一个需要自由作答的小问题，用于诊断或推进一步。",
+        "blocking": True,
+        "requires": ["message 末尾应包含清晰问题"],
+        "backend_behavior": "展示 message 后停止生成，等待学生回复。",
+    },
+    {
+        "name": "SHOW_CHECKPOINT_MC",
+        "description": "发起一个三选一知识检查点，另外提供我不知道选项。",
+        "blocking": True,
+        "requires": ["checkpoint", "恰好三个普通选项", "恰好一个正确答案"],
+        "backend_behavior": "保存 checkpoint、展示选择题并等待学生作答。",
+    },
+    {
+        "name": "DECOMPOSE_STEP",
+        "description": "只拆解当前解题过程中的一个小步骤。",
+        "blocking": False,
+        "requires": ["只讲一个步骤", "checkpoint 必须为 null"],
+        "backend_behavior": "展示后立即进入下一个教学 action。",
+    },
+    {
+        "name": "EXPLAIN_LOCAL",
+        "description": "针对当前卡点做局部讲解，不扩展成完整讲题。",
+        "blocking": False,
+        "requires": ["只解释一个局部关键点", "checkpoint 必须为 null"],
+        "backend_behavior": "展示后立即进入下一个教学 action。",
+    },
+    {
+        "name": "EXPLAIN_PRINCIPLE",
+        "description": "解释学生当前缺失的一个数学原理。",
+        "blocking": False,
+        "requires": ["只解释一个原理", "checkpoint 必须为 null"],
+        "backend_behavior": "展示后立即进入下一个教学 action。",
+    },
+    {
+        "name": "RESPOND_TO_CHECKPOINT",
+        "description": "根据结构化 checkpoint_result 回应学生的选择、正误和误区。",
+        "blocking": False,
+        "requires": ["明确利用最近 checkpoint_result", "checkpoint 必须为 null"],
+        "backend_behavior": "展示反馈后立即进入下一个教学 action。",
+    },
+    {
+        "name": "SUMMARIZE",
+        "description": "总结本次已经解决的卡点和学生掌握情况。",
+        "blocking": False,
+        "requires": ["只有教学目标已经完成时使用", "checkpoint 必须为 null"],
+        "backend_behavior": "展示总结并结束当前生成流程。",
+    },
+]
+
 
 SYSTEM_PROMPT = """你是一个面向中国初高中学生的诊断式数学答疑老师。
 你的目标不是从头完整讲题，而是先判断学生卡在哪里，再从断点附近推进。
@@ -32,6 +84,19 @@ SYSTEM_PROMPT = """你是一个面向中国初高中学生的诊断式数学答�
 5. 输出必须是 JSON，不能包裹 markdown。
 6. message 必须是非空中文，必须能直接展示给学生，不能写 JSON 说明文字。
 7. 不要在内部做冗长的思考过程，直接产出最终 JSON；宁可简洁也不要长时间不出字。
+"""
+
+
+ACTION_PROTOCOL = f"""教学 action 协议：
+- action 不是外部工具调用，不会执行电脑操作；它是后端教学工作流的控制字段。
+- 每次 assistant 消息必须且只能对应一个 action。后端会为它分配 action_id。
+- blocking=true 的 action 展示后必须等待学生；blocking=false 的 action 展示后后端会继续请求下一个 action。
+- checkpoint_call 类似工具调用的请求部分，但其结果不是电脑返回，而是学生作答后形成的 user/checkpoint_result 消息。
+- 收到 checkpoint_result 后，应根据其中的 selected_text、is_correct、misconception 和 elapsed_ms 决定下一步。
+- 不要输出 tool_calls，不要伪造 action_id，不要把多个 action 合并在同一 message 中。
+
+可用 action 定义：
+{json.dumps(TEACHING_ACTION_DEFINITIONS, ensure_ascii=False, indent=2)}
 """
 
 
@@ -73,27 +138,28 @@ def build_messages(
     nonblocking_streak: int = 0,
     force_blocking: bool = False,
 ) -> list[dict[str, Any]]:
-    history_text = "\n".join(render_history_row(row) for row in history)
+    history = _without_legacy_initial_thought(session, history)
     loop_instruction = (
         "本轮已经连续执行了 3 个非阻塞教学动作；你必须选择 ASK_OPEN_QUESTION 或 SHOW_CHECKPOINT_MC，"
         "让学生回答后再继续。若选择 SHOW_CHECKPOINT_MC，必须提供合法 checkpoint。"
         if force_blocking
         else f"当前连续非阻塞动作数：{nonblocking_streak}/3。若还只是在讲解，可以选择非阻塞动作；若需要学生参与，请选择 ASK_OPEN_QUESTION 或 SHOW_CHECKPOINT_MC。"
     )
-    user_prompt = f"""题目：
-{session['problem_text']}
-
-学生初始思路：
-{session['student_initial_thought'] or '学生还没有提供明确思路'}
-
-当前状态提示：{session['phase']}
-历史对话：
-{history_text or '暂无'}
-
-请决定下一步教学动作。
-{loop_instruction}
-{JSON_CONTRACT}
-"""
+    session_context = {
+        "kind": "session_context",
+        "message_action": {
+            "id": "session_start",
+            "type": "SESSION_START",
+            "blocking": False,
+        },
+        "grade_band": session["grade_band"] if "grade_band" in session.keys() else None,
+        "subject": session["subject"] if "subject" in session.keys() else "math",
+        "problem_text": session["problem_text"],
+        "student_initial_thought": session["student_initial_thought"] or "学生还没有提供明确思路",
+        "current_state_hint": session["phase"],
+        "has_problem_image": bool(session["problem_image_data_url"]) if "problem_image_data_url" in session.keys() else False,
+    }
+    user_prompt = json.dumps(session_context, ensure_ascii=False, indent=2)
     try:
         problem_image_data_url = session["problem_image_data_url"]
     except (KeyError, IndexError):
@@ -104,25 +170,98 @@ def build_messages(
         user_content = [
             {
                 "type": "text",
-                "text": f"{user_prompt}\n\n这是一道含题图的题目，请结合随本消息附带的用户原始图片判断图形关系。",
+                "text": f"{user_prompt}\n\n题目原图附在本条 SESSION_START 消息中，请结合图片判断图形关系。",
             },
             {"type": "image_url", "image_url": {"url": problem_image_data_url}},
         ]
 
+    system = f"{SYSTEM_PROMPT}\n{ACTION_PROTOCOL}\n{JSON_CONTRACT}\n\n当前工作流约束：{loop_instruction}"
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system},
         {"role": "user", "content": user_content},
+        *(render_history_message(row) for row in history),
     ]
 
 
-def render_history_row(row: Row) -> str:
-    role = row["role"]
+def _row_value(row: Row | dict, key: str, default=None):
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return default
+
+
+def _without_legacy_initial_thought(session: Row | dict, history: list[Row]) -> list[Row]:
+    """Avoid sending old sessions' duplicated initial thought twice.
+
+    Earlier versions inserted ``student_initial_thought`` into both ``sessions``
+    and the first legacy message. New sessions keep it only in SESSION_START.
+    """
+    if not history:
+        return history
+    first = history[0]
+    initial_thought = (_row_value(session, "student_initial_thought", "") or "").strip()
+    first_action = _row_value(first, "action")
+    is_legacy = not first_action or first_action in {"LEGACY_MESSAGE", "LEGACY_STUDENT_MESSAGE"}
+    if (
+        initial_thought
+        and _row_value(first, "role") == "student"
+        and (_row_value(first, "content", "") or "").strip() == initial_thought
+        and is_legacy
+    ):
+        return history[1:]
+    return history
+
+
+def _message_metadata(row: Row | dict) -> dict[str, Any]:
+    raw = _row_value(row, "metadata_json", "{}")
+    try:
+        parsed = json.loads(raw or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def render_history_message(row: Row | dict) -> dict[str, str]:
+    stored_role = _row_value(row, "role", "student")
+    role = "assistant" if stored_role == "assistant" else "user"
     content = row["content"]
-    if role == "assistant" and (
+    if stored_role == "assistant" and (
         '```json' in content[:30] or '"phase"' in content[:200] or '"state_hint"' in content[:200]
     ):
         content = recover_tutor_turn_from_raw(content).message
-    return f"{role}: {content}"
+    metadata = _message_metadata(row)
+    action = _row_value(row, "action") or metadata.get("action")
+    if not action:
+        action = "LEGACY_ASSISTANT_MESSAGE" if stored_role == "assistant" else "LEGACY_STUDENT_MESSAGE"
+    action_id = _row_value(row, "action_id")
+    envelope: dict[str, Any] = {
+        "kind": "teaching_action" if stored_role == "assistant" else "student_message",
+        "message_action": {
+            "id": action_id,
+            "type": action,
+            "blocking": action in BLOCKING_ACTIONS,
+        },
+        "in_reply_to_action_id": _row_value(row, "in_reply_to_action_id"),
+        "message": content,
+    }
+    if stored_role == "assistant":
+        envelope.update(
+            {
+                "state_hint": metadata.get("state_hint"),
+                "wait_for_student": metadata.get("wait_for_student"),
+                "breakpoint_description": metadata.get("breakpoint"),
+            }
+        )
+        if metadata.get("checkpoint"):
+            envelope["checkpoint_call"] = {
+                "checkpoint_id": metadata.get("checkpoint_id"),
+                "checkpoint": metadata["checkpoint"],
+            }
+    checkpoint_result = metadata.get("checkpoint_result") or metadata.get("checkpoint_answer")
+    if isinstance(checkpoint_result, dict):
+        envelope["kind"] = "checkpoint_result"
+        envelope["checkpoint_result"] = checkpoint_result
+    return {"role": role, "content": json.dumps(envelope, ensure_ascii=False)}
 
 
 def extract_json_object(content: str) -> dict:

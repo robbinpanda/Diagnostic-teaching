@@ -152,3 +152,35 @@ def test_problem_image_is_logged_once_then_replaced_with_placeholder(tmp_path: P
     assert first_url == image_data_url
     assert second_url.startswith("[题目原图已在本会话首次")
     assert messages[0]["content"][1]["image_url"]["url"] == image_data_url
+
+
+def test_logger_writes_spacious_human_readable_companion(tmp_path: Path):
+    logger = SessionLogger(tmp_path)
+    logger.log_session_started(
+        session_id="sess_readable",
+        model="demo-model",
+        grade_band="junior",
+        problem_text="第一行题目\n第二行题目",
+        student_initial_thought="先设未知数。",
+    )
+    logger.log_message(
+        session_id="sess_readable",
+        message_id="msg_1",
+        role="student",
+        action_id="act_1",
+        action="STUDENT_RESPONSE",
+        in_reply_to_action_id="act_0",
+        content="我的回答有两步：\n1. 移项\n2. 合并",
+    )
+
+    readable = (tmp_path / "sess_readable.log.md").read_text(encoding="utf-8")
+    assert "# Session sess_readable" in readable
+    assert "## " in readable
+    assert "### 题目" in readable
+    assert "第一行题目\n    第二行题目" in readable
+    assert "Action: `STUDENT_RESPONSE`" in readable
+    assert "1. 移项\n    2. 合并" in readable
+
+    jsonl_lines = (tmp_path / "sess_readable.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(jsonl_lines) == 2
+    assert all(json.loads(line) for line in jsonl_lines)

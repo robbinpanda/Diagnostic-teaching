@@ -71,7 +71,7 @@ def test_local_demo_chat_stream_emits_checkpoint(tmp_path: Path):
 
 
 def test_checkpoint_answer_drives_followup_instead_of_loop(tmp_path: Path):
-    """覆盖漏洞 1+2：答完检查点后选择作为 message 进入 AI，第二轮应推进讲解而非再次弹同一检查点"""
+    """答题接口已写入 result，下一轮不重复提交 message 也能继续讲解。"""
     client, session_id = _bootstrap_app(tmp_path)
 
     # 第一轮：拿到检查点
@@ -82,7 +82,7 @@ def test_checkpoint_answer_drives_followup_instead_of_loop(tmp_path: Path):
     assert checkpoint_event is not None, "第一轮应弹检查点"
     checkpoint_id = checkpoint_event["id"]
 
-    # 学生答题（与前端 handleCheckpoint 一致：先 /answer，再带 message 走 /chat/stream）
+    # 学生答题：/answer 原子写 checkpoints 和 CHECKPOINT_RESPONSE message。
     answer = client.post(
         f"/api/checkpoints/{checkpoint_id}/answer",
         json={
@@ -94,12 +94,8 @@ def test_checkpoint_answer_drives_followup_instead_of_loop(tmp_path: Path):
     assert answer.status_code == 200
     assert answer.json()["event"] == "CHECKPOINT_CORRECT"
 
-    # 第二轮：把选择作为 message 传给 /chat/stream
-    ai_facing = "我在检查点「要让一个带负号的平方项整体变大，平方项应该尽量怎样？」选了：A 尽量小，最好为 0"
-    second = client.post(
-        "/api/chat/stream",
-        json={"session_id": session_id, "message": ai_facing},
-    )
+    # 第二轮：只触发生成；选择已经从 SQLite 结构化 history 进入模型上下文。
+    second = client.post("/api/chat/stream", json={"session_id": session_id})
     assert second.status_code == 200
     second_events = _parse_sse_events(second.text)
     second_checkpoint = next((d for e, d in second_events if e == "checkpoint_ready"), None)
@@ -111,6 +107,79 @@ def test_checkpoint_answer_drives_followup_instead_of_loop(tmp_path: Path):
     visible = "".join(d.get("text", "") for d in deltas)
     assert visible.strip(), "第二轮应输出可见讲解而非空内容"
     assert "x=3" in visible or "为 0" in visible or "最大值 5" in visible
+
+
+def test_checkpoint_answer_is_structured_student_result(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    first = client.post("/api/chat/stream", json={"session_id": session_id})
+    checkpoint_id = next(d["id"] for e, d in _parse_sse_events(first.text) if e == "checkpoint_ready")
+
+    answer = client.post(
+        f"/api/checkpoints/{checkpoint_id}/answer",
+        json={"session_id": session_id, "selected_option_id": "B", "elapsed_ms": 900},
+    )
+
+    assert answer.status_code == 200
+    assert answer.json()["student_message"].startswith("我在检查点")
+    messages = client.app.state.sessions.list_messages(session_id)
+    result_message = messages[-1]
+    metadata = json.loads(result_message["metadata_json"])
+    assert result_message["role"] == "student"
+    assert result_message["action"] == "CHECKPOINT_RESPONSE"
+    assert result_message["in_reply_to_action_id"]
+    assert metadata["checkpoint_result"]["checkpoint_id"] == checkpoint_id
+    assert metadata["checkpoint_result"]["is_correct"] is False
+    assert metadata["checkpoint_result"]["misconception"]
+
+    duplicate = client.post(
+        f"/api/checkpoints/{checkpoint_id}/answer",
+        json={"session_id": session_id, "selected_option_id": "A", "elapsed_ms": 1000},
+    )
+    assert duplicate.status_code == 409
+    checkpoint_results = [
+        row for row in client.app.state.sessions.list_messages(session_id)
+        if row["action"] == "CHECKPOINT_RESPONSE"
+    ]
+    assert len(checkpoint_results) == 1
+
+
+def test_sqlite_history_can_be_restored_as_new_session(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    first = client.post("/api/chat/stream", json={"session_id": session_id})
+    checkpoint_id = next(d["id"] for e, d in _parse_sse_events(first.text) if e == "checkpoint_ready")
+    client.post(
+        f"/api/checkpoints/{checkpoint_id}/answer",
+        json={"session_id": session_id, "selected_option_id": "A", "elapsed_ms": 700},
+    )
+
+    history = client.get("/api/sessions/history")
+    assert history.status_code == 200
+    item = next(item for item in history.json()["sessions"] if item["session_id"] == session_id)
+    assert item["message_count"] == 2
+    profile_id = client.app.state.sessions.get(session_id)["model_profile_id"]
+
+    restored = client.post(
+        "/api/sessions/restore",
+        json={"session_id": session_id, "model_profile_id": profile_id},
+    )
+
+    assert restored.status_code == 200
+    payload = restored.json()
+    assert payload["session_id"] != session_id
+    assert payload["restored_from"] == session_id
+    assert [message["action"] for message in payload["messages"]] == [
+        "SHOW_CHECKPOINT_MC",
+        "CHECKPOINT_RESPONSE",
+    ]
+    original_messages = client.app.state.sessions.list_messages(session_id)
+    copied_messages = client.app.state.sessions.list_messages(payload["session_id"])
+    assert [row["content"] for row in copied_messages] == [row["content"] for row in original_messages]
+    assert [row["id"] for row in copied_messages] != [row["id"] for row in original_messages]
+    assert copied_messages[1]["in_reply_to_action_id"] == copied_messages[0]["action_id"]
+    original_checkpoint = client.app.state.sessions.list_checkpoints(session_id)[0]
+    copied_checkpoint = client.app.state.sessions.list_checkpoints(payload["session_id"])[0]
+    assert copied_checkpoint["id"] != original_checkpoint["id"]
+    assert copied_checkpoint["source_action_id"] == copied_messages[0]["action_id"]
 
 
 def test_answer_unknown_triggers_recovery_phase(tmp_path: Path):

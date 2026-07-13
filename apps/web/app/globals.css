@@ -451,7 +451,8 @@ textarea {
 }
 
 .modelDialog,
-.checkpointDialog {
+.checkpointDialog,
+.historyDialog {
   width: min(560px, 100%);
   max-height: calc(100vh - 40px);
   overflow: auto;
@@ -464,6 +465,58 @@ textarea {
   padding: 18px;
   display: grid;
   gap: 14px;
+}
+
+.historyDialog {
+  width: min(720px, 100%);
+  padding: 18px;
+  display: grid;
+  gap: 16px;
+}
+
+.historyLoading {
+  min-height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.historyList {
+  max-height: min(520px, 62vh);
+  overflow-y: auto;
+  display: grid;
+  gap: 9px;
+  padding-right: 3px;
+}
+
+.historyItem {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 13px 14px;
+  display: grid;
+  gap: 5px;
+  color: var(--ink);
+  text-align: left;
+}
+
+.historyItem:hover,
+.historyItem.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.historyItem strong {
+  line-height: 1.45;
+}
+
+.historyItem span,
+.historyItem time {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .dialogActions {

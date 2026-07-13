@@ -29,13 +29,47 @@ export type Checkpoint = {
 };
 
 export type SseEvent =
-  | { event: "decision"; data: { state_hint?: string; action?: string; wait_for_student?: boolean; message?: string; breakpoint?: string; confidence?: number; action_index?: number } }
+  | { event: "decision"; data: { state_hint?: string; action?: string; action_id?: string; wait_for_student?: boolean; message?: string; breakpoint?: string; confidence?: number; action_index?: number } }
   | { event: "message_delta"; data: { text: string; action_index?: number } }
   | { event: "message_reset"; data: { action_index?: number } }
   | { event: "checkpoint_ready"; data: Checkpoint }
   | { event: "message_done"; data: { ok: boolean; action_index?: number; wait_for_student?: boolean; will_continue?: boolean } }
   | { event: "error"; data: { message: string } }
   | { event: string; data: Record<string, unknown> };
+
+export type SessionHistoryItem = {
+  session_id: string;
+  restored_from?: string | null;
+  title: string;
+  grade_band: "junior" | "senior";
+  model_profile_id: string;
+  model_display_name: string;
+  message_count: number;
+  checkpoint_count: number;
+  state_hint: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RestoredSession = {
+  session_id: string;
+  restored_from: string;
+  state_hint: string;
+  breakpoint_description?: string | null;
+  model_profile_id: string;
+  grade_band: "junior" | "senior";
+  problem_text: string;
+  student_initial_thought: string;
+  problem_image_data_url?: string | null;
+  messages: Array<{
+    id: string;
+    role: "student" | "assistant";
+    text: string;
+    action_id?: string | null;
+    action: string;
+  }>;
+  pending_checkpoint?: Checkpoint | null;
+};
 
 export async function fetchProfiles(): Promise<ModelProfile[]> {
   const response = await fetch(`${API_BASE}/api/model-profiles`, { cache: "no-store" });
@@ -154,6 +188,23 @@ export async function createSession(input: {
   return response.json() as Promise<{ session_id: string; state_hint: string; model_profile_id: string }>;
 }
 
+export async function fetchSessionHistory(): Promise<SessionHistoryItem[]> {
+  const response = await fetch(`${API_BASE}/api/sessions/history`, { cache: "no-store" });
+  if (!response.ok) throw new Error("历史会话加载失败");
+  const payload = await response.json();
+  return payload.sessions;
+}
+
+export async function restoreSession(input: { session_id: string; model_profile_id: string }): Promise<RestoredSession> {
+  const response = await fetch(`${API_BASE}/api/sessions/restore`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
 export async function answerCheckpoint(input: {
   checkpointId: string;
   session_id: string;
@@ -170,7 +221,13 @@ export async function answerCheckpoint(input: {
     })
   });
   if (!response.ok) throw new Error(await response.text());
-  return response.json();
+  return response.json() as Promise<{
+    is_correct: boolean;
+    event: "CHECKPOINT_CORRECT" | "CHECKPOINT_WRONG" | "CHECKPOINT_UNKNOWN";
+    next_state_hint: string;
+    student_message: string;
+    action_id: string;
+  }>;
 }
 
 export async function streamChat(

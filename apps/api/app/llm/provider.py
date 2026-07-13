@@ -255,9 +255,9 @@ def local_demo_response(messages: list[dict[str, Any]]) -> str:
     )
     history_match = re.search(r"历史对话：\n(?P<history>.*?)(?:\n\n请决定下一步教学动作。|\Z)", last_user, re.DOTALL)
     history_text = history_match.group("history") if history_match else last_user
-    # 学生刚回答检查点的标志是 prompt 末尾出现"选了：..."字样（前端 handleCheckpoint 把
-    # "我在检查点「...」选了：X 文本"作为 student 消息送进来）。注意历史里可能也含"我不知道"
-    # 这类词（如学生初始思路），所以只取最后一次"选了：..."之后的内容判断，避免误判。
+    # 学生刚回答检查点的标志是最后一条结构化 user/checkpoint_result 中出现
+    # “选了：...”字样。历史里可能也含“我不知道”（如学生初始思路），所以只取
+    # 最后一次“选了：...”之后的内容判断，避免误判。
     answer_match = None
     for m in re.finditer(r"选了：\s*([^\n]+)", history_text):
         answer_match = m.group(1)

@@ -78,24 +78,26 @@ scripts\inspect-session.cmd sess_c4052d2538a6
 你重点看三张表：
 
 1. `sessions`：当前阶段、题目、模型。
-2. `messages`：学生消息、AI 回复（注意：检查点答题从 v0.3 起走 `student` 角色，不再用 `student_checkpoint`）。
-3. `checkpoints`：每个检查点的问题、选项、正确答案、学生选择。
+2. `messages`：学生消息、AI 回复，以及每条消息的 `action_id / action / in_reply_to_action_id`。
+3. `checkpoints`：每个检查点的问题、选项、正确答案、学生选择，以及产生它的 `source_action_id`。
+
+页面顶部的“历史会话”也直接读取 SQLite。选择一条历史后，后端会复制出一个新 session 并重建 action/checkpoint 引用；原历史不会被修改。
 
 ## 看全量诊断日志（推荐）
 
-SQLite 只存业务态和净化后的可见 message，看不到 LLM 原始返回、完整 prompt、是否走 fallback。看卡点推荐看 JSONL：
+SQLite 只存可恢复的业务态和结构化 message，看不到 LLM 原始返回、完整 prompt、是否走 fallback。直接人工排查时推荐先看排版后的 Markdown：
+
+```txt
+logs/sessions/<session_id>.log.md
+```
+
+需要脚本分析和审计时再看严格 JSONL：
 
 ```txt
 logs/sessions/<session_id>.jsonl
 ```
 
-每行一个事件，包含完整 prompt、LLM 原始 raw、parsed_turn（含完整 checkpoint 正误标签）、耗时、parse_ok、used_fallback、error 等。详见 `docs/context-management.md`。
-
-如果你想直接看 JSONL 整理成可读时间线，可以用 Python 读它：
-
-```bat
-C:\Users\robbinpanda\miniconda3\envs\ai4edu-tutor\python.exe -c "import json,pathlib; [print(json.dumps(json.loads(l),ensure_ascii=False,indent=2)) for l in pathlib.Path('logs/sessions/sess_xxxxxxxxxxxx.jsonl').read_text(encoding='utf-8').splitlines()]"
-```
+JSONL 每行一个事件；Markdown 把同一批事件按 system/user/assistant、模型 raw、解析 action、checkpoint 回答分节展示，并在段落间保留空行。两者都只写不读，不能用于恢复 session。详见 `docs/context-management.md`。
 
 ## 为什么之前会闪退
 

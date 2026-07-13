@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from app.core.schemas import ChatStreamRequest
 from app.core.teaching_controller import NONBLOCKING_ACTIONS, generate_tutor_turn_stream
 from app.llm.provider import LlmProfile
+from app.storage.repositories import new_id
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -67,12 +68,26 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
 
     try:
         if payload.message and payload.message.strip():
-            request.app.state.sessions.add_message(
+            is_checkpoint_result = bool(payload.checkpoint_answer)
+            student_row = request.app.state.sessions.add_message(
                 payload.session_id,
                 "student",
                 payload.message.strip(),
-                {"checkpoint_answer": payload.checkpoint_answer} if payload.checkpoint_answer else None,
+                action="CHECKPOINT_RESPONSE" if is_checkpoint_result else "STUDENT_RESPONSE",
+                in_reply_to_action_id=request.app.state.sessions.latest_blocking_action_id(payload.session_id),
+                metadata={"checkpoint_result": payload.checkpoint_answer} if is_checkpoint_result else None,
             )
+            logger = getattr(request.app.state, "session_logger", None)
+            if logger is not None:
+                logger.log_message(
+                    session_id=payload.session_id,
+                    message_id=student_row["id"],
+                    role="student",
+                    action_id=student_row["action_id"],
+                    action=student_row["action"],
+                    in_reply_to_action_id=student_row["in_reply_to_action_id"],
+                    content=student_row["content"],
+                )
     except Exception:
         await coordinator.finish(payload.session_id)
         raise
@@ -113,11 +128,23 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                         turn.breakpoint_description,
                         turn.breakpoint_confidence,
                     )
+                    action_id = new_id("act")
+                    checkpoint_row = None
+                    checkpoint_payload = None
+                    if turn.checkpoint:
+                        checkpoint_row = request.app.state.sessions.create_checkpoint(
+                            payload.session_id,
+                            turn.checkpoint,
+                            source_action_id=action_id,
+                        )
+                        checkpoint_payload = turn.checkpoint.model_dump()
+                        checkpoint_payload["id"] = checkpoint_row["id"]
                     yield sse(
                         "decision",
                         {
                             "state_hint": turn.state_hint,
                             "action": turn.action,
+                            "action_id": action_id,
                             "wait_for_student": turn.wait_for_student,
                             "message": turn.message,
                             "breakpoint": turn.breakpoint_description,
@@ -125,22 +152,34 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                             "action_index": action_index,
                         },
                     )
-                    request.app.state.sessions.add_message(
+                    assistant_row = request.app.state.sessions.add_message(
                         payload.session_id,
                         "assistant",
                         turn.message,
-                        {
+                        action=turn.action,
+                        action_id=action_id,
+                        metadata={
                             "state_hint": turn.state_hint,
                             "action": turn.action,
                             "wait_for_student": turn.wait_for_student,
                             "breakpoint": turn.breakpoint_description,
                             "action_index": action_index,
+                            "checkpoint_id": checkpoint_row["id"] if checkpoint_row else None,
+                            "checkpoint": turn.checkpoint.model_dump() if turn.checkpoint else None,
                         },
                     )
-                    if turn.checkpoint:
-                        checkpoint_row = request.app.state.sessions.create_checkpoint(payload.session_id, turn.checkpoint)
-                        checkpoint_payload = turn.checkpoint.model_dump()
-                        checkpoint_payload["id"] = checkpoint_row["id"]
+                    logger = getattr(request.app.state, "session_logger", None)
+                    if logger is not None:
+                        logger.log_message(
+                            session_id=payload.session_id,
+                            message_id=assistant_row["id"],
+                            role="assistant",
+                            action_id=assistant_row["action_id"],
+                            action=assistant_row["action"],
+                            in_reply_to_action_id=assistant_row["in_reply_to_action_id"],
+                            content=assistant_row["content"],
+                        )
+                    if checkpoint_payload:
                         for option in checkpoint_payload["options"]:
                             option.pop("is_correct", None)
                             option.pop("misconception", None)

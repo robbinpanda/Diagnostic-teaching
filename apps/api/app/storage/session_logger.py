@@ -13,7 +13,7 @@ def _now_iso() -> str:
 
 
 class SessionLogger:
-    """全盘诊断日志：按 session 追加写 jsonl，每行一个事件。
+    """全盘诊断日志：严格 JSONL 供机器读取，宽松 Markdown 供人阅读。
 
     设计目标：
     - 不影响主答疑链路：任何写入异常都被吞掉，绝不抛回业务层。
@@ -82,9 +82,172 @@ class SessionLogger:
                 # "a" 模式原子追加；Windows 下也安全
                 with open(path, "a", encoding="utf-8") as f:
                     f.write(line + "\n")
+                self._append_readable(session_id, record)
         except OSError:
             # 日志失败绝不影响答疑主流程
             pass
+
+    def _append_readable(self, session_id: str, record: dict[str, Any]) -> None:
+        """Write a spacious Markdown companion; JSONL stays strict and machine-readable."""
+        path = self.log_dir / f"{session_id}.log.md"
+        event = record.get("event", "event")
+        ts = record.get("ts", "")
+        sections = [f"## {ts} · {event}", ""]
+
+        if event == "session_started":
+            sections.extend(
+                [
+                    f"- Session: `{session_id}`",
+                    f"- Model: `{record.get('model', '')}`",
+                    f"- Grade: `{record.get('grade_band', '')}`",
+                    f"- Restored from: `{record.get('restored_from') or '-'}`",
+                    "",
+                    "### 题目",
+                    "",
+                    self._indent(record.get("problem_text", "")),
+                    "",
+                    "### 学生初始思路",
+                    "",
+                    self._indent(record.get("student_initial_thought") or "（未提供）"),
+                ]
+            )
+        elif event == "message":
+            sections.extend(
+                [
+                    f"- Role: `{record.get('role', '')}`",
+                    f"- Action: `{record.get('action', '')}`",
+                    f"- Action ID: `{record.get('action_id', '')}`",
+                    f"- Reply to: `{record.get('in_reply_to_action_id') or '-'}`",
+                    "",
+                    "### 内容",
+                    "",
+                    self._indent(record.get("content", "")),
+                ]
+            )
+        elif event == "tutor_turn":
+            sections.extend(["### 发给模型的结构化消息", ""])
+            for index, message in enumerate(record.get("prompt_messages") or [], start=1):
+                sections.extend(
+                    [
+                        f"#### {index}. {str(message.get('role', '')).upper()}",
+                        "",
+                        self._indent(self._readable_content(message.get("content"))),
+                        "",
+                    ]
+                )
+            sections.extend(
+                [
+                    "### 模型原始返回",
+                    "",
+                    self._indent(record.get("raw_response") or "（空）"),
+                    "",
+                    "### 解析后的教学 action",
+                    "",
+                    self._indent(json.dumps(record.get("parsed_turn"), ensure_ascii=False, indent=2)),
+                    "",
+                    f"- Latency: `{record.get('latency_ms')} ms`",
+                    f"- Parse OK: `{record.get('parse_ok')}`",
+                    f"- Retried: `{record.get('used_fallback')}`",
+                    f"- Error: `{record.get('error') or '-'}`",
+                ]
+            )
+        elif event == "checkpoint_answer":
+            sections.extend(
+                [
+                    f"- Checkpoint: `{record.get('checkpoint_id', '')}`",
+                    f"- Result: `{record.get('checkpoint_event', '')}`",
+                    f"- Correct: `{record.get('is_correct')}`",
+                    f"- Elapsed: `{record.get('elapsed_ms')} ms`",
+                    "",
+                    "### 检查点",
+                    "",
+                    self._indent(record.get("question", "")),
+                    "",
+                    "### 学生回答",
+                    "",
+                    self._indent(
+                        f"{record.get('selected_option_id', '')} {record.get('selected_text', '')}"
+                    ),
+                    "",
+                    "### 对应误区",
+                    "",
+                    self._indent(record.get("misconception") or "（无）"),
+                    "",
+                    f"下一状态：`{record.get('next_state_hint', '')}`",
+                ]
+            )
+        else:
+            sections.append(self._indent(json.dumps(record, ensure_ascii=False, indent=2)))
+
+        with open(path, "a", encoding="utf-8") as f:
+            if path.stat().st_size == 0:
+                f.write(f"# Session {session_id}\n\n")
+            f.write("\n".join(sections).rstrip() + "\n\n---\n\n")
+
+    @staticmethod
+    def _indent(value: Any) -> str:
+        text = str(value).replace("\r\n", "\n")
+        return "\n".join(f"    {line}" for line in text.split("\n"))
+
+    @staticmethod
+    def _readable_content(content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        prepared = deepcopy(content)
+        if isinstance(prepared, list):
+            for item in prepared:
+                if not isinstance(item, dict) or item.get("type") != "image_url":
+                    continue
+                image = item.get("image_url")
+                if isinstance(image, dict) and str(image.get("url", "")).startswith("data:image/"):
+                    image["url"] = "[题目原图 base64 已省略；原图保存在 SQLite session 中]"
+        return json.dumps(prepared, ensure_ascii=False, indent=2)
+
+    def log_session_started(
+        self,
+        *,
+        session_id: str,
+        model: str,
+        grade_band: str,
+        problem_text: str,
+        student_initial_thought: str,
+        restored_from: str | None = None,
+    ) -> None:
+        self._append(
+            session_id,
+            {
+                "event": "session_started",
+                "model": model,
+                "grade_band": grade_band,
+                "problem_text": problem_text,
+                "student_initial_thought": student_initial_thought,
+                "restored_from": restored_from,
+            },
+        )
+
+    def log_message(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        role: str,
+        action_id: str | None,
+        action: str,
+        in_reply_to_action_id: str | None,
+        content: str,
+    ) -> None:
+        self._append(
+            session_id,
+            {
+                "event": "message",
+                "message_id": message_id,
+                "role": role,
+                "action_id": action_id,
+                "action": action,
+                "in_reply_to_action_id": in_reply_to_action_id,
+                "content": content,
+            },
+        )
 
     def log_tutor_turn(
         self,

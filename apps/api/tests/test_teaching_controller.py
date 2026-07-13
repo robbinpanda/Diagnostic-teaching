@@ -104,6 +104,80 @@ def test_build_messages_attaches_original_problem_image_to_tutoring_request():
     assert user_content[1] == {"type": "image_url", "image_url": {"url": image_data_url}}
 
 
+def test_build_messages_uses_structured_roles_and_keeps_full_history():
+    session = {
+        "grade_band": "junior",
+        "subject": "math",
+        "problem_text": "求 x。",
+        "student_initial_thought": "先移项。",
+        "phase": "scaffolding",
+        "problem_image_data_url": None,
+    }
+    history = []
+    for index in range(26):
+        assistant = index % 2 == 1
+        history.append(
+            {
+                "role": "assistant" if assistant else "student",
+                "content": f"message-{index}",
+                "action_id": f"act_{index}",
+                "action": "EXPLAIN_LOCAL" if assistant else "STUDENT_RESPONSE",
+                "in_reply_to_action_id": f"act_{index - 1}" if not assistant and index else None,
+                "metadata_json": json.dumps({"state_hint": "scaffolding"}),
+            }
+        )
+
+    messages = build_messages(session, history)
+
+    assert len(messages) == 28  # system + SESSION_START + all 26 rows; no 20-message cutoff
+    assert [item["role"] for item in messages[2:6]] == ["user", "assistant", "user", "assistant"]
+    first = json.loads(messages[2]["content"])
+    second = json.loads(messages[3]["content"])
+    assert first["message_action"]["type"] == "STUDENT_RESPONSE"
+    assert second["message_action"] == {
+        "id": "act_1",
+        "type": "EXPLAIN_LOCAL",
+        "blocking": False,
+    }
+    assert "action 不是外部工具调用" in messages[0]["content"]
+    assert "checkpoint_result" in messages[0]["content"]
+
+
+def test_build_messages_deduplicates_legacy_initial_thought():
+    session = {
+        "grade_band": "junior",
+        "subject": "math",
+        "problem_text": "求 x。",
+        "student_initial_thought": "先移项。",
+        "phase": "diagnosing",
+        "problem_image_data_url": None,
+    }
+    history = [
+        {
+            "role": "student",
+            "content": "先移项。",
+            "action_id": None,
+            "action": "LEGACY_MESSAGE",
+            "in_reply_to_action_id": None,
+            "metadata_json": "{}",
+        },
+        {
+            "role": "assistant",
+            "content": "移项后得到什么？",
+            "action_id": None,
+            "action": "LEGACY_MESSAGE",
+            "in_reply_to_action_id": None,
+            "metadata_json": "{}",
+        },
+    ]
+
+    messages = build_messages(session, history)
+
+    assert len(messages) == 3
+    assert json.loads(messages[1]["content"])["student_initial_thought"] == "先移项。"
+    assert json.loads(messages[2]["content"])["message"] == "移项后得到什么？"
+
+
 def test_recover_message_from_truncated_markdown_json():
     raw = """```json
 {
