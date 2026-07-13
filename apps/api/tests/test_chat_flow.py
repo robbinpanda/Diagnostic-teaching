@@ -1,10 +1,12 @@
 import json
 import asyncio
+import sqlite3
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
-from app.core.schemas import ModelProfileCreate, SessionCreate
+from app.core.schemas import ModelProfileCreate, SessionCreate, TutorTurn
 from app.main import create_app
 from app.storage.database import Database
 from app.storage.repositories import ModelProfileRepository, SessionRepository
@@ -68,6 +70,48 @@ def test_local_demo_chat_stream_emits_checkpoint(tmp_path: Path):
     assert decision["message"].strip()
     assert "state_hint" in decision
     assert decision["wait_for_student"] is True
+
+
+def test_tutor_action_rolls_back_if_checkpoint_insert_fails(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    turn = TutorTurn.model_validate(
+        {
+            "state_hint": "checking",
+            "action": "SHOW_CHECKPOINT_MC",
+            "message": "先检查一个小点。",
+            "breakpoint_description": "测试事务回滚",
+            "breakpoint_confidence": 0.8,
+            "checkpoint": {
+                "type": "checkpoint_mc",
+                "question": "1 + 1 等于多少？",
+                "options": [
+                    {"id": "A", "text": "2", "is_correct": True, "misconception": None},
+                    {"id": "B", "text": "1", "is_correct": False, "misconception": "漏加一次"},
+                    {"id": "C", "text": "3", "is_correct": False, "misconception": "多加一次"},
+                ],
+                "tested_point": "整数加法",
+            },
+        }
+    )
+    with client.app.state.db.connect() as conn:
+        conn.execute(
+            """
+            CREATE TRIGGER reject_checkpoint_insert
+            BEFORE INSERT ON checkpoints
+            BEGIN
+              SELECT RAISE(ABORT, 'forced checkpoint failure');
+            END;
+            """
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="forced checkpoint failure"):
+        client.app.state.sessions.record_tutor_action(session_id, turn, action_index=0)
+
+    session = client.app.state.sessions.get(session_id)
+    assert session["phase"] == "diagnosing"
+    assert session["breakpoint_description"] is None
+    assert client.app.state.sessions.list_messages(session_id) == []
+    assert client.app.state.sessions.list_checkpoints(session_id) == []
 
 
 def test_checkpoint_answer_drives_followup_instead_of_loop(tmp_path: Path):
