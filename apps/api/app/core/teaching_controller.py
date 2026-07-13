@@ -256,8 +256,32 @@ def render_history_message(row: Row | dict) -> dict[str, str]:
     if not action:
         action = "LEGACY_ASSISTANT_MESSAGE" if stored_role == "assistant" else "LEGACY_STUDENT_MESSAGE"
     action_id = _row_value(row, "action_id")
+
+    if stored_role == "assistant":
+        # Assistant history is also an in-context example of the response format.
+        # Keep it identical to the TutorTurn contract; the old message_action
+        # envelope taught models to emit message_action.type instead of the
+        # required top-level action, causing every turn to fail validation and
+        # stream a second time after message_reset.
+        rendered_action = action if action in VALID_ACTIONS else "EXPLAIN_LOCAL"
+        if rendered_action == "SHOW_CHECKPOINT_MC" and not metadata.get("checkpoint"):
+            rendered_action = "EXPLAIN_LOCAL"
+        debug: dict[str, Any] = {}
+        if rendered_action != action:
+            debug["history_original_action"] = action
+        turn_payload = {
+            "state_hint": metadata.get("state_hint") or "diagnosing",
+            "action": rendered_action,
+            "message": content,
+            "breakpoint_description": metadata.get("breakpoint"),
+            "breakpoint_confidence": None,
+            "checkpoint": metadata.get("checkpoint") if rendered_action == "SHOW_CHECKPOINT_MC" else None,
+            "debug": debug,
+        }
+        return {"role": role, "content": json.dumps(turn_payload, ensure_ascii=False)}
+
     envelope: dict[str, Any] = {
-        "kind": "teaching_action" if stored_role == "assistant" else "student_message",
+        "kind": "student_message",
         "message_action": {
             "id": action_id,
             "type": action,
@@ -266,19 +290,6 @@ def render_history_message(row: Row | dict) -> dict[str, str]:
         "in_reply_to_action_id": _row_value(row, "in_reply_to_action_id"),
         "message": content,
     }
-    if stored_role == "assistant":
-        envelope.update(
-            {
-                "state_hint": metadata.get("state_hint"),
-                "wait_for_student": metadata.get("wait_for_student"),
-                "breakpoint_description": metadata.get("breakpoint"),
-            }
-        )
-        if metadata.get("checkpoint"):
-            envelope["checkpoint_call"] = {
-                "checkpoint_id": metadata.get("checkpoint_id"),
-                "checkpoint": metadata["checkpoint"],
-            }
     checkpoint_result = metadata.get("checkpoint_result") or metadata.get("checkpoint_answer")
     if isinstance(checkpoint_result, dict):
         envelope["kind"] = "checkpoint_result"

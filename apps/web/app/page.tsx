@@ -233,6 +233,9 @@ export default function Home() {
     setError("");
     let assistantId = "";
     let assistantText = "";
+    let retryBaseline = "";
+    let retryText = "";
+    let retryingAssistant = false;
     let receivedVisibleText = false;
     let receivedCheckpoint = false;
     let receivedError = false;
@@ -255,21 +258,33 @@ export default function Home() {
 
     function appendAssistantDelta(text: string) {
       if (!text) return;
+      if (retryingAssistant) {
+        retryText += text;
+        // Keep the already rendered text while the retry is reproducing the
+        // same prefix. This avoids clearing and typing the same answer twice.
+        if (retryBaseline.startsWith(retryText)) return;
+        retryingAssistant = false;
+        setAssistantMessage(retryText);
+        return;
+      }
       setAssistantMessage(assistantText + text);
     }
 
     function resetAssistantMessage() {
-      const id = assistantId;
-      assistantId = "";
-      assistantText = "";
-      receivedVisibleText = false;
-      if (id) {
-        setMessages((current) => current.filter((item) => item.id !== id));
-      }
+      retryBaseline = assistantText;
+      retryText = "";
+      retryingAssistant = Boolean(assistantId && assistantText);
     }
 
     function reconcileAssistantMessage(finalText?: string) {
       if (!finalText?.trim()) return;
+      if (retryingAssistant) {
+        retryingAssistant = false;
+        retryBaseline = "";
+        retryText = "";
+        setAssistantMessage(finalText);
+        return;
+      }
       if (!assistantText || finalText.startsWith(assistantText) || finalText.length >= assistantText.length) {
         setAssistantMessage(finalText);
       }
@@ -303,11 +318,23 @@ export default function Home() {
         }
         if (event.event === "error") {
           receivedError = true;
+          if (retryingAssistant && assistantId) {
+            const id = assistantId;
+            assistantId = "";
+            assistantText = "";
+            retryBaseline = "";
+            retryText = "";
+            retryingAssistant = false;
+            setMessages((current) => current.filter((item) => item.id !== id));
+          }
           setError((event.data as { message: string }).message);
         }
         if (event.event === "message_done") {
           assistantId = "";
           assistantText = "";
+          retryBaseline = "";
+          retryText = "";
+          retryingAssistant = false;
         }
       });
       if (!receivedVisibleText && !receivedCheckpoint && !receivedError) {

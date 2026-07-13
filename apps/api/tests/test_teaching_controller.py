@@ -134,11 +134,11 @@ def test_build_messages_uses_structured_roles_and_keeps_full_history():
     first = json.loads(messages[2]["content"])
     second = json.loads(messages[3]["content"])
     assert first["message_action"]["type"] == "STUDENT_RESPONSE"
-    assert second["message_action"] == {
-        "id": "act_1",
-        "type": "EXPLAIN_LOCAL",
-        "blocking": False,
-    }
+    assert second["action"] == "EXPLAIN_LOCAL"
+    assert second["message"] == "message-1"
+    assert "message_action" not in second
+    parsed_history_turn = teaching.parse_and_validate_tutor_turn(messages[3]["content"])
+    assert parsed_history_turn.action == "EXPLAIN_LOCAL"
     assert "action 不是外部工具调用" in messages[0]["content"]
     assert "checkpoint_result" in messages[0]["content"]
 
@@ -167,6 +167,9 @@ def test_build_messages_ends_nonblocking_continuation_with_user_control_message(
 
     assert messages[-2]["role"] == "assistant"
     assert messages[-1]["role"] == "user"
+    previous_turn = teaching.parse_and_validate_tutor_turn(messages[-2]["content"])
+    assert previous_turn.action == "EXPLAIN_PRINCIPLE"
+    assert previous_turn.message == "先解释符号关系。"
     control = json.loads(messages[-1]["content"])
     assert control["kind"] == "workflow_continue"
     assert control["nonblocking_streak"] == 1
