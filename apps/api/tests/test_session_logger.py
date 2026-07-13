@@ -8,7 +8,7 @@ def test_tutor_turn_logs_raw_and_full_checkpoint(tmp_path: Path):
     logger = SessionLogger(tmp_path)
     checkpoint_turn = {
         "state_hint": "checking",
-        "action": "SHOW_CHECKPOINT_MC",
+        "action": "ASK_MULTIPLE_CHOICE",
         "wait_for_student": True,
         "message": "抓一个点",
         "checkpoint": {

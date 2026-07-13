@@ -24,7 +24,7 @@ def test_extractor_yields_message_segments_incrementally():
     ex = MessageStreamExtractor()
     # 把一个标准 JSON 分多次喂进去，验证每次只拿到已确定的可见字符
     raw_chunks = [
-        '{"phase":"checking","action":"SHOW_CHECKPOINT_MC",',
+        '{"phase":"checking","action":"ASK_MULTIPLE_CHOICE",',
         '"message":"抓一个',
         '点：平方项要尽量小，',
         '最好为 0。","checkpoint":null}',

@@ -191,7 +191,7 @@ type TeachingPhase =
 ```ts
 type PedagogicalAction =
   | "ASK_OPEN_QUESTION"
-  | "SHOW_CHECKPOINT_MC";      // multiple choice
+  | "ASK_MULTIPLE_CHOICE";     // multiple choice
   | "DECOMPOSE_STEP"
   | "EXPLAIN_LOCAL"
   | "EXPLAIN_PRINCIPLE"
@@ -204,11 +204,11 @@ type PedagogicalAction =
 | 动作 | 用途 | 是否等待学生 |
 |---|---|---:|
 | `ASK_OPEN_QUESTION` | 开放式追问学生思路或卡点 | 是 |
-| `SHOW_CHECKPOINT_MC` | 弹窗选择题，检查是否跟上 | 是 |
-| `DECOMPOSE_STEP` | 把当前断点拆成更小的一步 | 可能 |
-| `EXPLAIN_LOCAL` | 只解释当前题目里的一个跳步 | 否 |
-| `EXPLAIN_PRINCIPLE` | 从原理讲明白一个基础概念 | 否 |
-| `RESPOND_TO_CHECKPOINT` | 根据学生选择反馈对错并补救 | 否/可能 |
+| `ASK_MULTIPLE_CHOICE` | 用三个可诊断选项定位学生对单一知识点的具体误区 | 是 |
+| `DECOMPOSE_STEP` | 从全局视角把整题拆成有顺序的解题路线图 | 否 |
+| `EXPLAIN_LOCAL` | 针对学生当前具体卡点打通一个局部推理 | 否 |
+| `EXPLAIN_PRINCIPLE` | 从定义和原理出发系统讲清一个知识点 | 否 |
+| `RESPOND_TO_CHECKPOINT` | 只闭环最近一次选择结果并指出理解证据或误区 | 否 |
 | `SUMMARIZE` | 总结卡点、方法和迁移题 | 是 |
 
 ## 5. 事件驱动教学策略
@@ -423,7 +423,7 @@ flowchart TD
 
 > 你已经把式子化到这里了吗？如果有的话，把你现在得到的式子发我；如果还没化到这里，我们先看为什么要把它整理成顶点式。
 
-### 8.2 检查点选择题 `SHOW_CHECKPOINT_MC`
+### 8.2 检查点选择题 `ASK_MULTIPLE_CHOICE`
 
 用途：
 
@@ -980,7 +980,7 @@ API key 只允许后端解密使用，不允许通过 API 返回明文。
 {
   "phase": "explaining",
   "event": "EXPLANATION_TOO_LONG",
-  "action": "SHOW_CHECKPOINT_MC",
+  "action": "ASK_MULTIPLE_CHOICE",
   "breakpoint": {
     "description": "学生不理解为什么顶点式中平方项取 0 时函数最大",
     "knowledge_point": "二次函数顶点式与最值",
@@ -1020,7 +1020,7 @@ API key 只允许后端解密使用，不允许通过 API 返回明文。
   "phase_before": "explaining",
   "phase_after": "checking",
   "event": "EXPLANATION_TOO_LONG",
-  "action": "SHOW_CHECKPOINT_MC",
+  "action": "ASK_MULTIPLE_CHOICE",
   "breakpoint": "不理解顶点式中平方项取 0 时整体最大",
   "breakpoint_confidence": 0.78,
   "checkpoint": {

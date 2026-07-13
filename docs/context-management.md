@@ -133,12 +133,12 @@ assistant 教学动作类似：
 
 | action | 类型 | 后端行为 |
 |---|---|---|
-| `DECOMPOSE_STEP` | 非阻塞 | 保存并展示，然后继续请求模型 |
-| `EXPLAIN_LOCAL` | 非阻塞 | 保存并展示，然后继续请求模型 |
-| `EXPLAIN_PRINCIPLE` | 非阻塞 | 保存并展示，然后继续请求模型 |
-| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 回应学生检查点答案，然后继续 |
+| `DECOMPOSE_STEP` | 非阻塞 | 展示整题解法路线图，然后继续请求模型 |
+| `EXPLAIN_LOCAL` | 非阻塞 | 修复学生当前具体卡点，然后继续请求模型 |
+| `EXPLAIN_PRINCIPLE` | 非阻塞 | 系统讲解一个知识原理，然后继续请求模型 |
+| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 只闭环最近一次检查点答案，然后继续 |
 | `ASK_OPEN_QUESTION` | 阻塞 | 停止生成，等待学生自由回答 |
-| `SHOW_CHECKPOINT_MC` | 阻塞 | 创建 checkpoint，等待学生选择 |
+| `ASK_MULTIPLE_CHOICE` | 阻塞 | 创建带诊断选项的 checkpoint，等待学生选择 |
 | `SUMMARIZE` | 终止 | 展示总结并结束本轮 |
 
 模型只选择 action。`wait_for_student` 由后端根据 action 强制推导，模型不能自己决定。
@@ -151,11 +151,11 @@ assistant 教学动作类似：
 
 - `in_reply_to_action_id`：学生正在回复的阻塞 action。
 
-旧数据迁移后使用 `LEGACY_MESSAGE`，仍可恢复和继续对话。
+本次 action 协议升级前的会话与日志已清空，不再保留旧 action 名称兼容。
 
 ## 4. checkpoint 是学生返回的 action 结果
 
-`SHOW_CHECKPOINT_MC` 对应一个 `checkpoint_call`，它与 tool call 的请求部分相似，但不是工具执行。
+`ASK_MULTIPLE_CHOICE` 对应一个 `checkpoint` 选择题请求，它不是外部工具执行，而是等待学生作答的教学互动。
 
 学生选择后，`POST /api/checkpoints/{checkpoint_id}/answer` 会在一个后端事务链中完成：
 
@@ -167,7 +167,7 @@ assistant 教学动作类似：
 
 4. 直接写入一条 role=`student`、action=`CHECKPOINT_RESPONSE` 的结构化 message。
 
-5. 用 `in_reply_to_action_id` 指向产生该 checkpoint 的 `SHOW_CHECKPOINT_MC` action。
+5. 用 `in_reply_to_action_id` 指向产生该 checkpoint 的 `ASK_MULTIPLE_CHOICE` action。
 
 6. 在 message metadata 中保存完整 `checkpoint_result`。
 
@@ -303,7 +303,7 @@ scripts\inspect-session.cmd sess_xxxxxxxxxxxx
 
 1. SQLite 是否已有 `CHECKPOINT_RESPONSE` message。
 
-2. 它的 `in_reply_to_action_id` 是否指向 `SHOW_CHECKPOINT_MC`。
+2. 它的 `in_reply_to_action_id` 是否指向 `ASK_MULTIPLE_CHOICE`。
 
 3. 下一轮 Markdown 日志的 prompt 中是否出现 `checkpoint_result`。
 

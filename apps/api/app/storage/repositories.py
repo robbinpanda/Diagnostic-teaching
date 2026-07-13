@@ -403,7 +403,7 @@ class SessionRepository:
                 """
                 SELECT action_id FROM messages
                 WHERE session_id = ? AND role = 'assistant'
-                  AND action IN ('ASK_OPEN_QUESTION', 'SHOW_CHECKPOINT_MC')
+                  AND action IN ('ASK_OPEN_QUESTION', 'ASK_MULTIPLE_CHOICE')
                 ORDER BY created_at DESC, rowid DESC
                 LIMIT 1
                 """,

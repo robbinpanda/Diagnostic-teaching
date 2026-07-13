@@ -72,7 +72,7 @@ def test_backend_policy_corrects_checkpoint_action():
 
     apply_backend_action_policy(turn)
 
-    assert turn.action == "SHOW_CHECKPOINT_MC"
+    assert turn.action == "ASK_MULTIPLE_CHOICE"
     assert turn.wait_for_student is True
 
 
@@ -84,6 +84,21 @@ def test_backend_policy_forces_blocking_after_nonblocking_streak():
     assert turn.action == "ASK_OPEN_QUESTION"
     assert turn.wait_for_student is True
     assert "你先说说" in turn.message
+
+
+def test_action_protocol_keeps_teaching_responsibilities_distinct():
+    definitions = {item["name"]: item for item in teaching.TEACHING_ACTION_DEFINITIONS}
+
+    assert "ASK_MULTIPLE_CHOICE" in definitions
+    assert "SHOW_CHECKPOINT_MC" not in teaching.VALID_ACTIONS
+    assert "整道题的全局视角" in definitions["DECOMPOSE_STEP"]["description"]
+    assert any("不是只拆当前的下一小步" in item for item in definitions["DECOMPOSE_STEP"]["boundaries"])
+    assert "系统" in definitions["EXPLAIN_PRINCIPLE"]["description"]
+    assert "当前断点" in definitions["EXPLAIN_LOCAL"]["description"]
+    assert "只对最近一次" in definitions["RESPOND_TO_CHECKPOINT"]["description"]
+    assert "后续教学交给下一个 action" in definitions["RESPOND_TO_CHECKPOINT"]["boundaries"]
+    assert "学生缺少整题方向" in teaching.SYSTEM_PROMPT
+    assert "需要用选项定位误区" in teaching.SYSTEM_PROMPT
 
 
 def test_build_messages_attaches_original_problem_image_to_tutoring_request():
@@ -174,7 +189,7 @@ def test_build_messages_ends_nonblocking_continuation_with_user_control_message(
     assert control["kind"] == "workflow_continue"
     assert control["nonblocking_streak"] == 1
     assert "上一 action 已经展示" in control["instruction"]
-    assert "不要复述或回显" in control["instruction"]
+    assert "不要复述、改写或回显" in control["instruction"]
 
 
 def test_build_messages_deduplicates_legacy_initial_thought():
@@ -216,7 +231,7 @@ def test_recover_message_from_truncated_markdown_json():
     raw = """```json
 {
   "phase": "scaffolding",
-  "action": "SHOW_CHECKPOINT_MC",
+  "action": "ASK_MULTIPLE_CHOICE",
   "message": "还没结束！你已经知道 $a_3^2 = a_1 \\cdot a_5$，现在需要求出 $a_1 \\cdot a_5$ 的值。题目说两个数是方程的两个根，下一步用韦达定理。",
   "checkpoint": {
     "question": "若 $a_1$、$a"""
@@ -234,7 +249,7 @@ def test_extract_json_repairs_unescaped_quotes_inside_message():
     raw = """```json
 {
   "phase": "diagnosing",
-  "action": "SHOW_CHECKPOINT_MC",
+  "action": "ASK_MULTIPLE_CHOICE",
   "message": "这道题需要把"二次函数零点"和"等比数列性质"结合起来。我们先确认一下等比中项关系。",
   "breakpoint_description": "学生尚未提供思路，需先检测是否知道等比数列中项关系",
   "breakpoint_confidence": 0.6,
@@ -264,7 +279,7 @@ def test_stream_backfills_message_when_incremental_extractor_stops_early(monkeyp
     raw = """```json
 {
   "phase": "diagnosing",
-  "action": "SHOW_CHECKPOINT_MC",
+  "action": "ASK_MULTIPLE_CHOICE",
   "message": "这道题需要把"二次函数零点"和"等比数列性质"结合起来。我们先确认一下等比中项关系。",
   "breakpoint_description": "学生尚未提供思路，需先检测是否知道等比数列中项关系",
   "breakpoint_confidence": 0.6,
@@ -441,7 +456,7 @@ def test_stream_retries_missing_action_with_action_specific_instruction(monkeypa
     assert turn.debug["format_retry_count"] == 1
 
 
-@pytest.mark.parametrize("action", [None, "NOT_A_REAL_ACTION"])
+@pytest.mark.parametrize("action", [None, "NOT_A_REAL_ACTION", "SHOW_CHECKPOINT_MC"])
 def test_tutor_turn_requires_present_and_valid_action(action):
     payload = {
         "state_hint": "explaining",

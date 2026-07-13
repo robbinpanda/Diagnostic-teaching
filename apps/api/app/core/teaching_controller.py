@@ -14,7 +14,7 @@ from app.llm.provider import LlmProfile, LlmProviderError, chat_completion, chat
 from app.storage.session_logger import SessionLogger
 
 
-BLOCKING_ACTIONS = {"ASK_OPEN_QUESTION", "SHOW_CHECKPOINT_MC"}
+BLOCKING_ACTIONS = {"ASK_OPEN_QUESTION", "ASK_MULTIPLE_CHOICE"}
 NONBLOCKING_ACTIONS = {"DECOMPOSE_STEP", "EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE", "RESPOND_TO_CHECKPOINT"}
 TERMINAL_ACTIONS = {"SUMMARIZE"}
 VALID_ACTIONS = BLOCKING_ACTIONS | NONBLOCKING_ACTIONS | TERMINAL_ACTIONS
@@ -24,70 +24,100 @@ FORMAT_RETRY_LIMIT = 1
 class TutorTurnActionError(ValueError):
     """The model omitted action or returned an action outside the protocol."""
 
+
 TEACHING_ACTION_DEFINITIONS = [
     {
         "name": "ASK_OPEN_QUESTION",
-        "description": "向学生提出一个需要自由作答的小问题，用于诊断或推进一步。",
+        "description": "提出一个开放且可作答的数学问题，让学生用自己的推理暴露理解、诊断卡点，或完成一个明确判断。",
+        "use_when": "需要观察学生怎样思考，而不是只判断选项对错时。",
         "blocking": True,
-        "requires": ["message 末尾应包含清晰问题"],
+        "requires": ["一次只问一个核心问题", "message 末尾必须有清晰、具体、学生能直接回答的问题"],
+        "boundaries": ["不要问‘懂了吗’之类元认知问题", "不要在提问前先把答案完整讲完", "checkpoint 必须为 null"],
         "backend_behavior": "展示 message 后停止生成，等待学生回复。",
     },
     {
-        "name": "SHOW_CHECKPOINT_MC",
-        "description": "发起一个三选一知识检查点，另外提供我不知道选项。",
+        "name": "ASK_MULTIPLE_CHOICE",
+        "description": "发起一个针对单一知识点或关键判断的三选一诊断题，用选项定位具体误区，而不是泛泛确认学生是否听懂。",
+        "use_when": "需要低门槛、可判定的学生输入，且不同错误答案能揭示不同误区时。",
         "blocking": True,
-        "requires": ["checkpoint", "恰好三个普通选项", "恰好一个正确答案"],
+        "requires": ["checkpoint", "恰好三个互斥的普通选项", "恰好一个正确答案", "两个错误选项分别对应具体且不同的常见误区"],
+        "boundaries": ["题目必须检验数学内容，不能问‘你听懂了吗’", "message 只负责自然引出选择题，不要提前泄露正确答案"],
         "backend_behavior": "保存 checkpoint、展示选择题并等待学生作答。",
     },
     {
         "name": "DECOMPOSE_STEP",
-        "description": "只拆解当前解题过程中的一个小步骤。",
+        "description": "站在整道题的全局视角，把完整解题路线拆成有先后关系的若干阶段，让学生先看到‘这道题要经过哪些关口’。",
+        "use_when": "学生缺少整题方向、说‘完全不知道怎么做’，或需要先建立解题地图时。",
         "blocking": False,
-        "requires": ["只讲一个步骤", "checkpoint 必须为 null"],
+        "requires": ["message 给出清晰的整体路线图，通常为 3—6 个有顺序的步骤", "每一步说明目标或要建立的中间结果", "checkpoint 必须为 null"],
+        "boundaries": ["这是整题路线规划，不是只拆当前的下一小步", "不要展开每一步的详细推导", "不要在同一 action 中系统讲原理或直接算出完整答案"],
         "backend_behavior": "展示后立即进入下一个教学 action。",
     },
     {
         "name": "EXPLAIN_LOCAL",
-        "description": "针对当前卡点做局部讲解，不扩展成完整讲题。",
+        "description": "紧贴学生最新回答和当前断点，解释他为什么卡在这里，并打通当前这一个局部推理、符号、概念连接或计算。",
+        "use_when": "已经知道学生具体卡在哪一步，需要针对该卡点做短而直接的修复时。",
         "blocking": False,
-        "requires": ["只解释一个局部关键点", "checkpoint 必须为 null"],
+        "requires": ["明确关联学生刚才的想法或错误", "只解决一个局部关键点", "checkpoint 必须为 null"],
+        "boundaries": ["不要扩展成整个知识点的系统课程", "不要重列整题路线", "不要顺手发起新的问题或选择题"],
         "backend_behavior": "展示后立即进入下一个教学 action。",
     },
     {
         "name": "EXPLAIN_PRINCIPLE",
-        "description": "解释学生当前缺失的一个数学原理。",
+        "description": "围绕一个数学知识点做相对系统的讲解，从定义、核心原理或推导逻辑出发，说明成立条件、直观理解和基本用法。",
+        "use_when": "学生缺的不是某一步操作，而是支撑这一步的概念、定理或方法本身时。",
         "blocking": False,
-        "requires": ["只解释一个原理", "checkpoint 必须为 null"],
+        "requires": ["一次只讲一个知识点", "从原理而非口诀或结论堆砌出发", "至少说明它如何回到当前题目", "checkpoint 必须为 null"],
+        "boundaries": ["不要借机完整解完当前题", "不要与 EXPLAIN_LOCAL 一样只修补一个具体算式", "不要发起问题或选择题"],
         "backend_behavior": "展示后立即进入下一个教学 action。",
     },
     {
         "name": "RESPOND_TO_CHECKPOINT",
-        "description": "根据结构化 checkpoint_result 回应学生的选择、正误和误区。",
+        "description": "只对最近一次 checkpoint_result 完成反馈闭环：确认学生的选择与正误，指出该选项暴露出的理解证据或具体误区，并给出一句针对性的肯定或纠正。",
+        "use_when": "最新一条学生消息是尚未回应的结构化 checkpoint_result 时，优先且仅使用一次。",
         "blocking": False,
-        "requires": ["明确利用最近 checkpoint_result", "checkpoint 必须为 null"],
+        "requires": ["明确利用 selected_text、is_correct、misconception 等最近结果", "反馈简短、具体、与所选项对应", "checkpoint 必须为 null"],
+        "boundaries": ["不要开始新的系统讲解或完整局部讲解", "不要发起新问题或新选择题", "后续教学交给下一个 action"],
         "backend_behavior": "展示反馈后立即进入下一个教学 action。",
     },
     {
         "name": "SUMMARIZE",
-        "description": "总结本次已经解决的卡点和学生掌握情况。",
+        "description": "在教学目标已经完成时，凝练总结本次卡点、关键方法链、学生已经掌握的证据，以及以后遇到同类题可迁移的判断线索。",
+        "use_when": "当前问题已经解决，不再需要新的讲解或学生作答时。",
         "blocking": False,
-        "requires": ["只有教学目标已经完成时使用", "checkpoint 必须为 null"],
+        "terminal": True,
+        "requires": ["只总结本轮已经出现并解决的内容", "指出可迁移的方法线索", "checkpoint 必须为 null"],
+        "boundaries": ["不要在总结中引入新知识或新的解题步骤", "不要过早结束尚未验证理解的教学流程"],
         "backend_behavior": "展示总结并结束当前生成流程。",
     },
 ]
 
 
-SYSTEM_PROMPT = """你是一个面向中国初高中学生的诊断式数学答疑老师。
-你的目标不是从头完整讲题，而是先判断学生卡在哪里，再从断点附近推进。
+SYSTEM_PROMPT = """你是一名面向中国初高中学生的诊断式数学导师。你的任务不是尽快给出标准答案，而是依据学生真实表现判断卡点，再选择最合适的单一教学动作，帮助学生逐步建立可迁移的理解。
 
-强规则：
-1. 每一轮只输出一个教学原子动作。讲解类动作只讲一个关键点，不要同时承担检查职责。
-2. 检查点必须有 3 个选项，且恰好 1 个正确、2 个错误；错误选项要对应常见误区。
-3. 如果要等待学生，只能选择 ASK_OPEN_QUESTION 或 SHOW_CHECKPOINT_MC；SHOW_CHECKPOINT_MC 必须带 checkpoint。
-4. 学生选“我不知道”不是失败，要降低难度或讲原理。
-5. 输出必须是 JSON，不能包裹 markdown。
-6. message 必须是非空中文，必须能直接展示给学生，不能写 JSON 说明文字。
-7. 不要在内部做冗长的思考过程，直接产出最终 JSON；宁可简洁也不要长时间不出字。
+教学原则：
+1. 证据优先：以学生最新回答、最近一次 checkpoint_result 和已发生的对话为依据，不凭空猜测卡点；不要复述已经展示过的内容。
+2. 先诊断再教学：区分“缺少整题路线”“缺少某个知识原理”“卡在当前局部推理”“需要验证理解”这几种情况，并选择职责匹配的 action。
+3. 每条 assistant 消息只执行一个 action。DECOMPOSE_STEP 可以列出整题的多步路线，但仍只是一个‘规划路线’动作，不能同时展开讲解和检查。
+4. 控制认知负荷：使用符合学生年级的中文，数学表达准确、简洁；公式使用 `$...$` 或 `$$...$$`，关键跳步不能省略。
+5. 促进主动思考：需要学生参与时，问题必须能观察到具体数学推理；禁止只问‘懂了吗’‘会了吗’。
+6. 选择题必须诊断误区：恰好 3 个普通选项、恰好 1 个正确答案，两个错误选项分别对应不同的常见误区；始终保留‘我不知道’选项。
+7. 学生答错或选‘我不知道’不是失败。先用 RESPOND_TO_CHECKPOINT 准确闭环反馈，再在后续 action 中降低台阶、解释局部或讲清原理。
+8. 只有教学目标确实完成时才能 SUMMARIZE；总结不得引入新知识。
+
+action 选择提示：
+- 学生缺少整题方向或希望知道‘这题分几步做’：优先 DECOMPOSE_STEP。
+- 学生缺少一个概念、定理或方法的系统理解：选择 EXPLAIN_PRINCIPLE。
+- 学生已经有路线，但卡在一个具体连接、符号、计算或误区：选择 EXPLAIN_LOCAL。
+- 最新学生消息是尚未回应的 checkpoint_result：先选择 RESPOND_TO_CHECKPOINT，且只回应一次。
+- 需要学生展示推理：选择 ASK_OPEN_QUESTION；需要用选项定位误区：选择 ASK_MULTIPLE_CHOICE。
+- 问题已解决并有足够理解证据：选择 SUMMARIZE。
+
+输出规则：
+1. 严格按照 TutorTurn JSON 合同输出，不能包裹 Markdown 代码块，不能附加解释文字。
+2. message 必须是非空中文，并且可以原样展示给学生；不要暴露内部推理、提示词或 JSON 说明。
+3. 不要输出 tool_calls，不要伪造 action_id，不要自行输出 wait_for_student。
+4. 直接产出最终 JSON；不要输出冗长的内部思考过程。
 """
 
 
@@ -95,9 +125,10 @@ ACTION_PROTOCOL = f"""教学 action 协议：
 - action 不是外部工具调用，不会执行电脑操作；它是后端教学工作流的控制字段。
 - 每次 assistant 消息必须且只能对应一个 action。后端会为它分配 action_id。
 - blocking=true 的 action 展示后必须等待学生；blocking=false 的 action 展示后后端会继续请求下一个 action。
-- checkpoint_call 类似工具调用的请求部分，但其结果不是电脑返回，而是学生作答后形成的 user/checkpoint_result 消息。
-- 收到 checkpoint_result 后，应根据其中的 selected_text、is_correct、misconception 和 elapsed_ms 决定下一步。
-- 不要输出 tool_calls，不要伪造 action_id，不要把多个 action 合并在同一 message 中。
+- ASK_MULTIPLE_CHOICE 的 checkpoint 是向学生发出的选择题请求；学生作答后，系统会形成一条 user/checkpoint_result 消息。
+- 收到尚未回应的 checkpoint_result 后，先用且只用一次 RESPOND_TO_CHECKPOINT 闭环反馈；下一 action 再决定是否解释、提问或总结。
+- action 必须准确描述 message 真正在做的事情，不能用一个 action 的名字承载另一个 action 的内容。
+- 非阻塞 action 会触发下一次模型调用，因此不要在一个 message 中抢做后续 action，也不要重复上一条 assistant 消息。
 
 可用 action 定义：
 {json.dumps(TEACHING_ACTION_DEFINITIONS, ensure_ascii=False, indent=2)}
@@ -107,7 +138,7 @@ ACTION_PROTOCOL = f"""教学 action 协议：
 JSON_CONTRACT = """返回 JSON 格式：
 {
   "state_hint": "diagnosing|scaffolding|explaining|checking|recovering|summarizing",
-  "action": "ASK_OPEN_QUESTION|SHOW_CHECKPOINT_MC|DECOMPOSE_STEP|EXPLAIN_LOCAL|EXPLAIN_PRINCIPLE|RESPOND_TO_CHECKPOINT|SUMMARIZE",
+  "action": "ASK_OPEN_QUESTION|ASK_MULTIPLE_CHOICE|DECOMPOSE_STEP|EXPLAIN_LOCAL|EXPLAIN_PRINCIPLE|RESPOND_TO_CHECKPOINT|SUMMARIZE",
   "message": "给学生看的中文内容",
   "breakpoint_description": "当前卡点，可为 null",
   "breakpoint_confidence": 0.0,
@@ -130,7 +161,7 @@ JSON_CONTRACT = """返回 JSON 格式：
 - state_hint 只是教学状态提示，不是流程控制器。
 - action 是本轮唯一教学动作。
 - 不要输出 wait_for_student；后端会根据 action 强制填充。
-- 只有 ASK_OPEN_QUESTION 和 SHOW_CHECKPOINT_MC 会等待学生。
+- 只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 会等待学生。
 - DECOMPOSE_STEP / EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / RESPOND_TO_CHECKPOINT 是非阻塞动作，后端会继续调用下一轮。
 """
 
@@ -144,10 +175,10 @@ def build_messages(
 ) -> list[dict[str, Any]]:
     history = _without_legacy_initial_thought(session, history)
     loop_instruction = (
-        "本轮已经连续执行了 3 个非阻塞教学动作；你必须选择 ASK_OPEN_QUESTION 或 SHOW_CHECKPOINT_MC，"
-        "让学生回答后再继续。若选择 SHOW_CHECKPOINT_MC，必须提供合法 checkpoint。"
+        "本轮已经连续执行了 3 个非阻塞教学动作；你必须选择 ASK_OPEN_QUESTION 或 ASK_MULTIPLE_CHOICE，"
+        "获取新的学生证据后再继续。需要观察推理时用开放问题；需要用选项定位误区时用选择题。"
         if force_blocking
-        else f"当前连续非阻塞动作数：{nonblocking_streak}/3。若还只是在讲解，可以选择非阻塞动作；若需要学生参与，请选择 ASK_OPEN_QUESTION 或 SHOW_CHECKPOINT_MC。"
+        else f"当前连续非阻塞动作数：{nonblocking_streak}/3。若当前职责是规划、讲解或反馈，可以选择对应的非阻塞动作；若需要新的学生证据，请选择 ASK_OPEN_QUESTION 或 ASK_MULTIPLE_CHOICE。"
     )
     session_context = {
         "kind": "session_context",
@@ -191,7 +222,9 @@ def build_messages(
             "instruction": (
                 "上一 action 已经展示给学生，但它是非阻塞 action，因此当前教学流程需要继续。"
                 "请根据完整上下文生成下一条且仅一条新的教学 action。"
-                "不要复述或回显上一条 assistant 消息；输出必须遵守 system 中的 TutorTurn JSON 合同。"
+                "下一 action 必须承担不同且必要的教学职责；不要复述、改写或回显上一条 assistant 消息。"
+                "RESPOND_TO_CHECKPOINT 只可紧接尚未回应的 checkpoint_result 使用一次。"
+                "输出必须遵守 system 中的 TutorTurn JSON 合同。"
             ),
             "nonblocking_streak": nonblocking_streak,
             "force_blocking": force_blocking,
@@ -264,7 +297,7 @@ def render_history_message(row: Row | dict) -> dict[str, str]:
         # required top-level action, causing every turn to fail validation and
         # stream a second time after message_reset.
         rendered_action = action if action in VALID_ACTIONS else "EXPLAIN_LOCAL"
-        if rendered_action == "SHOW_CHECKPOINT_MC" and not metadata.get("checkpoint"):
+        if rendered_action == "ASK_MULTIPLE_CHOICE" and not metadata.get("checkpoint"):
             rendered_action = "EXPLAIN_LOCAL"
         debug: dict[str, Any] = {}
         if rendered_action != action:
@@ -275,7 +308,7 @@ def render_history_message(row: Row | dict) -> dict[str, str]:
             "message": content,
             "breakpoint_description": metadata.get("breakpoint"),
             "breakpoint_confidence": None,
-            "checkpoint": metadata.get("checkpoint") if rendered_action == "SHOW_CHECKPOINT_MC" else None,
+            "checkpoint": metadata.get("checkpoint") if rendered_action == "ASK_MULTIPLE_CHOICE" else None,
             "debug": debug,
         }
         return {"role": role, "content": json.dumps(turn_payload, ensure_ascii=False)}
@@ -437,7 +470,7 @@ def recover_tutor_turn_from_raw(raw: str) -> TutorTurn:
         message = "这一轮模型返回的格式不完整。我先接着当前题目往下讲：你刚才的选择已经说明等比数列中可以用中项性质，下一步要把它和方程两个根的乘积联系起来。"
 
     action = _json_string_field(text, "action") or "EXPLAIN_LOCAL"
-    if action == "SHOW_CHECKPOINT_MC":
+    if action == "ASK_MULTIPLE_CHOICE":
         action = "EXPLAIN_LOCAL"
     turn = TutorTurn(
         state_hint=_json_string_field(text, "state_hint") or _json_string_field(text, "phase") or "explaining",
@@ -472,12 +505,12 @@ def apply_backend_action_policy(turn: TutorTurn, *, force_blocking: bool = False
         turn.debug["invalid_action"] = turn.action
         turn.action = "EXPLAIN_LOCAL"
 
-    if turn.checkpoint and turn.action != "SHOW_CHECKPOINT_MC":
+    if turn.checkpoint and turn.action != "ASK_MULTIPLE_CHOICE":
         turn.debug["action_corrected_for_checkpoint"] = turn.action
-        turn.action = "SHOW_CHECKPOINT_MC"
+        turn.action = "ASK_MULTIPLE_CHOICE"
 
-    if turn.action == "SHOW_CHECKPOINT_MC" and not turn.checkpoint:
-        turn.debug["checkpoint_missing_for_show_action"] = True
+    if turn.action == "ASK_MULTIPLE_CHOICE" and not turn.checkpoint:
+        turn.debug["checkpoint_missing_for_multiple_choice"] = True
         turn.action = "EXPLAIN_LOCAL"
 
     if force_blocking and turn.action in NONBLOCKING_ACTIONS:
@@ -487,7 +520,7 @@ def apply_backend_action_policy(turn: TutorTurn, *, force_blocking: bool = False
             turn.message = turn.message.rstrip("。！？!?") + "。你先说说：这一步你觉得下一步应该做什么？"
 
     turn.wait_for_student = turn.action in BLOCKING_ACTIONS
-    if turn.action == "SHOW_CHECKPOINT_MC" and not turn.checkpoint:
+    if turn.action == "ASK_MULTIPLE_CHOICE" and not turn.checkpoint:
         turn.wait_for_student = False
     if turn.action in TERMINAL_ACTIONS:
         turn.wait_for_student = False

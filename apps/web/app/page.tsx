@@ -170,7 +170,7 @@ export default function Home() {
       setWaitForStudent(
         Boolean(
           restored.pending_checkpoint ||
-          (lastMessage?.role === "assistant" && ["ASK_OPEN_QUESTION", "SHOW_CHECKPOINT_MC"].includes(lastMessage.action))
+          (lastMessage?.role === "assistant" && ["ASK_OPEN_QUESTION", "ASK_MULTIPLE_CHOICE"].includes(lastMessage.action))
         )
       );
       setBreakpointText(restored.breakpoint_description ?? "-");

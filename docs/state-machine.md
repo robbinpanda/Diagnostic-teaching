@@ -45,7 +45,7 @@ sequenceDiagram
 
 - LLM 每轮决定 `state_hint`、`action`、`message`、`breakpoint_description`、`checkpoint`。
 - 后端不信任模型给出的等待判断；`wait_for_student` 由后端根据 action 强制推导。
-- `ASK_OPEN_QUESTION` 和 `SHOW_CHECKPOINT_MC` 是阻塞动作，会停下等待学生。
+- `ASK_OPEN_QUESTION` 和 `ASK_MULTIPLE_CHOICE` 是阻塞动作，会停下等待学生。
 - `DECOMPOSE_STEP`、`EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是非阻塞动作，后端会继续调用下一轮 LLM。
 - 连续 3 个非阻塞动作后，下一轮 prompt 会强制要求阻塞动作；若模型仍输出非阻塞动作，后端会转成 `ASK_OPEN_QUESTION`。
 - `SUMMARIZE` 是终止动作，不等待学生。
@@ -58,7 +58,7 @@ sequenceDiagram
 ```json
 {
   "state_hint": "diagnosing|scaffolding|explaining|checking|recovering|summarizing",
-  "action": "ASK_OPEN_QUESTION|SHOW_CHECKPOINT_MC|DECOMPOSE_STEP|EXPLAIN_LOCAL|EXPLAIN_PRINCIPLE|RESPOND_TO_CHECKPOINT|SUMMARIZE",
+  "action": "ASK_OPEN_QUESTION|ASK_MULTIPLE_CHOICE|DECOMPOSE_STEP|EXPLAIN_LOCAL|EXPLAIN_PRINCIPLE|RESPOND_TO_CHECKPOINT|SUMMARIZE",
   "message": "给学生看的中文内容",
   "breakpoint_description": "当前卡点，可为 null",
   "breakpoint_confidence": 0.0,
@@ -100,18 +100,18 @@ system prompt 会在 `ACTION_PROTOCOL` 中逐项告诉模型每个 action 的功
 
 | action | 类型 | 后端行为 |
 |---|---|---|
-| `DECOMPOSE_STEP` | 非阻塞 | 保存并展示本 action，然后继续下一次 LLM 调用 |
-| `EXPLAIN_LOCAL` | 非阻塞 | 保存并展示本 action，然后继续下一次 LLM 调用 |
-| `EXPLAIN_PRINCIPLE` | 非阻塞 | 保存并展示本 action，然后继续下一次 LLM 调用 |
-| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 保存并展示本 action，然后继续下一次 LLM 调用 |
+| `DECOMPOSE_STEP` | 非阻塞 | 从整题全局视角给出 3—6 步解题路线图，不展开具体推导 |
+| `EXPLAIN_LOCAL` | 非阻塞 | 针对学生当前具体卡点，打通一个局部推理、符号、概念连接或计算 |
+| `EXPLAIN_PRINCIPLE` | 非阻塞 | 从定义和原理出发，系统讲清一个支撑当前题目的知识点 |
+| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 只闭环最近一次选择结果，指出理解证据或选项对应误区 |
 | `ASK_OPEN_QUESTION` | 阻塞 | 展示开放问题，`wait_for_student=true`，等待学生输入 |
-| `SHOW_CHECKPOINT_MC` | 阻塞 | 要求存在合法 checkpoint，创建检查点并等待学生选择 |
+| `ASK_MULTIPLE_CHOICE` | 阻塞 | 要求存在合法 checkpoint，用三个可诊断选项定位学生误区 |
 | `SUMMARIZE` | 终止 | 展示总结，结束本轮 stream |
 
 后端会做动作归一化：
 
-- 有 `checkpoint` 但 action 不是 `SHOW_CHECKPOINT_MC`：改成 `SHOW_CHECKPOINT_MC`。
-- `SHOW_CHECKPOINT_MC` 但没有合法 checkpoint：降级为 `EXPLAIN_LOCAL`。
+- 有 `checkpoint` 但 action 不是 `ASK_MULTIPLE_CHOICE`：改成 `ASK_MULTIPLE_CHOICE`。
+- `ASK_MULTIPLE_CHOICE` 但没有合法 checkpoint：降级为 `EXPLAIN_LOCAL`。
 - 模型输出未知 action：降级为 `EXPLAIN_LOCAL`。
 - 强制阻塞轮仍输出非阻塞 action：改成 `ASK_OPEN_QUESTION`，并补一句让学生回答的问题。
 
@@ -121,7 +121,7 @@ system prompt 会在 `ACTION_PROTOCOL` 中逐项告诉模型每个 action 的功
 
 ```text
 ASK_OPEN_QUESTION       -> wait_for_student = true
-SHOW_CHECKPOINT_MC      -> wait_for_student = true，前提是 checkpoint 合法
+ASK_MULTIPLE_CHOICE     -> wait_for_student = true，前提是 checkpoint 合法
 SUMMARIZE               -> wait_for_student = false，终止本轮 stream
 其他非阻塞 action       -> wait_for_student = false，继续 loop
 ```
@@ -148,7 +148,7 @@ SUMMARIZE               -> wait_for_student = false，终止本轮 stream
 
 ```text
 本轮已经连续执行了 3 个非阻塞教学动作；
-你必须选择 ASK_OPEN_QUESTION 或 SHOW_CHECKPOINT_MC，让学生回答后再继续。
+你必须选择 ASK_OPEN_QUESTION 或 ASK_MULTIPLE_CHOICE，让学生回答后再继续。
 ```
 
 因此模型可以形成更丰富的教学链路，例如：
@@ -157,7 +157,7 @@ SUMMARIZE               -> wait_for_student = false，终止本轮 stream
 RESPOND_TO_CHECKPOINT
 -> EXPLAIN_PRINCIPLE
 -> DECOMPOSE_STEP
--> SHOW_CHECKPOINT_MC
+-> ASK_MULTIPLE_CHOICE
 -> 等学生
 ```
 
@@ -174,7 +174,7 @@ RESPOND_TO_CHECKPOINT
    - `CHECKPOINT_UNKNOWN -> next_state_hint = recovering`
    - 同时直接写 role=`student`、action=`CHECKPOINT_RESPONSE` 的 message
    - metadata 保存结构化 `checkpoint_result`
-   - `in_reply_to_action_id` 指向产生检查点的 `SHOW_CHECKPOINT_MC`
+   - `in_reply_to_action_id` 指向产生检查点的 `ASK_MULTIPLE_CHOICE`
 
 2. 前端立刻再调 `POST /api/chat/stream`
    - 不再重复提交 message
@@ -189,7 +189,7 @@ checkpoint 类似一次需要结果的调用，但结果来自学生，而不是
 ```text
 message_delta   × N
 decision
-checkpoint_ready?  # 仅 SHOW_CHECKPOINT_MC 且 checkpoint 合法
+checkpoint_ready?  # 仅 ASK_MULTIPLE_CHOICE 且 checkpoint 合法
 message_done
 ```
 

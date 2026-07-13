@@ -258,13 +258,26 @@ def local_demo_stream(messages: list[dict[str, Any]]) -> list[dict]:
 
 def local_demo_response(messages: list[dict[str, Any]]) -> str:
     joined = "\n".join(message_text(message["content"]) for message in messages[-3:])
-    last_user = next(
+    last_user_index = next(
         (
-            message_text(m["content"])
-            for m in reversed(messages)
-            if m["role"] == "user" and not is_workflow_control_message(m["content"])
+            index
+            for index in range(len(messages) - 1, -1, -1)
+            if messages[index]["role"] == "user"
+            and not is_workflow_control_message(messages[index]["content"])
         ),
-        "",
+        -1,
+    )
+    last_user = message_text(messages[last_user_index]["content"]) if last_user_index >= 0 else ""
+    assistants_after_last_user = (
+        [message for message in messages[last_user_index + 1 :] if message["role"] == "assistant"]
+        if last_user_index >= 0
+        else []
+    )
+    checkpoint_already_responded = bool(assistants_after_last_user)
+    followup_explanation_sent = any(
+        '"action": "EXPLAIN_LOCAL"' in message_text(message["content"])
+        or '"action": "EXPLAIN_PRINCIPLE"' in message_text(message["content"])
+        for message in assistants_after_last_user
     )
     history_match = re.search(r"历史对话：\n(?P<history>.*?)(?:\n\n请决定下一步教学动作。|\Z)", last_user, re.DOTALL)
     history_text = history_match.group("history") if history_match else last_user
@@ -276,7 +289,32 @@ def local_demo_response(messages: list[dict[str, Any]]) -> str:
         answer_match = m.group(1)
     if "选了：" in history_text and answer_match is not None:
         answer = answer_match.strip()
-        already_explained = "平方项 (x-3)^2 当 x=3 时为 0" in joined or "要拿到最大值，应该让平方项取到 0" in joined
+        if not checkpoint_already_responded:
+            if answer.startswith("UNKNOWN") or "我不知道" in answer:
+                state_hint = "recovering"
+                message = "你选择了“我不知道”，这很有价值：它说明目前还不能确定负号会怎样改变平方项对整体大小的影响。我们先把这个关系讲清楚。"
+            elif answer.startswith("A") or "尽量小" in answer or "为 0" in answer:
+                state_hint = "scaffolding"
+                message = "你选对了：要让带负号的平方项对整体的减小作用最弱，平方项应尽量小，并在能取到时取 $0$。这说明你已经抓住了负系数与平方项的关系。"
+            else:
+                state_hint = "recovering"
+                message = "这个选择暴露了一个具体误区：平方项本身虽然非负，但它前面有负号；平方项越大，整体反而越小。因此求最大值时应让平方项尽量小。"
+            payload = {
+                "state_hint": state_hint,
+                "action": "RESPOND_TO_CHECKPOINT",
+                "message": message,
+                "breakpoint_description": "已根据最近一次选择题结果完成针对性反馈",
+                "breakpoint_confidence": 0.85,
+                "checkpoint": None,
+                "debug": {"source": "local_demo", "recent": joined[-120:]},
+            }
+            return json.dumps(payload, ensure_ascii=False)
+
+        already_explained = (
+            followup_explanation_sent
+            or "平方项 (x-3)^2 当 x=3 时为 0" in joined
+            or "要拿到最大值，应该让平方项取到 0" in joined
+        )
         if answer.startswith("UNKNOWN") or "我不知道" in answer:
             state_hint = "recovering"
             if already_explained:
@@ -326,7 +364,7 @@ def local_demo_response(messages: list[dict[str, Any]]) -> str:
     }
     payload = {
         "state_hint": "checking",
-        "action": "SHOW_CHECKPOINT_MC",
+        "action": "ASK_MULTIPLE_CHOICE",
         "message": "我先不从头讲完整题，先抓你现在最可能卡住的一点：带负号的平方项会怎样影响最大值。",
         "breakpoint_description": "不确定平方项和负系数怎样共同影响函数最大值",
         "breakpoint_confidence": 0.68,

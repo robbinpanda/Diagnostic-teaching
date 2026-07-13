@@ -67,6 +67,7 @@ def test_local_demo_chat_stream_emits_checkpoint(tmp_path: Path):
     assert "平方项" in body
     events = _parse_sse_events(body)
     decision = next(d for e, d in events if e == "decision")
+    assert decision["action"] == "ASK_MULTIPLE_CHOICE"
     assert decision["message"].strip()
     assert "state_hint" in decision
     assert decision["wait_for_student"] is True
@@ -77,7 +78,7 @@ def test_tutor_action_rolls_back_if_checkpoint_insert_fails(tmp_path: Path):
     turn = TutorTurn.model_validate(
         {
             "state_hint": "checking",
-            "action": "SHOW_CHECKPOINT_MC",
+            "action": "ASK_MULTIPLE_CHOICE",
             "message": "先检查一个小点。",
             "breakpoint_description": "测试事务回滚",
             "breakpoint_confidence": 0.8,
@@ -146,6 +147,7 @@ def test_checkpoint_answer_drives_followup_instead_of_loop(tmp_path: Path):
     assert second_checkpoint is None, "答完检查点后不应再次弹同一检查点（修复死循环）"
     decisions = [d for e, d in second_events if e == "decision"]
     assert decisions
+    assert decisions[0]["action"] == "RESPOND_TO_CHECKPOINT"
     assert any(d["action"] == "ASK_OPEN_QUESTION" for d in decisions)
     deltas = [d for e, d in second_events if e == "message_delta"]
     visible = "".join(d.get("text", "") for d in deltas)
@@ -212,7 +214,7 @@ def test_sqlite_history_can_be_restored_as_new_session(tmp_path: Path):
     assert payload["session_id"] != session_id
     assert payload["restored_from"] == session_id
     assert [message["action"] for message in payload["messages"]] == [
-        "SHOW_CHECKPOINT_MC",
+        "ASK_MULTIPLE_CHOICE",
         "CHECKPOINT_RESPONSE",
     ]
     original_messages = client.app.state.sessions.list_messages(session_id)

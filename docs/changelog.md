@@ -2,6 +2,18 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v0.8 — 2026-07-13
+
+### 教学 action 协议升级
+
+- `SHOW_CHECKPOINT_MC` 重命名为更直观的 `ASK_MULTIPLE_CHOICE`，并同步后端阻塞策略、SQLite 查询、前端恢复逻辑、local demo 和测试。
+- 重写 `SYSTEM_PROMPT`、`ACTION_PROTOCOL` 和每个 action 的 `description / use_when / requires / boundaries`，让 action 名称与实际教学职责严格一致。
+- `DECOMPOSE_STEP` 改为从整题全局视角给出 3—6 步解题路线图，不再与局部讲解重叠。
+- `EXPLAIN_PRINCIPLE` 负责从定义和原理出发系统讲清一个知识点；`EXPLAIN_LOCAL` 只修复学生当前具体卡点。
+- `RESPOND_TO_CHECKPOINT` 只闭环最近一次选择结果，后续讲解、提问或总结交给下一 action。
+- 选择题回答后的 local demo 链路调整为 `RESPOND_TO_CHECKPOINT -> EXPLAIN_* -> ASK_OPEN_QUESTION`，避免反馈动作夹带新讲解。
+- 按协议升级策略清空旧 SQLite 会话、checkpoint 和诊断日志，保留模型配置，不提供旧 action 名称兼容。
+
 ## v0.7 — 2026-07-13
 
 ### 结构化多轮上下文与 SQLite 恢复
