@@ -195,6 +195,13 @@ export async function fetchSessionHistory(): Promise<SessionHistoryItem[]> {
   return payload.sessions;
 }
 
+export async function deleteSession(sessionId: string) {
+  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, {
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await response.text());
+}
+
 export async function restoreSession(input: { session_id: string; model_profile_id: string }): Promise<RestoredSession> {
   const response = await fetch(`${API_BASE}/api/sessions/restore`, {
     method: "POST",

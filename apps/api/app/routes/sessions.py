@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 
 from app.core.schemas import (
     SessionCreate,
@@ -65,6 +65,20 @@ def list_session_history(request: Request) -> SessionHistoryListResponse:
             for row in rows
         ]
     )
+
+
+@router.delete("/{session_id}", status_code=204)
+def delete_session(session_id: str, request: Request) -> Response:
+    try:
+        request.app.state.sessions.get(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
+
+    logger = getattr(request.app.state, "session_logger", None)
+    if logger is not None:
+        logger.delete(session_id)
+    request.app.state.sessions.delete(session_id)
+    return Response(status_code=204)
 
 
 @router.post("/restore", response_model=SessionRestoreResponse)

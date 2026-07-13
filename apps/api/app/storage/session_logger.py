@@ -324,3 +324,10 @@ class SessionLogger:
         except (OSError, json.JSONDecodeError):
             pass
         return events
+
+    def delete(self, session_id: str) -> None:
+        """Delete both session log formats; already-missing files are successful."""
+        with self._lock:
+            (self.log_dir / f"{session_id}.jsonl").unlink(missing_ok=True)
+            (self.log_dir / f"{session_id}.log.md").unlink(missing_ok=True)
+            self._sessions_with_logged_images.discard(session_id)

@@ -10,6 +10,7 @@ import {
   analyzeProblemImage,
   createSession,
   deleteModelProfile,
+  deleteSession,
   fetchProfiles,
   fetchSessionHistory,
   ModelProfile,
@@ -57,6 +58,7 @@ export default function Home() {
   const [historyItems, setHistoryItems] = useState<SessionHistoryItem[]>([]);
   const [selectedHistoryId, setSelectedHistoryId] = useState("");
   const [historyBusy, setHistoryBusy] = useState(false);
+  const [deleteSessionBusyId, setDeleteSessionBusyId] = useState("");
   const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedProfile = useMemo(
@@ -179,6 +181,38 @@ export default function Home() {
       setError(error instanceof Error ? error.message : "恢复历史会话失败");
     } finally {
       setHistoryBusy(false);
+    }
+  }
+
+  async function handleDeleteSession(item: SessionHistoryItem) {
+    const confirmed = window.confirm(
+      `删除历史会话“${item.title || "未命名题目"}”？SQLite 记录和对应日志都会被永久删除。`
+    );
+    if (!confirmed) return;
+
+    setDeleteSessionBusyId(item.session_id);
+    setError("");
+    try {
+      await deleteSession(item.session_id);
+      const remaining = historyItems.filter((candidate) => candidate.session_id !== item.session_id);
+      setHistoryItems(remaining);
+      setSelectedHistoryId((current) =>
+        current === item.session_id ? remaining[0]?.session_id || "" : current
+      );
+      if (sessionId === item.session_id) {
+        setSessionId("");
+        setMessages([]);
+        setCheckpoint(null);
+        setCheckpointStartedAt(null);
+        setStateHint("未开始");
+        setAction("-");
+        setWaitForStudent(false);
+        setBreakpointText("-");
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "删除历史会话失败");
+    } finally {
+      setDeleteSessionBusyId("");
     }
   }
 
@@ -659,24 +693,36 @@ export default function Home() {
             ) : (
               <div className="historyList">
                 {historyItems.map((item) => (
-                  <button
-                    key={item.session_id}
-                    type="button"
-                    className={`historyItem ${selectedHistoryId === item.session_id ? "active" : ""}`}
-                    onClick={() => setSelectedHistoryId(item.session_id)}
-                  >
-                    <strong>{item.title || "未命名题目"}</strong>
-                    <span>{item.model_display_name} · {item.grade_band === "junior" ? "初中" : "高中"}</span>
-                    {item.restored_from && <span>恢复分支 · 来源 {item.restored_from}</span>}
-                    <span>{item.message_count} 条消息 · {item.checkpoint_count} 个检查点 · {item.state_hint}</span>
-                    <time>{new Date(item.updated_at).toLocaleString("zh-CN")}</time>
-                  </button>
+                  <div className="historyItemRow" key={item.session_id}>
+                    <button
+                      type="button"
+                      className={`historyItem ${selectedHistoryId === item.session_id ? "active" : ""}`}
+                      onClick={() => setSelectedHistoryId(item.session_id)}
+                      disabled={Boolean(deleteSessionBusyId)}
+                    >
+                      <strong>{item.title || "未命名题目"}</strong>
+                      <span>{item.model_display_name} · {item.grade_band === "junior" ? "初中" : "高中"}</span>
+                      {item.restored_from && <span>恢复分支 · 来源 {item.restored_from}</span>}
+                      <span>{item.message_count} 条消息 · {item.checkpoint_count} 个检查点 · {item.state_hint}</span>
+                      <time>{new Date(item.updated_at).toLocaleString("zh-CN")}</time>
+                    </button>
+                    <button
+                      className="historyDeleteButton"
+                      type="button"
+                      onClick={() => handleDeleteSession(item)}
+                      disabled={Boolean(deleteSessionBusyId)}
+                      title={`删除会话：${item.title || "未命名题目"}`}
+                      aria-label={`删除会话：${item.title || "未命名题目"}`}
+                    >
+                      {deleteSessionBusyId === item.session_id ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
             <div className="dialogActions">
               <button className="secondaryButton" type="button" onClick={() => setHistoryOpen(false)}>取消</button>
-              <button className="primaryButton" type="button" onClick={handleRestoreSession} disabled={!selectedHistoryId || historyBusy}>
+              <button className="primaryButton" type="button" onClick={handleRestoreSession} disabled={!selectedHistoryId || historyBusy || Boolean(deleteSessionBusyId)}>
                 {historyBusy ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}
                 恢复为新会话
               </button>

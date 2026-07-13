@@ -226,6 +226,39 @@ def test_sqlite_history_can_be_restored_as_new_session(tmp_path: Path):
     assert copied_checkpoint["source_action_id"] == copied_messages[0]["action_id"]
 
 
+def test_session_delete_removes_sqlite_children_and_log_files(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    response = client.post("/api/chat/stream", json={"session_id": session_id})
+    assert response.status_code == 200
+    log_dir = client.app.state.session_logger.log_dir
+    assert (log_dir / f"{session_id}.jsonl").exists()
+    assert (log_dir / f"{session_id}.log.md").exists()
+
+    deleted = client.delete(f"/api/sessions/{session_id}")
+
+    assert deleted.status_code == 204
+    with pytest.raises(KeyError):
+        client.app.state.sessions.get(session_id)
+    assert client.app.state.sessions.list_messages(session_id) == []
+    assert client.app.state.sessions.list_checkpoints(session_id) == []
+    assert not (log_dir / f"{session_id}.jsonl").exists()
+    assert not (log_dir / f"{session_id}.log.md").exists()
+    history_ids = {
+        item["session_id"]
+        for item in client.get("/api/sessions/history").json()["sessions"]
+    }
+    assert session_id not in history_ids
+
+
+def test_session_delete_succeeds_when_logs_are_already_missing(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+
+    deleted = client.delete(f"/api/sessions/{session_id}")
+
+    assert deleted.status_code == 204
+    assert client.delete(f"/api/sessions/{session_id}").status_code == 404
+
+
 def test_answer_unknown_triggers_recovery_phase(tmp_path: Path):
     client, session_id = _bootstrap_app(tmp_path)
     first = client.post("/api/chat/stream", json={"session_id": session_id})

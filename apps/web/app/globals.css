@@ -491,6 +491,13 @@ textarea {
   padding-right: 3px;
 }
 
+.historyItemRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 8px;
+  align-items: stretch;
+}
+
 .historyItem {
   width: 100%;
   border: 1px solid var(--line);
@@ -517,6 +524,21 @@ textarea {
 .historyItem time {
   color: var(--muted);
   font-size: 12px;
+}
+
+.historyDeleteButton {
+  border: 1px solid #f2c8c8;
+  border-radius: 8px;
+  background: #fff7f7;
+  color: var(--warn);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.historyDeleteButton:hover:not(:disabled) {
+  border-color: var(--warn);
+  background: #fff0f0;
 }
 
 .dialogActions {

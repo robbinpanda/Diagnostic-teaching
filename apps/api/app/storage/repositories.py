@@ -213,6 +213,19 @@ class SessionRepository:
             raise KeyError(session_id)
         return row
 
+    def delete(self, session_id: str) -> None:
+        """Delete one session and all of its SQLite-owned conversation data."""
+        with self.db.connect() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()
+            if exists is None:
+                raise KeyError(session_id)
+            conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM checkpoints WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+
     def update_phase(
         self,
         session_id: str,

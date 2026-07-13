@@ -184,3 +184,20 @@ def test_logger_writes_spacious_human_readable_companion(tmp_path: Path):
     jsonl_lines = (tmp_path / "sess_readable.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(jsonl_lines) == 2
     assert all(json.loads(line) for line in jsonl_lines)
+
+
+def test_logger_delete_removes_both_formats_and_allows_missing_files(tmp_path: Path):
+    logger = SessionLogger(tmp_path)
+    logger.log_session_started(
+        session_id="sess_delete",
+        model="demo-model",
+        grade_band="junior",
+        problem_text="测试删除",
+        student_initial_thought="",
+    )
+
+    logger.delete("sess_delete")
+
+    assert not (tmp_path / "sess_delete.jsonl").exists()
+    assert not (tmp_path / "sess_delete.log.md").exists()
+    logger.delete("sess_delete")
