@@ -25,21 +25,27 @@ class LlmProviderError(RuntimeError):
     pass
 
 
-IMAGE_ANALYSIS_PROMPT = """你是数学题图片录入助手。请识别图片中的数学题，并只返回 JSON，不要 Markdown。
+IMAGE_ANALYSIS_PROMPT = """你是数学题图片录入助手，不是解题助手或学情评估助手。请识别图片中的数学题和学生实际写下的内容，并只返回 JSON，不要 Markdown。
 
 必须返回这些字段：
 {
   "problem_text": "题目文字，包含题干、条件、问题；如果有图形信息，也要用文字描述关键几何/函数/统计图信息",
   "needs_diagram": true,
   "diagram_bbox": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0} 或 null,
-  "student_work_summary": "图片中学生过程、答案、批改痕迹的简短总结；没有则为空字符串",
-  "answer_text": "学生写出的答案；没有则为空字符串",
+  "student_work_summary": "只按图片中可见内容、依照书写顺序客观描述学生写出的计算或推导过程；没有过程则为空字符串",
+  "answer_text": "学生在图片中实际写出的最终答案；没有则为空字符串",
   "correctness": "correct|incorrect|unknown|not_present",
-  "mistake_summary": "如果能看出错误，简述错误；否则为空字符串"
+  "mistake_summary": "只转述图片中明确可见的批改标记或批注；没有则为空字符串"
 }
 
 要求：
-- 如果图片里有多个区域，优先提取题目本身，其次总结学生已写过程。
+- 严格区分印刷的题目、学生书写内容和教师批改痕迹。problem_text 只录入题目，不要把学生作答或批改内容混入题目。
+- student_work_summary 只能描述学生确实写在图片上的式子、步骤和文字，按可见顺序忠实转录或压缩表述。
+- 禁止根据题目、最终答案、常见解法或上下文补全中间步骤；禁止推测学生使用了什么方法、为什么这样做、理解了什么、卡在哪里或犯了什么错。
+- 图片中只有最终答案、没有计算或推导过程时，student_work_summary 必须为空字符串，只把该答案原样放入 answer_text。例如只看到“x=2”，不得扩写成“学生通过解方程得到 x=2”。
+- 看不清或无法确定归属的书写内容应省略，不要猜测；不要把标准答案当成学生答案。
+- correctness 只依据图片中明确可见的对勾、叉号、得分或批注意义填写；不得自行计算或推理答案对错。有学生答案但没有明确批改依据时填 unknown，没有学生答案时填 not_present。
+- mistake_summary 只转述图片中明确写出的错误批注或可见改错痕迹，不得自行诊断错误；没有明确批改信息时返回空字符串。
 - diagram_bbox 使用整张图片归一化坐标，x/y/width/height 都在 0 到 1 之间，框住题目需要保留的图形区域。
 - 如果题目没有必要展示图，needs_diagram=false 且 diagram_bbox=null。
 - 如果无法识别题目文字，problem_text 返回空字符串。

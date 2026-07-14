@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from app.core.schemas import ModelProfileCreate
+from app.llm.provider import IMAGE_ANALYSIS_PROMPT
 from app.main import create_app
 from app.routes import model_profiles, problem_images
 from app.routes.problem_images import build_student_summary
@@ -174,6 +175,33 @@ def test_problem_image_analysis_local_demo_extracts_problem_text(tmp_path: Path)
 
 def test_student_summary_stays_empty_when_no_work_was_recognized():
     assert build_student_summary({"problem_text": "求 x 的值"}) == ""
+
+
+def test_image_analysis_prompt_forbids_inferring_student_work_from_answer():
+    assert "只有最终答案" in IMAGE_ANALYSIS_PROMPT
+    assert "禁止根据题目、最终答案、常见解法或上下文补全中间步骤" in IMAGE_ANALYSIS_PROMPT
+    assert "不得扩写成“学生通过解方程得到 x=2”" in IMAGE_ANALYSIS_PROMPT
+
+
+def test_answer_only_summary_does_not_add_inferred_reasoning_or_evaluation():
+    assert build_student_summary(
+        {
+            "student_work_summary": "",
+            "answer_text": "x=2",
+            "correctness": "incorrect",
+            "mistake_summary": "移项时符号错误",
+        }
+    ) == "学生写出的答案：x=2"
+
+
+def test_student_summary_keeps_only_visible_process_and_answer():
+    assert build_student_summary(
+        {
+            "student_work_summary": "学生写了“2x=4”，下一行写了“x=2”。",
+            "answer_text": "x=2",
+            "correctness": "correct",
+        }
+    ) == "学生写了“2x=4”，下一行写了“x=2”。\n学生写出的答案：x=2"
 
 
 def test_text_only_image_result_does_not_crop_even_if_model_returns_bbox(tmp_path: Path, monkeypatch):

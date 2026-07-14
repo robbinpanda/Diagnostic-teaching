@@ -103,21 +103,11 @@ def build_student_summary(data: dict[str, Any]) -> str:
     lines: list[str] = []
     summary = str(data.get("student_work_summary") or "").strip()
     answer = str(data.get("answer_text") or "").strip()
-    correctness = normalize_correctness(data.get("correctness"))
-    mistake = str(data.get("mistake_summary") or "").strip()
 
     if summary:
         lines.append(summary)
     if answer:
-        lines.append(f"识别到答案：{answer}")
-    if correctness == "correct":
-        lines.append("批改/识别结果：答案看起来正确。")
-    elif correctness == "incorrect":
-        lines.append("批改/识别结果：答案可能有误。")
-    elif correctness == "unknown" and (summary or answer or mistake):
-        lines.append("批改/识别结果：暂时无法判断对错。")
-    if mistake:
-        lines.append(f"可能的问题：{mistake}")
+        lines.append(f"学生写出的答案：{answer}")
     return "\n".join(lines)
 
 
