@@ -450,6 +450,12 @@ textarea {
   z-index: 20;
 }
 
+.checkpointBackdrop {
+  place-items: center end;
+  padding-right: clamp(20px, 4vw, 64px);
+  background: rgba(20, 30, 35, 0.16);
+}
+
 .modelDialog,
 .checkpointDialog,
 .historyDialog {
@@ -548,6 +554,7 @@ textarea {
 }
 
 .checkpointDialog {
+  width: min(460px, 100%);
   padding: 22px;
 }
 
@@ -656,5 +663,16 @@ textarea {
   .inputPanel,
   .chatPanel {
     min-height: auto;
+  }
+
+  .checkpointBackdrop {
+    place-items: center;
+    padding: 16px;
+    background: rgba(20, 30, 35, 0.3);
+  }
+
+  .checkpointDialog {
+    width: min(560px, 100%);
+    max-height: calc(100vh - 32px);
   }
 }

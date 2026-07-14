@@ -13,7 +13,7 @@ export function CheckpointModal({ checkpoint, onChoose }: Props) {
   if (!checkpoint) return null;
   const options = [...checkpoint.options, checkpoint.unknown_option];
   return (
-    <div className="modalBackdrop" role="dialog" aria-modal="true">
+    <div className="modalBackdrop checkpointBackdrop" role="dialog" aria-modal="true">
       <div className="checkpointDialog">
         <div className="checkpointKicker">
           <HelpCircle size={18} />
