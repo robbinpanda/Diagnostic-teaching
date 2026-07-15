@@ -64,7 +64,7 @@ export function StudyCardModal({ card, onClose, busy = false }: Props) {
               <ol className="cardStepList">
                 {content.derivation_steps.map((item, index) => (
                   <li key={`${index}-${item.title}`}>
-                    <strong>{item.title}</strong>
+                    <strong><MathText text={item.title} /></strong>
                     <MathText text={item.content} />
                   </li>
                 ))}
@@ -98,7 +98,7 @@ export function StudyCardModal({ card, onClose, busy = false }: Props) {
               <ol className="cardStepList problemStepList">
                 {content.solution_steps.map((item) => (
                   <li key={`${item.step}-${item.title}`}>
-                    <div className="problemStepTitle"><span>{item.step}</span><strong>{item.title}</strong></div>
+                    <div className="problemStepTitle"><span>{item.step}</span><strong><MathText text={item.title} /></strong></div>
                     <p className="stepReason"><MathText text={item.reasoning} /></p>
                     <div className="stepResult"><MathText text={item.result} /></div>
                   </li>

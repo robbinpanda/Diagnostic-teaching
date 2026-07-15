@@ -77,10 +77,10 @@ http://127.0.0.1:3000
 
 ## 查看某个 Session 的过程
 
-右侧区域现在是学习卡片库，不再显示 session id。需要排查时，先打开命令行并进入项目目录：
+右侧区域现在是学习卡片库，不再显示 session id。需要排查时，先打开命令行并进入你的项目目录，例如：
 
 ```bat
-cd /d C:\Users\robbinpanda\Desktop\ai4edu\产品验证
+cd /d "D:\path\to\产品验证"
 ```
 
 无参数运行脚本，按创建时间倒序查看 10 个 session，并取得要排查的 `session_id`：
@@ -95,12 +95,14 @@ scripts\inspect-session.cmd
 scripts\inspect-session.cmd sess_c4052d2538a6
 ```
 
+该脚本会自动定位 `ai4edu-tutor` Conda 环境，并读取 `.env` 中自定义的 `DATABASE_URL` 与 `SESSION_LOG_DIR`。
+
 你重点看四张表：
 
 1. `sessions`：当前阶段、题目、模型。
 2. `messages`：学生消息、AI 回复，以及每条消息的 `action_id / action / in_reply_to_action_id`。
 3. `checkpoints`：每个检查点的问题、选项、正确答案、学生选择，以及产生它的 `source_action_id`。
-4. `study_cards`：知识/题目卡片内容、来源 action/message，以及是否已由学生关闭归档的 `saved_at`。
+4. `study_cards`：全局知识/题目卡片内容、来源 session/action/message，以及是否已由学生关闭归档的 `saved_at`。
 
 页面顶部的“历史会话”也直接读取 SQLite。选择一条历史后，后端会复制出一个新 session 并重建 action/checkpoint 引用；原历史不会被修改。
 
@@ -118,7 +120,7 @@ logs/sessions/<session_id>.log.md
 logs/sessions/<session_id>.jsonl
 ```
 
-JSONL 每行一个事件；Markdown 把同一批事件按 system/user/assistant、模型 raw、解析 action、checkpoint 回答分节展示，并在段落间保留空行。两者都只写不读，不能用于恢复 session。详见 `docs/context-management.md`。
+JSONL 每行一个事件；Markdown 把同一批事件按 system/user/assistant、模型 raw、解析 action、checkpoint 回答分节展示，并在段落间保留空行。两者都是只追加诊断数据，不能作为 session 业务恢复来源。详见 `docs/context-management.md`。
 
 ## 为什么之前会闪退
 

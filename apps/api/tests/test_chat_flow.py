@@ -12,6 +12,7 @@ from app.storage.database import Database
 from app.storage.repositories import ModelProfileRepository, SessionRepository
 from app.storage.security import SecretBox
 from app.storage.session_logger import SessionLogger
+from app.routes import chat as chat_routes
 from app.routes.chat import SessionStreamCoordinator
 
 
@@ -195,7 +196,7 @@ def test_checkpoint_answer_drives_followup_instead_of_loop(tmp_path: Path):
     assert "x=3" in visible or "为 0" in visible or "最大值 5" in visible
 
 
-def test_problem_card_waits_for_close_then_saves_lists_and_deletes(tmp_path: Path):
+def test_problem_card_waits_for_close_then_joins_global_library(tmp_path: Path):
     client, session_id = _bootstrap_app(tmp_path)
     first = client.post("/api/chat/stream", json={"session_id": session_id})
     checkpoint_id = next(d["id"] for e, d in _parse_sse_events(first.text) if e == "checkpoint_ready")
@@ -216,7 +217,7 @@ def test_problem_card_waits_for_close_then_saves_lists_and_deletes(tmp_path: Pat
     assert card["saved_at"] is None
     assert message_done["awaiting_card_dismissal"] is True
     assert message_done["continue_after_card"] is False
-    assert client.get(f"/api/cards?session_id={session_id}").json()["cards"] == []
+    assert client.get("/api/cards").json()["cards"] == []
     assert client.post("/api/chat/stream", json={"session_id": session_id}).status_code == 409
 
     profile_id = client.app.state.sessions.get(session_id)["model_profile_id"]
@@ -235,12 +236,36 @@ def test_problem_card_waits_for_close_then_saves_lists_and_deletes(tmp_path: Pat
     )
     assert saved.status_code == 200
     assert saved.json()["saved_at"]
-    listed = client.get(f"/api/cards?session_id={session_id}&card_type=problem_card")
+    listed = client.get("/api/cards?card_type=problem_card")
     assert [item["id"] for item in listed.json()["cards"]] == [card["id"]]
 
-    deleted = client.delete(f"/api/cards/{card['id']}?session_id={session_id}")
+    restored_after_save = client.post(
+        "/api/sessions/restore",
+        json={"session_id": session_id, "model_profile_id": profile_id},
+    )
+    assert restored_after_save.status_code == 200
+    assert restored_after_save.json()["pending_card"] is None
+    assert [item["id"] for item in client.get("/api/cards").json()["cards"]] == [card["id"]]
+
+    new_session = client.post(
+        "/api/sessions",
+        json={
+            "grade_band": "junior",
+            "subject": "math",
+            "model_profile_id": profile_id,
+            "problem_text": "计算 $2+2$。",
+            "student_initial_thought": "",
+        },
+    )
+    assert new_session.status_code == 200
+    assert [item["id"] for item in client.get("/api/cards").json()["cards"]] == [card["id"]]
+
+    assert client.delete(f"/api/sessions/{session_id}").status_code == 204
+    assert [item["id"] for item in client.get("/api/cards").json()["cards"]] == [card["id"]]
+
+    deleted = client.delete(f"/api/cards/{card['id']}")
     assert deleted.status_code == 204
-    assert client.get(f"/api/cards?session_id={session_id}").json()["cards"] == []
+    assert client.get("/api/cards").json()["cards"] == []
 
 
 def test_knowledge_card_close_resumes_nonblocking_tutoring(tmp_path: Path):
@@ -271,6 +296,54 @@ def test_knowledge_card_close_resumes_nonblocking_tutoring(tmp_path: Path):
     assert continued.status_code == 200
     assert any(e == "decision" for e, _ in continued_events)
     assert not any(e == "card_ready" and d["id"] == card["id"] for e, d in continued_events)
+
+
+def test_optional_explain_local_card_pauses_then_requests_continuation(tmp_path: Path, monkeypatch):
+    client, session_id = _bootstrap_app(tmp_path)
+    turn = TutorTurn.model_validate(
+        {
+            "state_hint": "explaining",
+            "action": "EXPLAIN_LOCAL",
+            "message": "韦达定理中，两根之和用 $-b/a$，两根之积用 $c/a$。",
+            "knowledge_card": {
+                "type": "knowledge_card",
+                "title": "韦达定理的和与积",
+                "knowledge_point": "区分韦达定理的两条公式",
+                "core_idea": "和看 $b$ 且带负号，积看 $c$ 且不带负号。",
+                "derivation_steps": [
+                    {"title": "两根之和", "content": "$x_1+x_2=-b/a$。"},
+                    {"title": "两根之积", "content": "$x_1x_2=c/a$。"},
+                ],
+                "when_to_use": ["由二次方程系数求两根之和或积"],
+                "common_mistakes": ["混淆分子 $b$ 和 $c$"],
+                "connection_to_problem": "本题用积得到 $a_1a_5=1$。",
+            },
+        }
+    )
+
+    async def fake_generate_tutor_turn_stream(*args, **kwargs):
+        yield "message_delta", turn.message
+        yield "turn", turn
+
+    monkeypatch.setattr(chat_routes, "generate_tutor_turn_stream", fake_generate_tutor_turn_stream)
+
+    response = client.post("/api/chat/stream", json={"session_id": session_id})
+    events = _parse_sse_events(response.text)
+    card = next(d for e, d in events if e == "card_ready")
+    decision = next(d for e, d in events if e == "decision")
+    message_done = next(d for e, d in events if e == "message_done")
+
+    assert response.status_code == 200
+    assert decision["action"] == "EXPLAIN_LOCAL"
+    assert decision["wait_for_student"] is False
+    assert card["card_type"] == "knowledge_card"
+    assert message_done["awaiting_card_dismissal"] is True
+    assert message_done["continue_after_card"] is True
+    assert client.post("/api/chat/stream", json={"session_id": session_id}).status_code == 409
+
+    saved = client.post(f"/api/cards/{card['id']}/save", json={"session_id": session_id})
+    assert saved.status_code == 200
+    assert [item["id"] for item in client.get("/api/cards").json()["cards"]] == [card["id"]]
 
 
 def test_checkpoint_answer_is_structured_student_result(tmp_path: Path):

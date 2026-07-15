@@ -116,6 +116,9 @@ def test_action_protocol_keeps_teaching_responsibilities_distinct():
     assert "默认优先选择 ASK_MULTIPLE_CHOICE" in teaching.SYSTEM_PROMPT
     assert "只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以向学生提问" in teaching.SYSTEM_PROMPT
     assert "其余 action 的 message 必须为纯陈述句" in teaching.JSON_CONTRACT
+    assert "EXPLAIN_LOCAL 可以自行决定是否输出" in teaching.ACTION_PROTOCOL
+    assert "EXPLAIN_LOCAL 时可为 null" in teaching.JSON_CONTRACT
+    assert "一次性代入或计算不适合" in teaching.JSON_CONTRACT
 
 
 def test_removed_decompose_step_is_rejected_as_an_invalid_action():
@@ -275,6 +278,86 @@ def test_explain_principle_requires_structured_knowledge_card():
     assert turn.action == "EXPLAIN_PRINCIPLE"
     assert turn.knowledge_card is not None
     assert turn.knowledge_card.title == "平方项非负"
+
+
+def test_explain_local_may_optionally_output_structured_knowledge_card():
+    payload = {
+        "state_hint": "explaining",
+        "action": "EXPLAIN_LOCAL",
+        "message": "韦达定理中，两根之和用 $-b/a$，两根之积用 $c/a$。",
+        "checkpoint": None,
+        "knowledge_card": None,
+        "problem_card": None,
+        "debug": {},
+    }
+
+    without_card = teaching.parse_and_validate_tutor_turn(json.dumps(payload, ensure_ascii=False))
+    assert without_card.action == "EXPLAIN_LOCAL"
+    assert without_card.knowledge_card is None
+
+    payload["knowledge_card"] = {
+        "type": "knowledge_card",
+        "title": "韦达定理的和与积",
+        "knowledge_point": "用系数区分韦达定理的两条公式",
+        "core_idea": "和的分子是 $-b$，积的分子是 $c$，分母都是 $a$。",
+        "derivation_steps": [
+            {"title": "两根之和", "content": "$x_1+x_2=-b/a$。"},
+            {"title": "两根之积", "content": "$x_1x_2=c/a$。"},
+        ],
+        "when_to_use": ["已知一元二次方程系数，需要求两根和或积"],
+        "common_mistakes": ["把和的分子 $b$ 与积的分子 $c$ 混淆"],
+        "connection_to_problem": "本题用积的公式得到 $a_1a_5=1$。",
+    }
+    with_card = teaching.parse_and_validate_tutor_turn(json.dumps(payload, ensure_ascii=False))
+
+    assert with_card.action == "EXPLAIN_LOCAL"
+    assert with_card.knowledge_card is not None
+    assert with_card.knowledge_card.title == "韦达定理的和与积"
+
+    payload["action"] = "RESPOND_TO_CHECKPOINT"
+    with pytest.raises(ValueError, match="only allowed for EXPLAIN_LOCAL or EXPLAIN_PRINCIPLE"):
+        teaching.parse_and_validate_tutor_turn(json.dumps(payload, ensure_ascii=False))
+
+
+def test_build_messages_preserves_optional_explain_local_knowledge_card():
+    session = {
+        "grade_band": "junior",
+        "subject": "math",
+        "problem_text": "求两根之积。",
+        "student_initial_thought": "我分不清两条公式。",
+        "phase": "explaining",
+        "problem_image_data_url": None,
+    }
+    knowledge_card = {
+        "type": "knowledge_card",
+        "title": "韦达定理的和与积",
+        "knowledge_point": "区分两根之和与两根之积",
+        "core_idea": "和用 $-b/a$，积用 $c/a$。",
+        "derivation_steps": [{"title": "看分子", "content": "和看 $b$，积看 $c$。"}],
+        "when_to_use": ["由方程系数求根的对称式"],
+        "common_mistakes": ["混淆 $b$ 和 $c$"],
+        "connection_to_problem": "本题需要两根之积。",
+    }
+    history = [
+        {
+            "role": "assistant",
+            "content": "这里要用两根之积，所以分子看常数项 $c$。",
+            "action_id": "act_local_card",
+            "action": "EXPLAIN_LOCAL",
+            "in_reply_to_action_id": None,
+            "metadata_json": json.dumps(
+                {"state_hint": "explaining", "knowledge_card": knowledge_card},
+                ensure_ascii=False,
+            ),
+        }
+    ]
+
+    messages = build_messages(session, history, nonblocking_streak=1)
+    previous_turn = teaching.parse_and_validate_tutor_turn(messages[-2]["content"])
+
+    assert previous_turn.action == "EXPLAIN_LOCAL"
+    assert previous_turn.knowledge_card is not None
+    assert previous_turn.knowledge_card.title == "韦达定理的和与积"
 
 
 def test_summarize_requires_structured_problem_card():

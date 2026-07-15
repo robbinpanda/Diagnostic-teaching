@@ -559,8 +559,8 @@ textarea {
   white-space: nowrap;
 }
 
-.cardLibraryText span,
-.cardLibraryText time,
+.cardLibraryText > span,
+.cardLibraryText > time,
 .cardLibraryHint,
 .cardLibraryEmpty {
   color: var(--muted);

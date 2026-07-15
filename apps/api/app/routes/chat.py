@@ -188,7 +188,7 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                             "wait_for_student": turn.wait_for_student,
                             "will_continue": not should_stop,
                             "awaiting_card_dismissal": awaiting_card_dismissal,
-                            "continue_after_card": turn.action == "EXPLAIN_PRINCIPLE",
+                            "continue_after_card": turn.knowledge_card is not None,
                         },
                     )
                     if should_stop:

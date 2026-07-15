@@ -214,7 +214,7 @@ class SessionRepository:
         return row
 
     def delete(self, session_id: str) -> None:
-        """Delete one session and all of its SQLite-owned conversation data."""
+        """Delete a session while preserving cards already saved to the global library."""
         with self.db.connect() as conn:
             exists = conn.execute(
                 "SELECT 1 FROM sessions WHERE id = ?",
@@ -224,7 +224,10 @@ class SessionRepository:
                 raise KeyError(session_id)
             conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
             conn.execute("DELETE FROM checkpoints WHERE session_id = ?", (session_id,))
-            conn.execute("DELETE FROM study_cards WHERE session_id = ?", (session_id,))
+            conn.execute(
+                "DELETE FROM study_cards WHERE session_id = ? AND saved_at IS NULL",
+                (session_id,),
+            )
             conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
     def update_phase(
@@ -416,16 +419,28 @@ class SessionRepository:
             raise KeyError(card_id)
         return row
 
-    def list_cards(self, session_id: str, *, include_pending: bool = False) -> list[sqlite3.Row]:
-        pending_clause = "" if include_pending else "AND saved_at IS NOT NULL"
+    def list_cards(
+        self,
+        session_id: str | None = None,
+        *,
+        include_pending: bool = False,
+    ) -> list[sqlite3.Row]:
+        clauses: list[str] = []
+        params: list[str] = []
+        if session_id is not None:
+            clauses.append("session_id = ?")
+            params.append(session_id)
+        if not include_pending:
+            clauses.append("saved_at IS NOT NULL")
+        where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with self.db.connect() as conn:
             return conn.execute(
                 f"""
                 SELECT * FROM study_cards
-                WHERE session_id = ? {pending_clause}
+                {where_clause}
                 ORDER BY created_at DESC, rowid DESC
                 """,
-                (session_id,),
+                params,
             ).fetchall()
 
     def latest_pending_card(self, session_id: str) -> sqlite3.Row | None:
@@ -465,21 +480,17 @@ class SessionRepository:
                 (card_id,),
             ).fetchone()
 
-    def delete_card(self, card_id: str, *, session_id: str) -> None:
+    def delete_card(self, card_id: str) -> None:
         with self.db.connect() as conn:
             row = conn.execute(
-                "SELECT session_id FROM study_cards WHERE id = ?",
+                "SELECT saved_at FROM study_cards WHERE id = ?",
                 (card_id,),
             ).fetchone()
             if row is None:
                 raise KeyError(card_id)
-            if row["session_id"] != session_id:
+            if row["saved_at"] is None:
                 raise PermissionError(card_id)
             conn.execute("DELETE FROM study_cards WHERE id = ?", (card_id,))
-            conn.execute(
-                "UPDATE sessions SET updated_at = ? WHERE id = ?",
-                (now_iso(), session_id),
-            )
 
     def list_messages(self, session_id: str, limit: int | None = None) -> list[sqlite3.Row]:
         with self.db.connect() as conn:
@@ -670,7 +681,11 @@ class SessionRepository:
         source = self.get(source_session_id)
         messages = self.list_messages(source_session_id)
         checkpoints = self.list_checkpoints(source_session_id)
-        cards = self.list_cards(source_session_id, include_pending=True)
+        cards = [
+            card
+            for card in self.list_cards(source_session_id, include_pending=True)
+            if card["saved_at"] is None
+        ]
         new_session_id = new_id("sess")
         ts = now_iso()
         action_ids = {

@@ -138,7 +138,7 @@ assistant 教学动作类似：
 
 | action | 类型 | 后端行为 |
 |---|---|---|
-| `EXPLAIN_LOCAL` | 非阻塞 | 修复学生当前具体卡点，然后继续请求模型 |
+| `EXPLAIN_LOCAL` | 非阻塞；可选卡片确认 | 修复学生当前具体卡点；可复用知识值得记忆时可产生 `knowledge_card`，关闭归档后继续，否则直接继续 |
 | `EXPLAIN_PRINCIPLE` | 非阻塞 + 卡片确认 | 系统讲解知识原理并产生 `knowledge_card`；关闭归档后继续请求模型 |
 | `RESPOND_TO_CHECKPOINT` | 非阻塞 | 闭环当前待处理的检查点答案，给出针对性反馈与情绪支持，然后继续 |
 | `ASK_OPEN_QUESTION` | 阻塞 | 停止生成，等待学生自由回答 |
@@ -204,7 +204,7 @@ assistant 教学动作类似：
 
 ## 5. 学习卡片的待归档与持久化
 
-`EXPLAIN_PRINCIPLE` 必须带结构化 `knowledge_card`，`SUMMARIZE` 必须带结构化 `problem_card`。后端在保存 assistant message 时，同一事务把卡片写入 `study_cards`：
+`EXPLAIN_PRINCIPLE` 必须带结构化 `knowledge_card`，`EXPLAIN_LOCAL` 可由模型按复用价值选择是否带 `knowledge_card`，`SUMMARIZE` 必须带结构化 `problem_card`。局部讲解只有在包含值得独立记忆、可迁移的公式、定理、性质或方法辨析时出卡；一次性代入、计算或纯本题过渡不出卡。后端在保存 assistant message 时，同一事务把卡片写入 `study_cards`：
 
 ```text
 id / session_id / card_type / title / content_json
@@ -216,7 +216,7 @@ source_action_id / source_message_id / created_at / saved_at
 - knowledge card：保存后立即以无新增 student message 的 `/api/chat/stream` 继续答疑。
 - problem card：保存后结束，因为来源 action 是终止动作 `SUMMARIZE`。
 
-前端右侧卡片库调用 `GET /api/cards?session_id=...`，支持按 `card_type` 筛选；双击使用与首次弹窗相同的视图，删除调用 `DELETE /api/cards/{id}?session_id=...`。
+前端启动时调用全局 `GET /api/cards`，支持按 `card_type` 筛选；双击使用与首次弹窗相同的视图，删除调用 `DELETE /api/cards/{id}`。卡片保留 `session_id / source_action_id / source_message_id` 作为来源审计信息，但全局列表和删除不要求当前 session。
 
 assistant 历史消息的 `metadata_json` 同时保存 `card_id` 和结构化 card，保证模型历史仍是完整 `TutorTurn` 格式；会话恢复时会重建 card ID、action ID 和 message ID 的引用。
 
@@ -236,7 +236,7 @@ DELETE /api/sessions/{session_id}
 
 1. 复制 session 题目、原图、初始思路、状态和卡点。
 
-2. 复制全部 messages、checkpoints，以及已归档或待归档的 study_cards。
+2. 复制全部 messages、checkpoints，以及仍需继续原工作流的待归档 study_cards；已归档卡片属于全局库，不重复复制。
 
 3. 为新副本重新生成 message ID、action ID、checkpoint ID 和 card ID。
 
@@ -248,7 +248,7 @@ DELETE /api/sessions/{session_id}
 
 这样原始实验记录保持不变，恢复后的新分支也有独立、完整的数据关系。
 
-删除历史会话会同时删除该 session 的 SQLite 主记录、messages、checkpoints、study_cards，以及对应的 JSONL/Markdown 诊断日志；模型配置不受影响。
+删除历史会话会删除该 session 的 SQLite 主记录、messages、checkpoints、尚未关闭的待归档卡片，以及对应的 JSONL/Markdown 诊断日志；已归档学习卡片继续保留在全局卡片库，模型配置也不受影响。
 
 ## 7. 诊断日志
 

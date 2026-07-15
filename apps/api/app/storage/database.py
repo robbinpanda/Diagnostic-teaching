@@ -97,6 +97,9 @@ class Database:
 
                 CREATE INDEX IF NOT EXISTS idx_study_cards_session_saved
                 ON study_cards(session_id, saved_at, created_at);
+
+                CREATE INDEX IF NOT EXISTS idx_study_cards_global_saved
+                ON study_cards(saved_at, created_at);
                 """
             )
             added_multimodal_column = self._ensure_column(

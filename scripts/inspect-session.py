@@ -7,8 +7,15 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DB_PATH = ROOT / "data" / "app.db"
-LOG_DIR = ROOT / "logs" / "sessions"
+API_ROOT = ROOT / "apps" / "api"
+sys.path.insert(0, str(API_ROOT))
+
+from app.core.config import load_settings
+
+
+SETTINGS = load_settings()
+DB_PATH = SETTINGS.database_path
+LOG_DIR = SETTINGS.session_log_dir
 
 
 def print_json(title: str, rows: list[sqlite3.Row]) -> None:

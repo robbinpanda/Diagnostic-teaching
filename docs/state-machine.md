@@ -4,7 +4,7 @@
 日期：2026-07-15
 适用项目：诊断式数学答疑 MVP
 
-本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作；后端根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop。`EXPLAIN_PRINCIPLE` 和 `SUMMARIZE` 还会产生需要前端确认归档的结构化学习卡片。**
+本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作；后端根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop。`EXPLAIN_PRINCIPLE` 必须产生 `knowledge_card`，`EXPLAIN_LOCAL` 可按知识复用价值选择产生 `knowledge_card`，`SUMMARIZE` 必须产生 `problem_card`。**
 
 如果后续要优化教学策略，优先改：
 
@@ -39,10 +39,10 @@ sequenceDiagram
     API-->>Student: decision + message_done
   end
   API-->>Student: checkpoint_ready / card_ready / 等待开放问题回复
-  opt EXPLAIN_PRINCIPLE 或 SUMMARIZE 产出卡片
+  opt EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / SUMMARIZE 产出卡片
     Student->>API: 关闭卡片并调用 card save
     API->>DB: saved_at 入库，卡片进入右侧列表
-    Student->>API: EXPLAIN_PRINCIPLE 继续生成；SUMMARIZE 结束
+    Student->>API: knowledge_card 继续生成；problem_card 结束
   end
 ```
 
@@ -51,7 +51,7 @@ sequenceDiagram
 - LLM 每轮决定 `state_hint`、`action`、`message`、`breakpoint_description`、`checkpoint`、`knowledge_card`、`problem_card`。
 - 后端不信任模型给出的等待判断；`wait_for_student` 由后端根据 action 强制推导。
 - `ASK_OPEN_QUESTION` 和 `ASK_MULTIPLE_CHOICE` 是阻塞动作，会停下等待学生。
-- `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是教学语义上的非阻塞动作。`EXPLAIN_LOCAL` 和 `RESPOND_TO_CHECKPOINT` 直接继续；`EXPLAIN_PRINCIPLE` 会先弹出 `knowledge_card`，关闭归档后再继续。
+- `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是教学语义上的非阻塞动作。`RESPOND_TO_CHECKPOINT` 直接继续；`EXPLAIN_PRINCIPLE` 必须弹出 `knowledge_card`，`EXPLAIN_LOCAL` 仅在模型判断本次内容值得独立记忆和迁移复用时弹出，关闭归档后继续。
 - 连续 3 个非阻塞动作后，下一轮 prompt 会要求模型在“自然总结”和“获取必要的新证据”之间选择；若仍输出非阻塞动作，后端会转成 `ASK_OPEN_QUESTION`。
 - `SUMMARIZE` 是终止动作，不等待学生回答，但会弹出 `problem_card`；关闭归档后流程结束。
 - `SUMMARIZE` 不要求学生先独立给出最终答案，也不要求额外插入确认性问题；当前结论或卡点已经讲清即可自然收束。
@@ -78,6 +78,7 @@ sequenceDiagram
 动作与结构化字段必须严格匹配：
 
 - `ASK_MULTIPLE_CHOICE`：`checkpoint` 非空，两个 card 字段为 `null`。
+- `EXPLAIN_LOCAL`：`knowledge_card` 可空；仅当 message 含值得独立记忆、可迁移的公式、定理、性质或方法辨析时非空，`checkpoint/problem_card` 为 `null`。
 - `EXPLAIN_PRINCIPLE`：`knowledge_card` 非空，`checkpoint/problem_card` 为 `null`。
 - `SUMMARIZE`：`problem_card` 非空，`checkpoint/knowledge_card` 为 `null`。
 - 其余 action：三个结构化附属字段都为 `null`。
@@ -115,7 +116,7 @@ system prompt 会在 `ACTION_PROTOCOL` 中逐项告诉模型每个 action 的功
 
 | action | 类型 | 后端行为 |
 |---|---|---|
-| `EXPLAIN_LOCAL` | 非阻塞 | 针对学生当前具体卡点，打通一个局部推理、符号、概念连接或计算 |
+| `EXPLAIN_LOCAL` | 非阻塞；可选卡片确认 | 针对学生当前具体卡点；若其中包含可复用的公式、定理、性质或方法辨析，可输出 `knowledge_card` 并在关闭归档后继续 |
 | `EXPLAIN_PRINCIPLE` | 非阻塞 + 卡片确认 | 从定义和原理出发讲清一个知识点，输出 `knowledge_card`，关闭归档后继续 |
 | `RESPOND_TO_CHECKPOINT` | 非阻塞 | 闭环当前待处理的选择结果，指出理解证据或误区，并提供具体、真诚的情绪支持 |
 | `ASK_OPEN_QUESTION` | 阻塞 | 展示开放问题，`wait_for_student=true`，等待学生输入 |
@@ -138,6 +139,7 @@ ASK_OPEN_QUESTION       -> wait_for_student = true
 ASK_MULTIPLE_CHOICE     -> wait_for_student = true，前提是 checkpoint 合法
 SUMMARIZE               -> wait_for_student = false，终止本轮 stream
 EXPLAIN_PRINCIPLE       -> wait_for_student = false，但在 card_ready 后暂停 HTTP stream，等待关闭归档
+EXPLAIN_LOCAL           -> wait_for_student = false；若输出 knowledge_card，同样在 card_ready 后暂停
 其他非阻塞 action       -> wait_for_student = false，继续 loop
 ```
 
@@ -156,7 +158,7 @@ EXPLAIN_PRINCIPLE       -> wait_for_student = false，但在 card_ready 后暂�
 -> 发 decision
 -> 发 message_done
 -> 如果 wait_for_student、SUMMARIZE 或产生 card：停止当前 HTTP stream
--> EXPLAIN_PRINCIPLE 的 card 关闭归档后，由前端发起无新 student message 的继续生成
+-> knowledge_card 关闭归档后，由前端发起无新 student message 的继续生成
 -> 否则继续下一轮
 ```
 
@@ -204,15 +206,19 @@ checkpoint 类似一次需要结果的调用，但结果来自学生，而不是
 - `knowledge_card`：`title / knowledge_point / core_idea / derivation_steps / when_to_use / common_mistakes / connection_to_problem`。
 - `problem_card`：`title / problem_summary / solution_overview / solution_steps / pitfalls / how_to_think / final_answer`。
 
-生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null`，不会出现在右侧卡片库；前端点大叉后调用 `POST /api/cards/{id}/save`，后端写入 `saved_at`，卡片才进入已归档列表。未归档卡片存在时，`/api/chat/stream` 返回 409，避免绕过确认继续生成。
+`EXPLAIN_PRINCIPLE` 必须输出 knowledge card；`EXPLAIN_LOCAL` 由模型判断是否输出。局部讲解中易混且可迁移的辨析（例如韦达定理“和用 $-b/a$、积用 $c/a$”）适合出卡；一次性代入、算术计算、符号改写或纯本题过渡不出卡。可选卡仍必须结构化 message 中的同一个知识点，不得扩大讲解范围。
+
+生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null`，不会出现在右侧卡片库；前端点大叉后调用 `POST /api/cards/{id}/save`，后端写入 `saved_at`，卡片才进入跨 session 的全局已归档列表。未归档卡片存在时，`/api/chat/stream` 返回 409，避免绕过确认继续生成。
 
 卡片接口：
 
 ```text
-GET    /api/cards?session_id=...&card_type=knowledge_card|problem_card
+GET    /api/cards?card_type=knowledge_card|problem_card
 POST   /api/cards/{card_id}/save
-DELETE /api/cards/{card_id}?session_id=...
+DELETE /api/cards/{card_id}
 ```
+
+`session_id` 仍保存在卡片记录中作为来源审计字段，但全局卡片库的查询与删除不依赖当前会话。新建、恢复或删除 session 都不会清空已归档卡片；只有 `saved_at=null` 的待归档卡片仍属于原会话的阻塞工作流。
 
 ## 9. SSE 事件顺序
 
@@ -222,11 +228,11 @@ DELETE /api/cards/{card_id}?session_id=...
 message_delta   × N
 decision
 checkpoint_ready?  # 仅 ASK_MULTIPLE_CHOICE 且 checkpoint 合法
-card_ready?        # 仅 EXPLAIN_PRINCIPLE / SUMMARIZE 且 card 合法
+card_ready?        # EXPLAIN_LOCAL（可选）/ EXPLAIN_PRINCIPLE / SUMMARIZE 且 card 合法
 message_done
 ```
 
-`message_done` 在卡片 action 中额外带 `awaiting_card_dismissal=true`；`continue_after_card` 只在 `EXPLAIN_PRINCIPLE` 时为 true。
+`message_done` 在卡片 action 中额外带 `awaiting_card_dismissal=true`；只要卡片是 `knowledge_card`（来自 `EXPLAIN_LOCAL` 或 `EXPLAIN_PRINCIPLE`），`continue_after_card=true`；`problem_card` 为 false。
 
 `decision` 包含：
 

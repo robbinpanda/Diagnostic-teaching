@@ -7,7 +7,7 @@
 
 ## 1. 结论
 
-可以在前端做“添加模型配置”按钮，让用户把 `base_url`、`api_key`、`model_name` 复制进去并保存。
+前端已提供“添加模型配置”按钮，用户可以把 `base_url`、`api_key`、`model_name` 复制进去并保存。
 
 但不建议把这些内容写进 `.env`。更合适的 MVP 方案是：
 
@@ -50,32 +50,35 @@ SESSION_LOG_DIR=./logs/sessions
 模型选择区：
 
 1. 页面加载时请求 `GET /api/model-profiles`。
-2. 如果有可用模型，用户必须选择一个。
+2. 如果只有一个可用模型，前端自动选中；如果有多个，用户必须明确选择一个。
 3. 如果没有可用模型，显示“添加模型配置”。
 4. 创建答疑 session 前必须有 `model_profile_id`。
 
 “添加模型配置”弹窗字段：
 
 1. 显示名称：例如“我的豆包模型”。
-2. 供应商类型：OpenAI-compatible / OpenAI / 其他。
+2. 供应商类型：OpenAI-compatible / OpenAI / Local demo。
 3. Base URL。
 4. API key。
 5. Model name。
-6. 标签，可选。
-7. Timeout，可选，默认 30000 ms。
-8. Temperature，可选，数学答疑建议默认 0.2。
+6. Max output tokens，默认 8000。
+7. Timeout，默认 30000 ms。
+8. Temperature，默认 0.2。
+9. 是否支持图片识别；勾选后可用于题图识别和必须看图的正式答疑。
+
+当前 UI 不开放标签编辑，保存时固定写入 `math` 标签；后端 API 仍支持 `tags` 字段。
 
 按钮：
 
 1. “测试连接”：不保存，只验证 URL、key、model 是否能调用。
-2. “保存”：保存但不自动选择。
-3. “保存并选择”：保存后作为本次答疑模型。
+2. 新增时“保存并选择”：保存后作为本次答疑模型。
+3. 编辑时“保存修改”：更新当前配置并保持选中。
 
 安全要求：
 
 1. 前端不把 API key 存到 localStorage、sessionStorage、IndexedDB。
 2. 前端不在日志里打印 API key。
-3. 保存后再次打开编辑弹窗，只显示掩码，例如 `sk-...abcd`。
+3. 保存后再次打开编辑弹窗时，API key 输入框保持空白；留空会沿用已加密保存的 key，模型列表 API 只返回掩码。
 4. 修改 key 时只能重新输入完整 key，不能读取旧 key 明文。
 
 ## 5. 后端 API
@@ -210,7 +213,7 @@ DELETE /api/model-profiles/{profile_id}
 
 删除规则：
 
-1. 如果模型已被历史 session 使用，不硬删除，改为 `enabled = false` 或 `deleted_at`。
+1. 当前实现始终软删除：写入 `enabled = false` 和 `deleted_at`，不硬删除数据库行。
 2. 新建答疑时不再展示已删除模型。
 3. 历史日志仍保留 `model_profile_id`、`provider`、`model` 等非密钥信息。
 

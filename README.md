@@ -10,7 +10,9 @@ state_hint + action + message + breakpoint_description + checkpoint + knowledge_
 
 后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、标注每条 AI 消息对应的教学 action、弹出检查点并把学生选择回传给模型。
 
-当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、可切换的加密模型配置、检查点选择题、知识卡片/题目卡片、SQLite 历史恢复与删除，以及 JSONL/Markdown 双份诊断日志。图片识别先把 KaTeX 格式题目和可见作答/批改痕迹填入两个可编辑文本框；只有题目必须看图时，正式答疑才额外携带用户原图并要求使用标记为多模态的模型。
+当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、可切换的加密模型配置、检查点选择题、跨 session 的全局知识卡片/题目卡片库、SQLite 历史恢复与删除，以及 JSONL/Markdown 双份诊断日志。图片识别先把 KaTeX 格式题目和可见作答/批改痕迹填入两个可编辑文本框；只有题目必须看图时，正式答疑才额外携带用户原图并要求使用标记为多模态的模型。
+
+知识卡片策略为：`EXPLAIN_PRINCIPLE` 必须输出，`EXPLAIN_LOCAL` 仅在讲解包含值得独立记忆、可迁移复用的公式、定理、性质或方法辨析时由模型选择输出；任一 knowledge card 都会在消息结束后弹窗，关闭归档后继续答疑。
 
 ## 本地启动
 
@@ -68,7 +70,7 @@ docs/how-to-run.md
 - Frontend: Next.js + React + TypeScript
 - Math Rendering: KaTeX（聊天气泡和检查点题干/选项支持 `$...$`、`$$...$$`、`\(...\)`、`\[...\]`）
 - Backend: FastAPI
-- Database: SQLite（session、结构化消息、checkpoint、study_cards 的权威存储，也是历史恢复来源）
+- Database: SQLite（session、结构化消息、checkpoint 和全局 study_cards 的权威存储，也是历史恢复来源）
 - Diagnostic Log: JSONL（机器审计）+ Markdown（留白充足的人类阅读版）
 - Model API: OpenAI-compatible chat completions（**已支持流式 stream=true**）
 
@@ -97,7 +99,7 @@ logs/sessions/<session_id>.jsonl
 logs/sessions/<session_id>.log.md
 ```
 
-`.jsonl` 每行一个事件，适合脚本处理和审计；`.log.md` 按事件和消息分段并保留大量空行，适合直接阅读。两者都只写不读，不参与 session 恢复。历史会话列表与恢复全部从 SQLite 读取，恢复时复制为一个新的 session，保留原 session 不变。
+`.jsonl` 每行一个事件，适合脚本处理和审计；`.log.md` 按事件和消息分段并保留大量空行，适合直接阅读。两者都是只追加诊断数据，不参与业务恢复；历史会话列表与恢复全部从 SQLite 读取，恢复时复制为一个新的 session，保留原 session 不变。
 
 读取示例：
 

@@ -273,12 +273,12 @@ export async function answerCheckpoint(input: {
 }
 
 export async function fetchCards(
-  sessionId: string,
   cardType?: "knowledge_card" | "problem_card"
 ): Promise<StudyCard[]> {
-  const params = new URLSearchParams({ session_id: sessionId });
+  const params = new URLSearchParams();
   if (cardType) params.set("card_type", cardType);
-  const response = await fetch(`${API_BASE}/api/cards?${params.toString()}`, { cache: "no-store" });
+  const query = params.toString();
+  const response = await fetch(`${API_BASE}/api/cards${query ? `?${query}` : ""}`, { cache: "no-store" });
   if (!response.ok) throw new Error("学习卡片加载失败");
   const payload = await response.json();
   return payload.cards;
@@ -294,9 +294,8 @@ export async function saveCard(cardId: string, sessionId: string): Promise<Study
   return response.json();
 }
 
-export async function deleteCard(cardId: string, sessionId: string) {
-  const params = new URLSearchParams({ session_id: sessionId });
-  const response = await fetch(`${API_BASE}/api/cards/${cardId}?${params.toString()}`, {
+export async function deleteCard(cardId: string) {
+  const response = await fetch(`${API_BASE}/api/cards/${cardId}`, {
     method: "DELETE"
   });
   if (!response.ok) throw new Error(await response.text());

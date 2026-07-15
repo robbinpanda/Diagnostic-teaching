@@ -105,6 +105,7 @@ export default function Home() {
 
   useEffect(() => {
     refreshProfiles();
+    refreshCards();
   }, []);
 
   useEffect(() => {
@@ -130,6 +131,14 @@ export default function Home() {
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : "模型列表加载失败");
+    }
+  }
+
+  async function refreshCards() {
+    try {
+      setCards(await fetchCards());
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "学习卡片加载失败");
     }
   }
 
@@ -168,7 +177,7 @@ export default function Home() {
         session_id: source.session_id,
         model_profile_id: restoreProfileId
       });
-      const restoredCards = await fetchCards(restored.session_id);
+      const restoredCards = await fetchCards();
       const restoredImage = restored.problem_image_data_url ?? null;
       setSessionId(restored.session_id);
       setSelectedProfileId(restored.model_profile_id);
@@ -203,7 +212,7 @@ export default function Home() {
 
   async function handleDeleteSession(item: SessionHistoryItem) {
     const confirmed = window.confirm(
-      `删除历史会话“${item.title || "未命名题目"}”？SQLite 记录和对应日志都会被永久删除。`
+      `删除历史会话“${item.title || "未命名题目"}”？会话记录和对应日志都会被永久删除，已归档学习卡片会继续保留在全局卡片库。`
     );
     if (!confirmed) return;
 
@@ -223,7 +232,6 @@ export default function Home() {
         setCheckpointStartedAt(null);
         setActiveCard(null);
         setViewingCard(null);
-        setCards([]);
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : "删除历史会话失败");
@@ -404,7 +412,6 @@ export default function Home() {
       setCheckpointStartedAt(null);
       setActiveCard(null);
       setViewingCard(null);
-      setCards([]);
       appendMessage("system", `已创建答疑会话，使用模型：${selectedProfile?.display_name ?? selectedProfileId}`);
       setStartBusy(false);
       await runStream(session.session_id);
@@ -529,13 +536,13 @@ export default function Home() {
   }
 
   async function handleDeleteCard(card: StudyCard) {
-    if (!sessionId || cardBusyId) return;
+    if (cardBusyId) return;
     const confirmed = window.confirm(`删除卡片“${card.content.title}”？删除后无法恢复。`);
     if (!confirmed) return;
     setCardBusyId(card.id);
     setError("");
     try {
-      await deleteCard(card.id, sessionId);
+      await deleteCard(card.id);
       setCards((current) => current.filter((item) => item.id !== card.id));
       setViewingCard((current) => current?.id === card.id ? null : current);
     } catch (error) {
@@ -752,10 +759,8 @@ export default function Home() {
             <button type="button" className={cardFilter === "knowledge_card" ? "active" : ""} onClick={() => setCardFilter("knowledge_card")}>知识</button>
             <button type="button" className={cardFilter === "problem_card" ? "active" : ""} onClick={() => setCardFilter("problem_card")}>题目</button>
           </div>
-          {!sessionId ? (
-            <p className="cardLibraryEmpty">开始答疑后，归档的知识卡片和题目卡片会出现在这里。</p>
-          ) : filteredCards.length === 0 ? (
-            <p className="cardLibraryEmpty">当前筛选下还没有卡片。</p>
+          {filteredCards.length === 0 ? (
+            <p className="cardLibraryEmpty">全局卡片库在当前筛选下还没有卡片。</p>
           ) : (
             <div className="cardLibraryList" aria-label="已归档学习卡片">
               {filteredCards.map((card) => (
@@ -774,7 +779,7 @@ export default function Home() {
                     {card.card_type === "knowledge_card" ? <BookOpen size={17} /> : <ClipboardCheck size={17} />}
                   </div>
                   <div className="cardLibraryText">
-                    <strong>{card.content.title}</strong>
+                    <strong><MathText text={card.content.title} /></strong>
                     <span>{card.card_type === "knowledge_card" ? "知识卡片" : "题目卡片"}</span>
                     <time>{new Date(card.saved_at ?? card.created_at).toLocaleString("zh-CN")}</time>
                   </div>

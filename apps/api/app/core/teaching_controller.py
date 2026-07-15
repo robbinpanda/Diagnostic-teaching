@@ -49,9 +49,9 @@ TEACHING_ACTION_DEFINITIONS = [
         "description": "紧贴学生最新回答和当前断点，解释他为什么卡在这里，并打通当前这一个局部推理、符号、概念连接或计算。",
         "use_when": "已经知道学生具体卡在哪一步，需要针对该卡点做短而直接的修复时。",
         "blocking": False,
-        "requires": ["明确关联学生刚才的想法或错误", "只解决一个局部关键点", "checkpoint 必须为 null"],
+        "requires": ["明确关联学生刚才的想法或错误", "只解决一个局部关键点", "checkpoint 和 problem_card 必须为 null", "knowledge_card 可选：仅当本次讲解包含值得独立记忆、可迁移复用的公式、定理、性质或方法辨析时输出；一次性代入、计算、符号改写或仅服务本题的过渡不得出卡"],
         "boundaries": ["不要扩展成整个知识点的系统课程", "不要重列整题路线", "只能使用陈述句，不得顺手向学生提问或要求回答"],
-        "backend_behavior": "展示后立即进入下一个教学 action。",
+        "backend_behavior": "未输出 knowledge_card 时展示后立即进入下一个教学 action；输出时先弹卡，学生关闭并归档后再继续。",
     },
     {
         "name": "EXPLAIN_PRINCIPLE",
@@ -118,7 +118,7 @@ ACTION_PROTOCOL = f"""教学 action 协议：
 - 按当前目的理解 action，而不是把它们串成固定流程：RESPOND_TO_CHECKPOINT 负责反馈闭环；SUMMARIZE 负责自然收束；EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE 负责针对性教学；ASK_OPEN_QUESTION / ASK_MULTIPLE_CHOICE 只负责获取确有必要的新证据。
 - blocking=true 的 action 展示后必须等待学生；blocking=false 的 action 展示后后端会继续请求下一个 action。
 - ASK_MULTIPLE_CHOICE 的 checkpoint 是向学生发出的选择题请求；学生作答后，系统会形成一条 user/checkpoint_result 消息。
-- EXPLAIN_PRINCIPLE 必须同时输出 knowledge_card。它在教学语义上仍是非阻塞 action，但后端会在弹卡处暂停，等学生关闭并归档卡片后再继续请求下一 action。
+- EXPLAIN_PRINCIPLE 必须同时输出 knowledge_card。EXPLAIN_LOCAL 可以自行决定是否输出：只有讲解中存在值得脱离本题独立记忆、可迁移复用的公式、定理、性质或方法辨析时才出卡；一次性代入、算术计算、符号改写或纯粹服务当前题的过渡不出卡。两种 action 一旦输出 knowledge_card，后端都会在弹卡处暂停，等学生关闭并归档卡片后再继续请求下一 action。
 - SUMMARIZE 必须同时输出 problem_card。problem_card 是整题的结构化解答档案，关闭归档后本轮结束。
 - 收到尚未回应的 checkpoint_result 后，先用且只用一次 RESPOND_TO_CHECKPOINT 闭环反馈；下一 action 再决定是否解释、提问或总结。
 - 当前问题或卡点已经清楚处理时，可以直接 SUMMARIZE；确认性问题不是进入总结的前置条件。
@@ -183,8 +183,9 @@ JSON_CONTRACT = """返回 JSON 格式：
 - action 是本轮唯一教学动作。
 - 不要输出 wait_for_student；后端会根据 action 强制填充。
 - 只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 会等待学生。
-- EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / RESPOND_TO_CHECKPOINT 是非阻塞动作；其中 EXPLAIN_PRINCIPLE 会先等学生关闭 knowledge_card，再继续下一轮。
-- EXPLAIN_PRINCIPLE 时 knowledge_card 必须非 null，其余 action 时必须为 null。
+- EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / RESPOND_TO_CHECKPOINT 是非阻塞动作；其中 EXPLAIN_PRINCIPLE 必须先等学生关闭 knowledge_card，EXPLAIN_LOCAL 仅在选择输出 knowledge_card 时这样做。
+- EXPLAIN_PRINCIPLE 时 knowledge_card 必须非 null；EXPLAIN_LOCAL 时可为 null，也可在内容具有独立记忆和迁移价值时非 null；其余 action 时必须为 null。
+- EXPLAIN_LOCAL 决定出卡时，knowledge_card 必须结构化 message 中同一个可复用知识点，不得为了出卡扩大讲解范围。像韦达定理中“和用 $-b/a$、积用 $c/a$”这类易混且可迁移的辨析适合出卡；一次性代入或计算不适合。
 - SUMMARIZE 时 problem_card 必须非 null，其余 action 时必须为 null。
 - SUMMARIZE 的 message 与 problem_card 应共享关键方法和结论；problem_card 在此基础上提供更完整的结构化解法。
 - ASK_MULTIPLE_CHOICE 时 checkpoint 必须非 null，其余 action 时 checkpoint 必须为 null。
@@ -342,7 +343,12 @@ def render_history_message(row: Row | dict) -> dict[str, str]:
             "breakpoint_description": metadata.get("breakpoint"),
             "breakpoint_confidence": None,
             "checkpoint": metadata.get("checkpoint") if rendered_action == "ASK_MULTIPLE_CHOICE" else None,
-            "knowledge_card": metadata.get("knowledge_card") if rendered_action == "EXPLAIN_PRINCIPLE" else None,
+            "knowledge_card": (
+                metadata.get("knowledge_card")
+                if action in {"EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE"}
+                and rendered_action in {"EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE"}
+                else None
+            ),
             "problem_card": metadata.get("problem_card") if rendered_action == "SUMMARIZE" else None,
             "debug": debug,
         }
@@ -540,8 +546,8 @@ def validate_card_contract(turn: TutorTurn) -> None:
     if turn.action == "EXPLAIN_PRINCIPLE":
         if turn.knowledge_card is None:
             raise ValueError("EXPLAIN_PRINCIPLE requires knowledge_card")
-    elif turn.knowledge_card is not None:
-        raise ValueError("knowledge_card is only allowed for EXPLAIN_PRINCIPLE")
+    elif turn.action != "EXPLAIN_LOCAL" and turn.knowledge_card is not None:
+        raise ValueError("knowledge_card is only allowed for EXPLAIN_LOCAL or EXPLAIN_PRINCIPLE")
 
     if turn.action == "SUMMARIZE":
         if turn.problem_card is None:
@@ -597,6 +603,8 @@ def parse_and_validate_tutor_turn(raw: str, *, force_blocking: bool = False) -> 
             f"action must be one of {allowed}; received {action!r}"
         )
     turn = TutorTurn.model_validate(payload)
+    if turn.knowledge_card is not None and action not in {"EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE"}:
+        raise ValueError("knowledge_card is only allowed for EXPLAIN_LOCAL or EXPLAIN_PRINCIPLE")
     turn.message = sanitize_visible_message(turn.message)
     if not turn.message:
         raise ValueError("message must not be empty")
