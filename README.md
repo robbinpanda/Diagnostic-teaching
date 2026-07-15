@@ -5,12 +5,16 @@
 当前版本的核心特征是：**语言模型主导每一轮答疑决策**。后端不是写死“第几步讲什么”的脚本，而是每轮把题目、学生历史、当前阶段和 JSON 输出合同发给 LLM，由 LLM 返回结构化 `TutorTurn`：
 
 ```txt
-phase + action + message + breakpoint + checkpoint
+state_hint + action + message + breakpoint_description + checkpoint
 ```
 
 后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、弹出检查点并把学生选择回传给模型。
 
+当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、可切换的加密模型配置、检查点选择题、SQLite 历史恢复与删除，以及 JSONL/Markdown 双份诊断日志。含题图的会话会保留原图，并要求使用标记为多模态的模型。
+
 ## 本地启动
+
+首次运行先按 `docs/how-to-run.md` 完成 Conda 环境和前端依赖安装。
 
 双击：
 
@@ -30,7 +34,7 @@ http://127.0.0.1:3000
 scripts/stop-dev.cmd
 ```
 
-更详细说明见：
+首次安装、启动、关闭和排查说明见：
 
 ```txt
 docs/how-to-run.md
@@ -40,7 +44,8 @@ docs/how-to-run.md
 
 如果后续要优化“AI 怎么教、什么时候弹检查点、答错后怎么恢复”，请先读：
 
-- `docs/state-machine.md`：答疑状态机与 LLM 主导流程（`phase/action/checkpoint` 如何由模型决定，后端如何守门）
+- `docs/README.md`：文档导航，以及“现行说明 / 历史设计基线”的边界
+- `docs/state-machine.md`：答疑状态机与 LLM 主导流程（`state_hint/action/checkpoint` 如何由模型决定，后端如何守门）
 - `docs/context-management.md`：上下文管理与诊断日志（prompt 拼装、history、检查点回传、SSE、JSONL）
 - `docs/changelog.md`：最近改动记录
 
@@ -72,6 +77,7 @@ apps/api   FastAPI 后端
   app/core/teaching_controller.py    LLM 决策合同 + prompt + 流式生成器 + fallback
   app/core/streaming.py              增量 JSON message 解析器（打字机）
   app/llm/provider.py                流式 chat completions
+  app/routes/problem_images.py       题图识别与必要题图裁剪
   app/storage/session_logger.py      SessionLogger（JSONL + Markdown 诊断记录）
 apps/web   Next.js 前端
   components/MathText.tsx            KaTeX 数学公式渲染

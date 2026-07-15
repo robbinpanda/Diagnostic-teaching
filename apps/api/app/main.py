@@ -13,7 +13,6 @@ from app.storage.session_logger import SessionLogger
 
 def create_app() -> FastAPI:
     settings = load_settings()
-    settings.log_path.parent.mkdir(parents=True, exist_ok=True)
     settings.session_log_dir.mkdir(parents=True, exist_ok=True)
     db = Database(settings.database_path)
     secrets = SecretBox(settings.secret_path)

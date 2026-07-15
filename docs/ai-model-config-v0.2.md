@@ -1,8 +1,9 @@
 # AI 模型配置说明
 
-版本：v0.2  
-日期：2026-07-07  
-适用项目：诊断式数学答疑 MVP  
+方案版本：v0.2
+文档状态：现行实现说明
+最后核对：2026-07-15
+适用项目：诊断式数学答疑 MVP
 
 ## 1. 结论
 
@@ -12,7 +13,7 @@
 
 > 前端填写配置 -> 后端校验与测试连接 -> 后端保存到本地 SQLite -> API key 加密存储 -> 每次答疑前从已保存模型中选择一个。
 
-`.env` 只保留应用级配置，例如数据库路径、日志路径、是否显示调试面板等。
+`.env` 只保留应用级配置，例如数据库路径、密钥文件路径和 session 日志目录。
 
 ## 2. 为什么不建议用 `.env` 保存用户添加的模型
 
@@ -28,9 +29,8 @@
 
 ```env
 DATABASE_URL=sqlite:///./data/app.db
-LOG_PATH=./logs/events.jsonl
-SHOW_DEBUG_PANEL=true
 APP_SECRET_PATH=./data/app-secret.key
+SESSION_LOG_DIR=./logs/sessions
 ```
 
 ## 3. 推荐保存方式
@@ -95,11 +95,18 @@ GET /api/model-profiles
       "id": "prof_01hxyz",
       "display_name": "我的豆包模型",
       "provider": "openai_compatible",
-      "base_url_host": "ark.cn-beijing.volces.com",
+      "base_url": "https://example-provider.com/v1",
+      "base_url_host": "example-provider.com",
       "model": "provider-model-name",
       "tags": ["国内低延迟"],
       "status": "available",
+      "key_state": "saved",
       "masked_api_key": "****...abcd",
+      "timeout_ms": 30000,
+      "temperature": 0.2,
+      "max_output_tokens": 8000,
+      "is_multimodal": false,
+      "last_test_status": null,
       "last_test_latency_ms": 1280
     }
   ],
@@ -107,7 +114,7 @@ GET /api/model-profiles
 }
 ```
 
-不返回完整 `base_url` path 也可以，只显示 host；不返回明文 API key。
+当前实现会返回完整 `base_url` 供编辑，并额外返回 `base_url_host` 供简洁展示；永远不返回明文 API key。不要把密钥放进 URL 查询参数。
 
 ### 5.2 测试模型连接
 
@@ -139,6 +146,8 @@ POST /api/model-profiles/test
 `latency_ms` 记录从发起请求到收到第一个非空可见文本 chunk 的首字延迟（TTFT），不等待完整回复结束。
 
 测试连接应使用极短 prompt，避免明显成本。
+
+编辑已有配置时可同时提交 `profile_id` 并省略 `api_key`，后端会使用已加密保存的 key 完成测试。
 
 ### 5.3 新增模型配置
 
@@ -183,10 +192,10 @@ PATCH /api/model-profiles/{profile_id}
 允许修改：
 
 1. `display_name`
-2. `base_url`
-3. `model`
-4. `tags`
-5. `enabled`
+2. `provider`
+3. `base_url`
+4. `model`
+5. `tags`
 6. `timeout_ms`
 7. `temperature`
 8. `max_output_tokens`
@@ -215,6 +224,7 @@ CREATE TABLE model_profiles (
   base_url TEXT NOT NULL,
   model TEXT NOT NULL,
   api_key_ciphertext TEXT NOT NULL,
+  api_key_mask TEXT NOT NULL,
   tags_json TEXT NOT NULL DEFAULT '[]',
   enabled INTEGER NOT NULL DEFAULT 1,
   deleted_at TEXT,

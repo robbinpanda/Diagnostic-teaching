@@ -1,8 +1,8 @@
 # 上下文、Session 恢复与诊断日志
 
-版本：v0.7
+版本：v0.9
 
-日期：2026-07-13
+日期：2026-07-15
 
 适用项目：诊断式数学答疑 MVP
 
@@ -204,6 +204,7 @@ assistant 教学动作类似：
 ```text
 GET  /api/sessions/history
 POST /api/sessions/restore
+DELETE /api/sessions/{session_id}
 ```
 
 历史列表直接查询 SQLite，包括题目摘要、模型、message 数、checkpoint 数、状态和更新时间。
@@ -223,6 +224,8 @@ POST /api/sessions/restore
 6. 若最后有未回答的 checkpoint，前端恢复后重新显示该 checkpoint；否则恢复对话消息并可继续输入。
 
 这样原始实验记录保持不变，恢复后的新分支也有独立、完整的数据关系。
+
+删除历史会话会同时删除该 session 的 SQLite 主记录、messages、checkpoints，以及对应的 JSONL/Markdown 诊断日志；模型配置不受影响。
 
 ## 6. 诊断日志
 
@@ -277,12 +280,13 @@ provider.chat_stream_completion()
 
 ```text
 message_delta ...
+message_reset（仅格式重试时可能出现）
 decision
 checkpoint_ready（可选）
 message_done
 ```
 
-只有学生可见的 `message` 字段会增量展示。`state_hint`、`action` 和 `checkpoint` 必须等完整 JSON 到达、校验和后端策略归一化后才通过 `decision` 发出。
+只有学生可见的 `message` 字段会增量展示。若首个模型输出格式不合法并触发重试，`message_reset` 会让前端丢弃该 action 已展示的残片。`state_hint`、`action` 和 `checkpoint` 必须等完整 JSON 到达、校验和后端策略归一化后才通过 `decision` 发出。
 
 ## 8. 排查建议
 

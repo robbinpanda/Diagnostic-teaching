@@ -4,6 +4,8 @@
 日期：2026-07-07  
 目标读者：产品、算法、前端、后端、参与测试的教研/运营同学  
 
+> 文档状态：历史设计基线。本文用于追溯 v0.2 的产品范围和原始 API 草案；当前接口、存储与教学流程以 `docs/README.md` 指向的现行文档和代码为准。
+
 ## 0. v0.2 变更摘要
 
 相对 v0.1，本版做了 5 个关键调整：
@@ -856,7 +858,7 @@ POST /api/checkpoints/{checkpoint_id}/answer
 {
   "is_correct": false,
   "event": "CHECKPOINT_WRONG",
-  "next_phase": "recovering"
+  "next_state_hint": "recovering"
 }
 ```
 
@@ -864,7 +866,7 @@ POST /api/checkpoints/{checkpoint_id}/answer
 
 详细配置文档见：
 
-[ai-model-config-v0.2.md](C:/Users/robbinpanda/Desktop/ai4edu/产品验证/docs/ai-model-config-v0.2.md)
+[ai-model-config-v0.2.md](ai-model-config-v0.2.md)
 
 ### 12.1 配置目标
 
@@ -1195,7 +1197,7 @@ API key 只允许后端解密使用，不允许通过 API 返回明文。
 
 v0.2 的 MVP 应聚焦成一个更小但更锋利的验证：
 
-1. 只做文本数学题。
+1. 只做文本或单张题图输入的数学题。
 2. 只做诊断式答疑。
 3. 不内置传统讲题对照。
 4. 把“检查点提问”做成随时可插入的选择题弹窗。

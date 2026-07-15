@@ -1,5 +1,31 @@
 # 本地启动与关闭
 
+## 首次安装
+
+启动脚本面向 Windows，并固定使用名为 `ai4edu-tutor` 的 Conda 环境。先安装 Anaconda/Miniconda、Node.js 和 npm，然后在项目根目录执行：
+
+```bat
+conda create -n ai4edu-tutor python=3.11
+conda run -n ai4edu-tutor python -m pip install -r apps/api/requirements.txt
+npm --prefix apps/web install
+```
+
+项目不依赖 `.env` 也能使用默认路径。需要改数据库、密钥或 session 日志位置时，再创建本地配置：
+
+```bat
+copy .env.example .env
+```
+
+可用变量：
+
+| 变量 | 默认值 | 用途 |
+|---|---|---|
+| `DATABASE_URL` | `sqlite:///./data/app.db` | SQLite 文件位置 |
+| `APP_SECRET_PATH` | `./data/app-secret.key` | 模型 API key 的本地加密主密钥 |
+| `SESSION_LOG_DIR` | `./logs/sessions` | 每个 session 的 JSONL 与 Markdown 日志目录 |
+
+进程环境变量优先于 `.env`；真实 `.env`、`data/` 和 `logs/` 都已被 Git 忽略。
+
 ## 启动
 
 双击：
