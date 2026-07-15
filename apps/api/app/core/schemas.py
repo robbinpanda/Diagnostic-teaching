@@ -101,6 +101,8 @@ class ProblemImageAnalyzeResponse(BaseModel):
 
 
 class SessionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     grade_band: Literal["junior", "senior"]
     subject: Literal["math"] = "math"
     model_profile_id: str

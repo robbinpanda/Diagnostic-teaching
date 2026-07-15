@@ -103,11 +103,19 @@ def build_student_summary(data: dict[str, Any]) -> str:
     lines: list[str] = []
     summary = str(data.get("student_work_summary") or "").strip()
     answer = str(data.get("answer_text") or "").strip()
+    marking = str(data.get("mistake_summary") or "").strip()
+    correctness = normalize_correctness(data.get("correctness"))
 
     if summary:
         lines.append(summary)
     if answer:
         lines.append(f"学生写出的答案：{answer}")
+    if marking:
+        lines.append(f"图片中的批改痕迹：{marking}")
+    elif correctness == "correct":
+        lines.append("图片中的批改痕迹：可见明确的对勾或正确标记。")
+    elif correctness == "incorrect":
+        lines.append("图片中的批改痕迹：可见明确的叉号或错误标记。")
     return "\n".join(lines)
 
 

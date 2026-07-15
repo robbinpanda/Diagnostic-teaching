@@ -516,3 +516,26 @@ def test_session_with_problem_image_requires_multimodal_tutoring_model(tmp_path:
     assert created.status_code == 200
     session = app.state.sessions.get(created.json()["session_id"])
     assert session["problem_image_data_url"] == session_payload["problem_image_data_url"]
+
+
+def test_session_create_rejects_unapproved_vision_model_metadata(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    profile_id = client.app.state.sessions.get(session_id)["model_profile_id"]
+
+    response = client.post(
+        "/api/sessions",
+        json={
+            "grade_band": "junior",
+            "subject": "math",
+            "model_profile_id": profile_id,
+            "problem_text": "计算 $1+1$。",
+            "student_initial_thought": "学生写了 $2$。",
+            "answer_text": "视觉模型内部答案",
+            "correctness": "correct",
+            "mistake_summary": "视觉模型内部批改字段",
+            "diagram_image_data_url": "data:image/png;base64,Y3JvcA==",
+        },
+    )
+
+    assert response.status_code == 422
+    assert all(error["type"] == "extra_forbidden" for error in response.json()["detail"])

@@ -2,6 +2,16 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v1.1 — 2026-07-15
+
+### 教学 action 标签与视觉录入修正
+
+- 每个 assistant 消息气泡右下角显示本轮教学 action 的中文含义和协议原名；恢复后的历史消息同样显示。
+- 图片识别 prompt 要求题目、学生步骤和答案中的数学表达使用 `$...$` / `$$...$$` 合法 KaTeX 格式，避免 OCR 裸公式污染后续显示。
+- 要求视觉模型尽量逐行转录清晰可见的学生过程，不再把多步过程压成笼统一句；仍禁止根据题目或答案推测未写出的思维。
+- 红笔及其他批改颜色的勾、叉、圈、划线、得分和批语现在必须记录，并由后端合并到“你已经想到哪一步”。若模型给出明确正误但漏写批改描述，后端会补充保守的“可见勾/叉”说明。
+- 固化图片识别与答疑隔离边界：正式 session 只接受题目文本、初始思路和可选原始题图，拒绝视觉模型的其他元数据字段；裁剪图仍只用于预览。
+
 ## v1.0 — 2026-07-15
 
 ### 知识卡片与题目卡片
@@ -31,7 +41,7 @@
 - 重写 `SYSTEM_PROMPT`、`ACTION_PROTOCOL` 和每个 action 的 `description / use_when / requires / boundaries`，让 action 名称与实际教学职责严格一致。
 - `DECOMPOSE_STEP` 改为从整题全局视角给出 3—6 步解题路线图，不再与局部讲解重叠。
 - `EXPLAIN_PRINCIPLE` 负责从定义和原理出发系统讲清一个知识点；`EXPLAIN_LOCAL` 只修复学生当前具体卡点。
-- `RESPOND_TO_CHECKPOINT` 只闭环最近一次选择结果，后续讲解、提问或总结交给下一 action。
+- `RESPOND_TO_CHECKPOINT` 只闭环当前待处理的选择结果，后续讲解、提问或总结交给下一 action。
 - 选择题回答后的 local demo 链路调整为 `RESPOND_TO_CHECKPOINT -> EXPLAIN_* -> ASK_OPEN_QUESTION`，避免反馈动作夹带新讲解。
 - 按协议升级策略清空旧 SQLite 会话、checkpoint 和诊断日志，保留模型配置，不提供旧 action 名称兼容。
 
@@ -40,7 +50,7 @@
 ### 结构化多轮上下文与 SQLite 恢复
 
 - LLM 输入改为真实的 `system / user / assistant` 多轮 messages；每条历史消息独立发送，不再拼成单个历史文本块。
-- 应用层取消最近 20 条限制，不做上下文摘要或压缩。
+- 应用层取消固定保留 20 条的限制，不做上下文摘要或压缩。
 - system prompt 新增 `ACTION_PROTOCOL`，逐项说明教学 action 的功能、格式、阻塞性和后端行为。
 - `messages` 新增 `action_id / action / in_reply_to_action_id`，`checkpoints` 新增 `source_action_id`。
 - checkpoint 答案由答题接口直接保存为结构化 `CHECKPOINT_RESPONSE / checkpoint_result`，下一轮不再由前端重复提交。

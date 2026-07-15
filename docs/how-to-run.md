@@ -77,25 +77,19 @@ http://127.0.0.1:3000
 
 ## 查看某个 Session 的过程
 
-如果页面右侧显示 session id，例如：
-
-```txt
-sess_c4052d2538a6
-```
-
-打开命令行，进入项目目录：
+右侧区域现在是学习卡片库，不再显示 session id。需要排查时，先打开命令行并进入项目目录：
 
 ```bat
 cd /d C:\Users\robbinpanda\Desktop\ai4edu\产品验证
 ```
 
-查看最近 10 个 session：
+无参数运行脚本，按创建时间倒序查看 10 个 session，并取得要排查的 `session_id`：
 
 ```bat
 scripts\inspect-session.cmd
 ```
 
-查看某一个 session 的完整过程：
+再查看某一个 session 的完整过程：
 
 ```bat
 scripts\inspect-session.cmd sess_c4052d2538a6

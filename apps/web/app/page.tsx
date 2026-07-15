@@ -32,6 +32,20 @@ type ChatMessage = {
   action?: string;
 };
 
+const ACTION_LABELS: Record<string, string> = {
+  ASK_OPEN_QUESTION: "开放提问",
+  ASK_MULTIPLE_CHOICE: "选择检查点",
+  EXPLAIN_LOCAL: "局部讲解",
+  EXPLAIN_PRINCIPLE: "原理讲解",
+  RESPOND_TO_CHECKPOINT: "检查点反馈",
+  SUMMARIZE: "总结"
+};
+
+function teachingActionLabel(action: string) {
+  const label = ACTION_LABELS[action];
+  return label ? `${label} · ${action}` : action;
+}
+
 export default function Home() {
   const [profiles, setProfiles] = useState<ModelProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState("");
@@ -702,7 +716,12 @@ export default function Home() {
             )}
             {messages.map((message) => (
               <div key={message.id} className={`message ${message.role}`}>
-                <MathText text={message.text} />
+                <div className="messageContent"><MathText text={message.text} /></div>
+                {message.role === "assistant" && message.action && (
+                  <div className="messageActionTag" title={`教学 action：${message.action}`}>
+                    {teachingActionLabel(message.action)}
+                  </div>
+                )}
               </div>
             ))}
           </div>

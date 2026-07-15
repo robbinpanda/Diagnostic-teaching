@@ -29,23 +29,26 @@ IMAGE_ANALYSIS_PROMPT = """你是数学题图片录入助手，不是解题助�
 
 必须返回这些字段：
 {
-  "problem_text": "题目文字，包含题干、条件、问题；如果有图形信息，也要用文字描述关键几何/函数/统计图信息",
+  "problem_text": "可直接用于前端 KaTeX 渲染的题目文字，包含题干、条件、问题；如果有图形信息，也要用文字描述关键几何/函数/统计图信息",
   "needs_diagram": true,
   "diagram_bbox": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0} 或 null,
-  "student_work_summary": "只按图片中可见内容、依照书写顺序客观描述学生写出的计算或推导过程；没有过程则为空字符串",
+  "student_work_summary": "按图片中可见内容和书写顺序，较完整地客观转录学生写出的每一步计算、推导、改写或涂改；没有过程则为空字符串",
   "answer_text": "学生在图片中实际写出的最终答案；没有则为空字符串",
   "correctness": "correct|incorrect|unknown|not_present",
-  "mistake_summary": "只转述图片中明确可见的批改标记或批注；没有则为空字符串"
+  "mistake_summary": "客观记录图片中所有明确可见的批改痕迹，包括红笔或其他批改颜色的勾、叉、圈、划线、得分和文字批注，并说明它标在哪一步或哪个答案附近；没有则为空字符串"
 }
 
 要求：
 - 严格区分印刷的题目、学生书写内容和教师批改痕迹。problem_text 只录入题目，不要把学生作答或批改内容混入题目。
-- student_work_summary 只能描述学生确实写在图片上的式子、步骤和文字，按可见顺序忠实转录或压缩表述。
+- problem_text 必须使用可直接交给 KaTeX 的数学格式：所有数学变量、数字关系、公式、方程、不等式、几何符号都放在 `$...$` 中；独立成行的公式可用 `$$...$$`。使用合法 LaTeX 命令，例如 `\\frac{a}{b}`、`\\sqrt{x}`、`x^2`、`\\angle ABC`，JSON 中的反斜杠必须正确转义。不要把 `x^2`、`1/2`、`√x` 等数学表达裸写在定界符外。
+- problem_text 是纯题目正文，不要使用 Markdown 标题、列表符号或代码块；中文说明和标点放在数学定界符外。
+- student_work_summary 和 answer_text 中出现的数学表达也使用同样的 `$...$` / `$$...$$` KaTeX 格式。
+- student_work_summary 只能描述学生确实写在图片上的式子、步骤和文字，按可见顺序尽量逐行忠实转录。不要把多行有效过程压缩成“学生进行了一些计算”之类的笼统一句，也不要省略清晰可辨的中间式、改写和划掉后重写的内容。
 - 禁止根据题目、最终答案、常见解法或上下文补全中间步骤；禁止推测学生使用了什么方法、为什么这样做、理解了什么、卡在哪里或犯了什么错。
 - 图片中只有最终答案、没有计算或推导过程时，student_work_summary 必须为空字符串，只把该答案原样放入 answer_text。例如只看到“x=2”，不得扩写成“学生通过解方程得到 x=2”。
 - 看不清或无法确定归属的书写内容应省略，不要猜测；不要把标准答案当成学生答案。
 - correctness 只依据图片中明确可见的对勾、叉号、得分或批注意义填写；不得自行计算或推理答案对错。有学生答案但没有明确批改依据时填 unknown，没有学生答案时填 not_present。
-- mistake_summary 只转述图片中明确写出的错误批注或可见改错痕迹，不得自行诊断错误；没有明确批改信息时返回空字符串。
+- mistake_summary 不只记录文字批注：只要看见红笔或其他明显批改颜色的勾、叉、圈、划线、得分、改错痕迹或批语，就必须记录。尽量说明标记的位置和它对应的学生步骤；不得把勾叉解释成图片中没有写出的具体数学错误原因，也不得自行诊断错误。没有任何明确批改痕迹时才返回空字符串。
 - diagram_bbox 使用整张图片归一化坐标，x/y/width/height 都在 0 到 1 之间，框住题目需要保留的图形区域。
 - 如果题目没有必要展示图，needs_diagram=false 且 diagram_bbox=null。
 - 如果无法识别题目文字，problem_text 返回空字符串。
@@ -113,7 +116,7 @@ async def analyze_problem_image(profile: LlmProfile, image_data_url: str) -> str
     if profile.provider == "local_demo":
         return json.dumps(
             {
-                "problem_text": "已知函数 y=-2(x-3)^2+5，求函数的最大值，并说明此时 x 的取值。",
+                "problem_text": "已知函数 $y=-2(x-3)^2+5$，求函数的最大值，并说明此时 $x$ 的取值。",
                 "needs_diagram": False,
                 "diagram_bbox": None,
                 "student_work_summary": "",

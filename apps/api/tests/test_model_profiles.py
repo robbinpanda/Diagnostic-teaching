@@ -169,6 +169,7 @@ def test_problem_image_analysis_local_demo_extracts_problem_text(tmp_path: Path)
     assert response.status_code == 200
     payload = response.json()
     assert "最大值" in payload["problem_text"]
+    assert "$y=-2(x-3)^2+5$" in payload["problem_text"]
     assert payload["needs_diagram"] is False
     assert payload["student_work_summary"] == ""
 
@@ -183,7 +184,15 @@ def test_image_analysis_prompt_forbids_inferring_student_work_from_answer():
     assert "不得扩写成“学生通过解方程得到 x=2”" in IMAGE_ANALYSIS_PROMPT
 
 
-def test_answer_only_summary_does_not_add_inferred_reasoning_or_evaluation():
+def test_image_analysis_prompt_requires_katex_and_complete_visible_markings():
+    assert "可直接交给 KaTeX" in IMAGE_ANALYSIS_PROMPT
+    assert "所有数学变量、数字关系、公式、方程、不等式、几何符号都放在 `$...$` 中" in IMAGE_ANALYSIS_PROMPT
+    assert "不要把多行有效过程压缩" in IMAGE_ANALYSIS_PROMPT
+    assert "勾、叉、圈、划线、得分、改错痕迹或批语" in IMAGE_ANALYSIS_PROMPT
+    assert "就必须记录" in IMAGE_ANALYSIS_PROMPT
+
+
+def test_answer_only_summary_adds_only_visible_answer_and_grading_trace():
     assert build_student_summary(
         {
             "student_work_summary": "",
@@ -191,7 +200,7 @@ def test_answer_only_summary_does_not_add_inferred_reasoning_or_evaluation():
             "correctness": "incorrect",
             "mistake_summary": "移项时符号错误",
         }
-    ) == "学生写出的答案：x=2"
+    ) == "学生写出的答案：x=2\n图片中的批改痕迹：移项时符号错误"
 
 
 def test_student_summary_keeps_only_visible_process_and_answer():
@@ -201,7 +210,26 @@ def test_student_summary_keeps_only_visible_process_and_answer():
             "answer_text": "x=2",
             "correctness": "correct",
         }
-    ) == "学生写了“2x=4”，下一行写了“x=2”。\n学生写出的答案：x=2"
+    ) == (
+        "学生写了“2x=4”，下一行写了“x=2”。\n"
+        "学生写出的答案：x=2\n"
+        "图片中的批改痕迹：可见明确的对勾或正确标记。"
+    )
+
+
+def test_student_summary_keeps_explicit_red_pen_cross_without_inventing_reason():
+    assert build_student_summary(
+        {
+            "student_work_summary": "学生依次写了 $2x=4$、$x=3$。",
+            "answer_text": "$x=3$",
+            "correctness": "incorrect",
+            "mistake_summary": "红笔在 $x=3$ 这一行右侧画了叉，未写错误原因。",
+        }
+    ) == (
+        "学生依次写了 $2x=4$、$x=3$。\n"
+        "学生写出的答案：$x=3$\n"
+        "图片中的批改痕迹：红笔在 $x=3$ 这一行右侧画了叉，未写错误原因。"
+    )
 
 
 def test_text_only_image_result_does_not_crop_even_if_model_returns_bbox(tmp_path: Path, monkeypatch):

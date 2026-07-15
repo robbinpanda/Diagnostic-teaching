@@ -140,6 +140,10 @@ def test_build_messages_attaches_original_problem_image_to_tutoring_request():
         "student_initial_thought": "我找到了一个直角。",
         "phase": "diagnosing",
         "problem_image_data_url": image_data_url,
+        "answer_text": "视觉模型内部答案，不应进入答疑",
+        "correctness": "incorrect",
+        "mistake_summary": "视觉模型独立字段，不应直接进入答疑",
+        "diagram_image_data_url": "data:image/png;base64,Y3JvcA==",
     }
 
     messages = build_messages(session, [])
@@ -148,6 +152,9 @@ def test_build_messages_attaches_original_problem_image_to_tutoring_request():
     assert isinstance(user_content, list)
     assert user_content[0]["type"] == "text"
     assert "立体几何" in user_content[0]["text"]
+    assert "视觉模型内部答案" not in user_content[0]["text"]
+    assert "视觉模型独立字段" not in user_content[0]["text"]
+    assert "Y3JvcA==" not in user_content[0]["text"]
     assert user_content[1] == {"type": "image_url", "image_url": {"url": image_data_url}}
 
 

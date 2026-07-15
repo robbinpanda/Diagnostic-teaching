@@ -356,6 +356,26 @@ textarea {
   white-space: pre-wrap;
 }
 
+.messageContent {
+  min-width: 0;
+}
+
+.messageActionTag {
+  width: fit-content;
+  max-width: 100%;
+  margin: 8px 0 -4px auto;
+  padding: 2px 7px;
+  overflow: hidden;
+  border: 1px solid #cbd9d6;
+  border-radius: 999px;
+  color: #55716d;
+  font-family: Consolas, "Microsoft YaHei", sans-serif;
+  font-size: 10px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .message.student {
   align-self: flex-end;
   background: var(--student);

@@ -117,7 +117,7 @@ system prompt 会在 `ACTION_PROTOCOL` 中逐项告诉模型每个 action 的功
 |---|---|---|
 | `EXPLAIN_LOCAL` | 非阻塞 | 针对学生当前具体卡点，打通一个局部推理、符号、概念连接或计算 |
 | `EXPLAIN_PRINCIPLE` | 非阻塞 + 卡片确认 | 从定义和原理出发讲清一个知识点，输出 `knowledge_card`，关闭归档后继续 |
-| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 闭环最近一次选择结果，指出理解证据或误区，并提供具体、真诚的情绪支持 |
+| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 闭环当前待处理的选择结果，指出理解证据或误区，并提供具体、真诚的情绪支持 |
 | `ASK_OPEN_QUESTION` | 阻塞 | 展示开放问题，`wait_for_student=true`，等待学生输入 |
 | `ASK_MULTIPLE_CHOICE` | 阻塞 | 要求存在合法 checkpoint，用三个可诊断选项定位学生误区 |
 | `SUMMARIZE` | 终止 + 卡片确认 | 自然总结并输出整题上帝视角解法的 `problem_card`，关闭归档后结束 |

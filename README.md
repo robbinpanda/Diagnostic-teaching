@@ -8,9 +8,9 @@
 state_hint + action + message + breakpoint_description + checkpoint + knowledge_card + problem_card
 ```
 
-后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、弹出检查点并把学生选择回传给模型。
+后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、标注每条 AI 消息对应的教学 action、弹出检查点并把学生选择回传给模型。
 
-当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、可切换的加密模型配置、检查点选择题、知识卡片/题目卡片、SQLite 历史恢复与删除，以及 JSONL/Markdown 双份诊断日志。含题图的会话会保留原图，并要求使用标记为多模态的模型。
+当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、可切换的加密模型配置、检查点选择题、知识卡片/题目卡片、SQLite 历史恢复与删除，以及 JSONL/Markdown 双份诊断日志。图片识别先把 KaTeX 格式题目和可见作答/批改痕迹填入两个可编辑文本框；只有题目必须看图时，正式答疑才额外携带用户原图并要求使用标记为多模态的模型。
 
 ## 本地启动
 
@@ -44,10 +44,12 @@ docs/how-to-run.md
 
 如果后续要优化“AI 怎么教、什么时候弹检查点、答错后怎么恢复”，请先读：
 
-- `docs/README.md`：文档导航，以及“现行说明 / 历史设计基线”的边界
 - `docs/state-machine.md`：答疑状态机与 LLM 主导流程（`state_hint/action/checkpoint/card` 如何由模型决定，后端如何守门）
 - `docs/context-management.md`：上下文管理与诊断日志（prompt 拼装、history、检查点/卡片回传、SSE、SQLite、JSONL）
-- `docs/changelog.md`：最近改动记录
+- `docs/ai-model-config-v0.2.md`：模型配置 API、密钥存储和多模态标记
+- `docs/changelog.md`：版本改动记录
+
+`docs/tutoring-agent-mvp-dev-doc-v0.2.md` 仅保留立项时的历史设计基线；出现冲突时，以现行代码、测试和上面三份现行说明为准。
 
 一句话理解当前架构：
 

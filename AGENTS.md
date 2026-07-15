@@ -6,7 +6,7 @@
 
 ## 开发前先读
 
-- 文档入口：`docs/README.md`
+- 文档入口：`README.md`
 - 教学流程：`docs/state-machine.md`
 - 上下文与存储：`docs/context-management.md`
 - 本地运行：`docs/how-to-run.md`
@@ -24,4 +24,4 @@
 
 - 后端：在 `apps/api` 目录运行 `python -m pytest -q`。
 - 前端：在 `apps/web` 目录运行 `npm exec tsc -- --noEmit`；涉及构建或路由时再运行 `npm run build`。
-- 修改 action、API、环境变量或数据表时，同步更新 `docs/README.md` 指向的对应现行文档；重要行为变化再更新 `docs/changelog.md`。
+- 修改 action、API、环境变量或数据表时，同步更新 `README.md` 和对应现行文档；重要行为变化再更新 `docs/changelog.md`。

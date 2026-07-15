@@ -49,7 +49,7 @@ assistant 带 knowledge_card / problem_card 的教学 action
 
 历史中的每条 SQLite message 都单独映射成一条 `user` 或 `assistant` 消息，不再把整段历史拼进最后一个大 user prompt。
 
-应用层不再设置“最近 20 条”之类的截断，也不做摘要或压缩。`SessionRepository.list_messages(session_id)` 默认读取该 session 的全部消息并按时间正序发送。
+应用层不再设置“固定保留 20 条”之类的截断，也不做摘要或压缩。`SessionRepository.list_messages(session_id)` 默认读取该 session 的全部消息并按时间正序发送。
 
 仍需注意：模型服务自身有硬上下文窗口。项目不主动截断，但实际总 token 超过所选模型限制时，供应商仍可能拒绝请求。
 
@@ -89,6 +89,10 @@ system 消息由四部分组成：
 ```
 
 如果题目有原图，这条消息使用多模态 content，同时携带文本 JSON 和 `image_url`。
+
+图片识别与正式答疑是两条隔离链路：`POST /api/problem-images/analyze` 的结果只负责填写前端的 `problem_text`（数学题目）和 `student_initial_thought`（你已经想到哪一步）两个文本框；只有视觉模型判断题目必须看图时，创建 session 才会额外保存并发送用户上传的原图。裁剪图只用于前端预览，视觉识别返回的 `answer_text / correctness / mistake_summary / diagram_note / diagram_image_data_url` 不会作为独立字段进入答疑 prompt。批改痕迹会先由后端合并进用户可见、可编辑的“你已经想到哪一步”文本，再作为该文本框内容进入 session。
+
+`SessionCreate` 禁止未声明的额外字段，`build_messages()` 也只对白名单中的题目、初始思路、年级、学科、状态和可选原图组装 `SESSION_START`，防止视觉模型内部元数据旁路进入教学上下文。
 
 新 session 不再把初始思路重复写成第一条 student message。对旧数据库，若第一条 legacy student message 与初始思路完全相同，`build_messages()` 会跳过该重复项。
 
@@ -136,7 +140,7 @@ assistant 教学动作类似：
 |---|---|---|
 | `EXPLAIN_LOCAL` | 非阻塞 | 修复学生当前具体卡点，然后继续请求模型 |
 | `EXPLAIN_PRINCIPLE` | 非阻塞 + 卡片确认 | 系统讲解知识原理并产生 `knowledge_card`；关闭归档后继续请求模型 |
-| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 闭环最近一次检查点答案，给出针对性反馈与情绪支持，然后继续 |
+| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 闭环当前待处理的检查点答案，给出针对性反馈与情绪支持，然后继续 |
 | `ASK_OPEN_QUESTION` | 阻塞 | 停止生成，等待学生自由回答 |
 | `ASK_MULTIPLE_CHOICE` | 阻塞 | 创建带诊断选项的 checkpoint，等待学生选择 |
 | `SUMMARIZE` | 终止 + 卡片确认 | 自然总结并产生 `problem_card`；关闭归档后结束，无需额外确认题 |
