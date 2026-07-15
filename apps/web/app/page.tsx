@@ -10,6 +10,8 @@ import {
   answerCheckpoint,
   analyzeProblemImage,
   createSession,
+  deleteAllCards,
+  deleteAllSessions,
   deleteCard,
   deleteModelProfile,
   deleteSession,
@@ -79,6 +81,8 @@ export default function Home() {
   const [selectedHistoryId, setSelectedHistoryId] = useState("");
   const [historyBusy, setHistoryBusy] = useState(false);
   const [deleteSessionBusyId, setDeleteSessionBusyId] = useState("");
+  const [deleteAllSessionsBusy, setDeleteAllSessionsBusy] = useState(false);
+  const [deleteAllCardsBusy, setDeleteAllCardsBusy] = useState(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedProfile = useMemo(
@@ -144,6 +148,16 @@ export default function Home() {
 
   function appendMessage(role: ChatMessage["role"], text: string, action?: string) {
     setMessages((current) => [...current, { id: crypto.randomUUID(), role, text, action }]);
+  }
+
+  function clearCurrentSessionState() {
+    setSessionId("");
+    setMessages([]);
+    setInput("");
+    setCheckpoint(null);
+    setCheckpointStartedAt(null);
+    setActiveCard(null);
+    setViewingCard(null);
   }
 
   async function openHistory() {
@@ -226,17 +240,32 @@ export default function Home() {
         current === item.session_id ? remaining[0]?.session_id || "" : current
       );
       if (sessionId === item.session_id) {
-        setSessionId("");
-        setMessages([]);
-        setCheckpoint(null);
-        setCheckpointStartedAt(null);
-        setActiveCard(null);
-        setViewingCard(null);
+        clearCurrentSessionState();
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : "删除历史会话失败");
     } finally {
       setDeleteSessionBusyId("");
+    }
+  }
+
+  async function handleDeleteAllSessions() {
+    const confirmed = window.confirm(
+      "清空全部会话？SQLite 中的所有会话、消息、检查点、未归档流程卡片和全部 session 日志都会永久删除。已归档学习卡片和模型配置会保留。"
+    );
+    if (!confirmed) return;
+
+    setDeleteAllSessionsBusy(true);
+    setError("");
+    try {
+      await deleteAllSessions();
+      setHistoryItems([]);
+      setSelectedHistoryId("");
+      clearCurrentSessionState();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "清空全部会话失败");
+    } finally {
+      setDeleteAllSessionsBusy(false);
     }
   }
 
@@ -552,6 +581,26 @@ export default function Home() {
     }
   }
 
+  async function handleDeleteAllCards() {
+    const confirmed = window.confirm(
+      "清空全部学习卡片？所有知识卡片和题目卡片都会永久删除，会话、消息和日志会保留。"
+    );
+    if (!confirmed) return;
+
+    setDeleteAllCardsBusy(true);
+    setError("");
+    try {
+      await deleteAllCards();
+      setCards([]);
+      setActiveCard(null);
+      setViewingCard(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "清空全部学习卡片失败");
+    } finally {
+      setDeleteAllCardsBusy(false);
+    }
+  }
+
   return (
     <main className="shell">
       <section className="topbar">
@@ -759,6 +808,15 @@ export default function Home() {
             <button type="button" className={cardFilter === "knowledge_card" ? "active" : ""} onClick={() => setCardFilter("knowledge_card")}>知识</button>
             <button type="button" className={cardFilter === "problem_card" ? "active" : ""} onClick={() => setCardFilter("problem_card")}>题目</button>
           </div>
+          <button
+            className="dangerButton clearLibraryButton"
+            type="button"
+            onClick={handleDeleteAllCards}
+            disabled={deleteAllCardsBusy || Boolean(cardBusyId) || streamBusy || cards.length === 0}
+          >
+            {deleteAllCardsBusy ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
+            清空全部卡片
+          </button>
           {filteredCards.length === 0 ? (
             <p className="cardLibraryEmpty">全局卡片库在当前筛选下还没有卡片。</p>
           ) : (
@@ -857,8 +915,17 @@ export default function Home() {
               </div>
             )}
             <div className="dialogActions">
+              <button
+                className="dangerButton"
+                type="button"
+                onClick={handleDeleteAllSessions}
+                disabled={historyBusy || deleteAllSessionsBusy || Boolean(deleteSessionBusyId) || historyItems.length === 0}
+              >
+                {deleteAllSessionsBusy ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
+                清空全部会话
+              </button>
               <button className="secondaryButton" type="button" onClick={() => setHistoryOpen(false)}>取消</button>
-              <button className="primaryButton" type="button" onClick={handleRestoreSession} disabled={!selectedHistoryId || historyBusy || Boolean(deleteSessionBusyId)}>
+              <button className="primaryButton" type="button" onClick={handleRestoreSession} disabled={!selectedHistoryId || historyBusy || deleteAllSessionsBusy || Boolean(deleteSessionBusyId)}>
                 {historyBusy ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}
                 恢复为新会话
               </button>

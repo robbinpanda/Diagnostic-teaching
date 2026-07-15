@@ -230,6 +230,14 @@ class SessionRepository:
             )
             conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
+    def delete_all_sessions(self) -> None:
+        """Delete all resumable session state while preserving saved global cards."""
+        with self.db.connect() as conn:
+            conn.execute("DELETE FROM messages")
+            conn.execute("DELETE FROM checkpoints")
+            conn.execute("DELETE FROM study_cards WHERE saved_at IS NULL")
+            conn.execute("DELETE FROM sessions")
+
     def update_phase(
         self,
         session_id: str,
@@ -491,6 +499,11 @@ class SessionRepository:
             if row["saved_at"] is None:
                 raise PermissionError(card_id)
             conn.execute("DELETE FROM study_cards WHERE id = ?", (card_id,))
+
+    def delete_all_cards(self) -> None:
+        """Delete saved and pending study cards without deleting sessions."""
+        with self.db.connect() as conn:
+            conn.execute("DELETE FROM study_cards")
 
     def list_messages(self, session_id: str, limit: int | None = None) -> list[sqlite3.Row]:
         with self.db.connect() as conn:

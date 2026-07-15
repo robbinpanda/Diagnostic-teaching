@@ -12,6 +12,8 @@ state_hint + action + message + breakpoint_description + checkpoint + knowledge_
 
 当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、可切换的加密模型配置、检查点选择题、跨 session 的全局知识卡片/题目卡片库、SQLite 历史恢复与删除，以及 JSONL/Markdown 双份诊断日志。图片识别先把 KaTeX 格式题目和可见作答/批改痕迹填入两个可编辑文本框；只有题目必须看图时，正式答疑才额外携带用户原图并要求使用标记为多模态的模型。
 
+历史会话弹窗提供“一键清空全部会话”，会同时清理 SQLite 会话业务态和全部 session 日志，但保留已归档全局卡片；右侧卡片库另有“清空全部卡片”，不会删除会话、日志或模型配置。两项操作都需要二次确认。
+
 知识卡片策略为：`EXPLAIN_PRINCIPLE` 必须输出，`EXPLAIN_LOCAL` 仅在讲解包含值得独立记忆、可迁移复用的公式、定理、性质或方法辨析时由模型选择输出；任一 knowledge card 都会在消息结束后弹窗，关闭归档后继续答疑。
 
 ## 本地启动

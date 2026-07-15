@@ -34,6 +34,10 @@ class SessionStreamCoordinator:
         async with self._guard:
             self._active_session_ids.discard(session_id)
 
+    async def has_active_streams(self) -> bool:
+        async with self._guard:
+            return bool(self._active_session_ids)
+
 
 def sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"

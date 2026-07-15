@@ -452,6 +452,85 @@ def test_session_delete_succeeds_when_logs_are_already_missing(tmp_path: Path):
     assert client.delete(f"/api/sessions/{session_id}").status_code == 404
 
 
+def test_delete_all_sessions_clears_sqlite_and_logs_but_preserves_saved_cards(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    first = client.post("/api/chat/stream", json={"session_id": session_id})
+    checkpoint_id = next(d["id"] for e, d in _parse_sse_events(first.text) if e == "checkpoint_ready")
+    client.post(
+        f"/api/checkpoints/{checkpoint_id}/answer",
+        json={"session_id": session_id, "selected_option_id": "A", "elapsed_ms": 700},
+    )
+    summarized = client.post("/api/chat/stream", json={"session_id": session_id})
+    card = next(d for e, d in _parse_sse_events(summarized.text) if e == "card_ready")
+    client.post(f"/api/cards/{card['id']}/save", json={"session_id": session_id})
+
+    profile_id = client.app.state.sessions.get(session_id)["model_profile_id"]
+    second = client.post(
+        "/api/sessions",
+        json={
+            "grade_band": "junior",
+            "subject": "math",
+            "model_profile_id": profile_id,
+            "problem_text": "计算 $2+2$。",
+            "student_initial_thought": "",
+        },
+    ).json()["session_id"]
+    log_dir = client.app.state.session_logger.log_dir
+    assert list(log_dir.glob("*.jsonl"))
+    assert list(log_dir.glob("*.log.md"))
+
+    deleted = client.delete("/api/sessions")
+
+    assert deleted.status_code == 204
+    assert client.get("/api/sessions/history").json()["sessions"] == []
+    for deleted_session_id in (session_id, second):
+        with pytest.raises(KeyError):
+            client.app.state.sessions.get(deleted_session_id)
+        assert client.app.state.sessions.list_messages(deleted_session_id) == []
+        assert client.app.state.sessions.list_checkpoints(deleted_session_id) == []
+    assert list(log_dir.glob("*.jsonl")) == []
+    assert list(log_dir.glob("*.log.md")) == []
+    assert [item["id"] for item in client.get("/api/cards").json()["cards"]] == [card["id"]]
+    assert client.get("/api/model-profiles").json()["profiles"]
+
+
+def test_delete_all_cards_removes_saved_and_pending_cards_only(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    first = client.post("/api/chat/stream", json={"session_id": session_id})
+    checkpoint_id = next(d["id"] for e, d in _parse_sse_events(first.text) if e == "checkpoint_ready")
+    client.post(
+        f"/api/checkpoints/{checkpoint_id}/answer",
+        json={"session_id": session_id, "selected_option_id": "A", "elapsed_ms": 700},
+    )
+    summarized = client.post("/api/chat/stream", json={"session_id": session_id})
+    pending_card = next(d for e, d in _parse_sse_events(summarized.text) if e == "card_ready")
+    assert client.app.state.sessions.latest_pending_card(session_id)["id"] == pending_card["id"]
+
+    deleted = client.delete("/api/cards")
+
+    assert deleted.status_code == 204
+    assert client.app.state.sessions.list_cards(include_pending=True) == []
+    assert client.app.state.sessions.get(session_id)["id"] == session_id
+    assert client.app.state.sessions.list_messages(session_id)
+    assert client.get("/api/sessions/history").json()["sessions"]
+    assert list(client.app.state.session_logger.log_dir.glob("*.jsonl"))
+
+
+def test_bulk_delete_is_rejected_while_a_chat_stream_is_active(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    coordinator = client.app.state.chat_streams
+    coordinator._active_session_ids.add(session_id)
+    try:
+        sessions_response = client.delete("/api/sessions")
+        cards_response = client.delete("/api/cards")
+    finally:
+        coordinator._active_session_ids.discard(session_id)
+
+    assert sessions_response.status_code == 409
+    assert cards_response.status_code == 409
+    assert client.app.state.sessions.get(session_id)["id"] == session_id
+
+
 def test_answer_unknown_triggers_recovery_phase(tmp_path: Path):
     client, session_id = _bootstrap_app(tmp_path)
     first = client.post("/api/chat/stream", json={"session_id": session_id})

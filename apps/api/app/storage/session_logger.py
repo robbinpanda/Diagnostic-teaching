@@ -331,3 +331,11 @@ class SessionLogger:
             (self.log_dir / f"{session_id}.jsonl").unlink(missing_ok=True)
             (self.log_dir / f"{session_id}.log.md").unlink(missing_ok=True)
             self._sessions_with_logged_images.discard(session_id)
+
+    def delete_all(self) -> None:
+        """Delete every JSONL and Markdown session log in the configured log directory."""
+        with self._lock:
+            for pattern in ("*.jsonl", "*.log.md"):
+                for path in self.log_dir.glob(pattern):
+                    path.unlink(missing_ok=True)
+            self._sessions_with_logged_images.clear()

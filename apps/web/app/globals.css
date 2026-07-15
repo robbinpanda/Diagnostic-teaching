@@ -206,7 +206,8 @@ textarea {
 
 .primaryButton,
 .secondaryButton,
-.iconButton {
+.iconButton,
+.dangerButton {
   border: 0;
   border-radius: 8px;
   min-height: 40px;
@@ -248,6 +249,23 @@ textarea {
 
 .dangerIconButton:hover:not(:disabled) {
   background: #ffe3dc;
+}
+
+.dangerButton {
+  background: #fff0ed;
+  color: var(--warn);
+  padding: 0 14px;
+  font-weight: 700;
+}
+
+.dangerButton:hover:not(:disabled) {
+  background: #ffe3dc;
+}
+
+.clearLibraryButton {
+  width: 100%;
+  min-height: 34px;
+  font-size: 12px;
 }
 
 .startButton {

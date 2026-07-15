@@ -216,7 +216,7 @@ source_action_id / source_message_id / created_at / saved_at
 - knowledge card：保存后立即以无新增 student message 的 `/api/chat/stream` 继续答疑。
 - problem card：保存后结束，因为来源 action 是终止动作 `SUMMARIZE`。
 
-前端启动时调用全局 `GET /api/cards`，支持按 `card_type` 筛选；双击使用与首次弹窗相同的视图，删除调用 `DELETE /api/cards/{id}`。卡片保留 `session_id / source_action_id / source_message_id` 作为来源审计信息，但全局列表和删除不要求当前 session。
+前端启动时调用全局 `GET /api/cards`，支持按 `card_type` 筛选；双击使用与首次弹窗相同的视图，删除单张调用 `DELETE /api/cards/{id}`，清空全部调用 `DELETE /api/cards`。批量清卡会删除已归档和待归档卡片，但不会删除会话或日志。卡片保留 `session_id / source_action_id / source_message_id` 作为来源审计信息，但全局列表和删除不要求当前 session。
 
 assistant 历史消息的 `metadata_json` 同时保存 `card_id` 和结构化 card，保证模型历史仍是完整 `TutorTurn` 格式；会话恢复时会重建 card ID、action ID 和 message ID 的引用。
 
@@ -227,6 +227,7 @@ assistant 历史消息的 `metadata_json` 同时保存 `card_id` 和结构化 ca
 ```text
 GET  /api/sessions/history
 POST /api/sessions/restore
+DELETE /api/sessions
 DELETE /api/sessions/{session_id}
 ```
 
@@ -249,6 +250,8 @@ DELETE /api/sessions/{session_id}
 这样原始实验记录保持不变，恢复后的新分支也有独立、完整的数据关系。
 
 删除历史会话会删除该 session 的 SQLite 主记录、messages、checkpoints、尚未关闭的待归档卡片，以及对应的 JSONL/Markdown 诊断日志；已归档学习卡片继续保留在全局卡片库，模型配置也不受影响。
+
+`DELETE /api/sessions` 是批量版本：删除全部 session、messages、checkpoints、待归档卡片，以及日志目录中的所有 `.jsonl` / `.log.md` session 日志；已归档全局卡片和模型配置保留。若仍有答疑流正在生成，接口返回 409，避免清空后被并发写回。
 
 ## 7. 诊断日志
 

@@ -237,6 +237,13 @@ export async function deleteSession(sessionId: string) {
   if (!response.ok) throw new Error(await response.text());
 }
 
+export async function deleteAllSessions() {
+  const response = await fetch(`${API_BASE}/api/sessions`, {
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await response.text());
+}
+
 export async function restoreSession(input: { session_id: string; model_profile_id: string }): Promise<RestoredSession> {
   const response = await fetch(`${API_BASE}/api/sessions/restore`, {
     method: "POST",
@@ -296,6 +303,13 @@ export async function saveCard(cardId: string, sessionId: string): Promise<Study
 
 export async function deleteCard(cardId: string) {
   const response = await fetch(`${API_BASE}/api/cards/${cardId}`, {
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await response.text());
+}
+
+export async function deleteAllCards() {
+  const response = await fetch(`${API_BASE}/api/cards`, {
     method: "DELETE"
   });
   if (!response.ok) throw new Error(await response.text());

@@ -68,6 +68,17 @@ def list_session_history(request: Request) -> SessionHistoryListResponse:
     )
 
 
+@router.delete("", status_code=204)
+async def delete_all_sessions(request: Request) -> Response:
+    if await request.app.state.chat_streams.has_active_streams():
+        raise HTTPException(status_code=409, detail="仍有答疑正在生成，请等待完成后再清空全部会话")
+    request.app.state.sessions.delete_all_sessions()
+    logger = getattr(request.app.state, "session_logger", None)
+    if logger is not None:
+        logger.delete_all()
+    return Response(status_code=204)
+
+
 @router.delete("/{session_id}", status_code=204)
 def delete_session(session_id: str, request: Request) -> Response:
     try:

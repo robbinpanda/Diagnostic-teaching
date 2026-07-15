@@ -201,3 +201,23 @@ def test_logger_delete_removes_both_formats_and_allows_missing_files(tmp_path: P
     assert not (tmp_path / "sess_delete.jsonl").exists()
     assert not (tmp_path / "sess_delete.log.md").exists()
     logger.delete("sess_delete")
+
+
+def test_logger_delete_all_removes_only_session_log_formats(tmp_path: Path):
+    logger = SessionLogger(tmp_path)
+    for session_id in ("sess_one", "sess_two"):
+        logger.log_session_started(
+            session_id=session_id,
+            model="demo-model",
+            grade_band="junior",
+            problem_text="测试批量删除",
+            student_initial_thought="",
+        )
+    keep = tmp_path / "keep.txt"
+    keep.write_text("保留", encoding="utf-8")
+
+    logger.delete_all()
+
+    assert list(tmp_path.glob("*.jsonl")) == []
+    assert list(tmp_path.glob("*.log.md")) == []
+    assert keep.read_text(encoding="utf-8") == "保留"

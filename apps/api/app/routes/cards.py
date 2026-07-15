@@ -46,6 +46,14 @@ def save_card(card_id: str, payload: StudyCardSaveRequest, request: Request) -> 
     return card_from_row(row)
 
 
+@router.delete("", status_code=204)
+async def delete_all_cards(request: Request) -> Response:
+    if await request.app.state.chat_streams.has_active_streams():
+        raise HTTPException(status_code=409, detail="仍有答疑正在生成，请等待完成后再清空全部卡片")
+    request.app.state.sessions.delete_all_cards()
+    return Response(status_code=204)
+
+
 @router.delete("/{card_id}", status_code=204)
 def delete_card(
     card_id: str,

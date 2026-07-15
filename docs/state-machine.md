@@ -215,10 +215,11 @@ checkpoint 类似一次需要结果的调用，但结果来自学生，而不是
 ```text
 GET    /api/cards?card_type=knowledge_card|problem_card
 POST   /api/cards/{card_id}/save
+DELETE /api/cards
 DELETE /api/cards/{card_id}
 ```
 
-`session_id` 仍保存在卡片记录中作为来源审计字段，但全局卡片库的查询与删除不依赖当前会话。新建、恢复或删除 session 都不会清空已归档卡片；只有 `saved_at=null` 的待归档卡片仍属于原会话的阻塞工作流。
+`DELETE /api/cards` 会清空全部已归档和待归档卡片，但不删除 session、message、checkpoint 或日志。`session_id` 仍保存在卡片记录中作为来源审计字段，但全局卡片库的查询与删除不依赖当前会话。新建、恢复或删除 session 都不会清空已归档卡片；只有 `saved_at=null` 的待归档卡片仍属于原会话的阻塞工作流。
 
 ## 9. SSE 事件顺序
 
