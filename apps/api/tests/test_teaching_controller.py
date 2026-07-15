@@ -86,22 +86,51 @@ def test_backend_policy_forces_blocking_after_nonblocking_streak():
     assert "你先说说" in turn.message
 
 
+def test_backend_policy_allows_summary_after_nonblocking_streak():
+    turn = teaching.TutorTurn(state_hint="summarizing", action="SUMMARIZE", message="这个卡点已经讲清，可以在这里收束。")
+
+    apply_backend_action_policy(turn, force_blocking=True)
+
+    assert turn.action == "SUMMARIZE"
+    assert turn.wait_for_student is False
+
+
 def test_action_protocol_keeps_teaching_responsibilities_distinct():
     definitions = {item["name"]: item for item in teaching.TEACHING_ACTION_DEFINITIONS}
 
     assert "ASK_MULTIPLE_CHOICE" in definitions
     assert "SHOW_CHECKPOINT_MC" not in teaching.VALID_ACTIONS
-    assert "整道题的全局视角" in definitions["DECOMPOSE_STEP"]["description"]
-    assert any("不是只拆当前的下一小步" in item for item in definitions["DECOMPOSE_STEP"]["boundaries"])
+    assert "DECOMPOSE_STEP" not in teaching.VALID_ACTIONS
+    assert "DECOMPOSE_STEP" not in definitions
     assert "系统" in definitions["EXPLAIN_PRINCIPLE"]["description"]
     assert "当前断点" in definitions["EXPLAIN_LOCAL"]["description"]
     assert "只对最近一次" in definitions["RESPOND_TO_CHECKPOINT"]["description"]
+    assert "情绪价值" in definitions["RESPOND_TO_CHECKPOINT"]["description"]
+    assert "降低挫败感" in definitions["RESPOND_TO_CHECKPOINT"]["description"]
     assert "后续教学交给下一个 action" in definitions["RESPOND_TO_CHECKPOINT"]["boundaries"]
-    assert "学生缺少整题方向" in teaching.SYSTEM_PROMPT
+    assert "不要先给出整题的上帝视角路线图" in teaching.SYSTEM_PROMPT
+    assert "确认性问题当作进入总结的必经步骤" in teaching.SYSTEM_PROMPT
+    assert "不要求学生先答出最终答案" in definitions["SUMMARIZE"]["use_when"]
+    assert "而不是把它们串成固定流程" in teaching.ACTION_PROTOCOL
     assert "三个分别代表正确理解和不同误区的选项" in teaching.SYSTEM_PROMPT
     assert "默认优先选择 ASK_MULTIPLE_CHOICE" in teaching.SYSTEM_PROMPT
     assert "只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以向学生提问" in teaching.SYSTEM_PROMPT
     assert "其余 action 的 message 必须为纯陈述句" in teaching.JSON_CONTRACT
+
+
+def test_removed_decompose_step_is_rejected_as_an_invalid_action():
+    payload = {
+        "state_hint": "scaffolding",
+        "action": "DECOMPOSE_STEP",
+        "message": "先列出完整路线。",
+        "breakpoint_description": None,
+        "breakpoint_confidence": 0.5,
+        "checkpoint": None,
+        "debug": {},
+    }
+
+    with pytest.raises(teaching.TutorTurnActionError):
+        teaching.parse_and_validate_tutor_turn(json.dumps(payload, ensure_ascii=False))
 
 
 def test_build_messages_attaches_original_problem_image_to_tutoring_request():

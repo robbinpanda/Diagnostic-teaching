@@ -148,7 +148,8 @@ def test_checkpoint_answer_drives_followup_instead_of_loop(tmp_path: Path):
     decisions = [d for e, d in second_events if e == "decision"]
     assert decisions
     assert decisions[0]["action"] == "RESPOND_TO_CHECKPOINT"
-    assert any(d["action"] == "ASK_OPEN_QUESTION" for d in decisions)
+    assert any(d["action"] == "SUMMARIZE" for d in decisions)
+    assert not any(d["action"] == "ASK_OPEN_QUESTION" for d in decisions)
     deltas = [d for e, d in second_events if e == "message_delta"]
     visible = "".join(d.get("text", "") for d in deltas)
     assert visible.strip(), "第二轮应输出可见讲解而非空内容"

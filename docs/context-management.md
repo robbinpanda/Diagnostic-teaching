@@ -133,13 +133,12 @@ assistant 教学动作类似：
 
 | action | 类型 | 后端行为 |
 |---|---|---|
-| `DECOMPOSE_STEP` | 非阻塞 | 展示整题解法路线图，然后继续请求模型 |
 | `EXPLAIN_LOCAL` | 非阻塞 | 修复学生当前具体卡点，然后继续请求模型 |
 | `EXPLAIN_PRINCIPLE` | 非阻塞 | 系统讲解一个知识原理，然后继续请求模型 |
-| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 只闭环最近一次检查点答案，然后继续 |
+| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 闭环最近一次检查点答案，给出针对性反馈与情绪支持，然后继续 |
 | `ASK_OPEN_QUESTION` | 阻塞 | 停止生成，等待学生自由回答 |
 | `ASK_MULTIPLE_CHOICE` | 阻塞 | 创建带诊断选项的 checkpoint，等待学生选择 |
-| `SUMMARIZE` | 终止 | 展示总结并结束本轮 |
+| `SUMMARIZE` | 终止 | 问题或卡点已清楚处理时自然总结并结束本轮，无需额外确认题 |
 
 模型只选择 action。`wait_for_student` 由后端根据 action 强制推导，模型不能自己决定。
 

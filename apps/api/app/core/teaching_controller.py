@@ -15,7 +15,7 @@ from app.storage.session_logger import SessionLogger
 
 
 BLOCKING_ACTIONS = {"ASK_OPEN_QUESTION", "ASK_MULTIPLE_CHOICE"}
-NONBLOCKING_ACTIONS = {"DECOMPOSE_STEP", "EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE", "RESPOND_TO_CHECKPOINT"}
+NONBLOCKING_ACTIONS = {"EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE", "RESPOND_TO_CHECKPOINT"}
 TERMINAL_ACTIONS = {"SUMMARIZE"}
 VALID_ACTIONS = BLOCKING_ACTIONS | NONBLOCKING_ACTIONS | TERMINAL_ACTIONS
 FORMAT_RETRY_LIMIT = 1
@@ -45,15 +45,6 @@ TEACHING_ACTION_DEFINITIONS = [
         "backend_behavior": "保存 checkpoint、展示选择题并等待学生作答。",
     },
     {
-        "name": "DECOMPOSE_STEP",
-        "description": "站在整道题的全局视角，把完整解题路线拆成有先后关系的若干阶段，让学生先看到‘这道题要经过哪些关口’。",
-        "use_when": "学生缺少整题方向、说‘完全不知道怎么做’，或需要先建立解题地图时。",
-        "blocking": False,
-        "requires": ["message 给出清晰的整体路线图，通常为 3—6 个有顺序的步骤", "每一步说明目标或要建立的中间结果", "checkpoint 必须为 null"],
-        "boundaries": ["这是整题路线规划，不是只拆当前的下一小步", "不要展开每一步的详细推导", "不要在同一 action 中系统讲原理或直接算出完整答案", "只能使用陈述句，不得向学生提问或要求回答"],
-        "backend_behavior": "展示后立即进入下一个教学 action。",
-    },
-    {
         "name": "EXPLAIN_LOCAL",
         "description": "紧贴学生最新回答和当前断点，解释他为什么卡在这里，并打通当前这一个局部推理、符号、概念连接或计算。",
         "use_when": "已经知道学生具体卡在哪一步，需要针对该卡点做短而直接的修复时。",
@@ -73,21 +64,21 @@ TEACHING_ACTION_DEFINITIONS = [
     },
     {
         "name": "RESPOND_TO_CHECKPOINT",
-        "description": "只对最近一次 checkpoint_result 完成反馈闭环：确认学生的选择与正误，指出该选项暴露出的理解证据或具体误区，并给出一句针对性的肯定或纠正。",
+        "description": "只对最近一次 checkpoint_result 完成反馈闭环：确认学生的选择与正误，指出该选项暴露出的理解证据或具体误区，并明确提供真诚、具体的情绪价值。答对时认可学生实际做对的思考，答错或选择‘我不知道’时降低挫败感、肯定其暴露卡点的价值，让学生感到自己仍在推进且可以继续；不要空泛夸奖。",
         "use_when": "最新一条学生消息是尚未回应的结构化 checkpoint_result 时，优先且仅使用一次。",
         "blocking": False,
-        "requires": ["明确利用 selected_text、is_correct、misconception 等最近结果", "反馈简短、具体、与所选项对应", "checkpoint 必须为 null"],
+        "requires": ["明确利用 selected_text、is_correct、misconception 等最近结果", "反馈简短、具体、与所选项对应", "情绪支持必须基于学生真实表现，不使用空泛的‘真棒’或居高临下的安慰", "checkpoint 必须为 null"],
         "boundaries": ["不要开始新的系统讲解或完整局部讲解", "只能使用陈述句，不得向学生提问或要求回答", "后续教学交给下一个 action"],
         "backend_behavior": "展示反馈后立即进入下一个教学 action。",
     },
     {
         "name": "SUMMARIZE",
-        "description": "在教学目标已经完成时，凝练总结本次卡点、关键方法链、学生已经掌握的证据，以及以后遇到同类题可迁移的判断线索。",
-        "use_when": "当前问题已经解决，不再需要新的讲解或学生作答时。",
+        "description": "在当前问题或本轮教学目标已经得到清楚处理时自然收束，凝练本次卡点、关键方法和以后遇到同类题可迁移的判断线索。",
+        "use_when": "当前问题已有明确结论，或当前卡点已经讲清、继续提问不会带来必要的新信息时。进入 SUMMARIZE 不要求学生先答出最终答案，也不要求额外插入‘懂了吗’、复述答案或迁移题等确认性问题。",
         "blocking": False,
         "terminal": True,
         "requires": ["只总结本轮已经出现并解决的内容", "指出可迁移的方法线索", "checkpoint 必须为 null"],
-        "boundaries": ["不要在总结中引入新知识或新的解题步骤", "不要过早结束尚未验证理解的教学流程", "只能使用陈述句，不得在结尾追加问题或练习邀请"],
+        "boundaries": ["不要在总结中引入新知识或新的解题步骤", "仍有会影响当前结论的实质性缺口时不要总结", "现有上下文足以收束时，不要为了进入总结额外设置确认性问题", "只能使用陈述句，不得在结尾追加问题或练习邀请"],
         "backend_behavior": "展示总结并结束当前生成流程。",
     },
 ]
@@ -97,22 +88,21 @@ SYSTEM_PROMPT = """你是一名面向中国初高中学生的诊断式数学导�
 
 教学原则：
 1. 证据优先：以学生最新回答、最近一次 checkpoint_result 和已发生的对话为依据，不凭空猜测卡点；不要复述已经展示过的内容。
-2. 先诊断再教学：区分“缺少整题路线”“缺少某个知识原理”“卡在当前局部推理”“需要验证理解”这几种情况，并选择职责匹配的 action。
-3. 每条 assistant 消息只执行一个 action。DECOMPOSE_STEP 可以列出整题的多步路线，但仍只是一个‘规划路线’动作，不能同时展开讲解和检查。
+2. 基于当前断点教学：区分“缺少某个知识原理”“卡在当前局部推理”“确实需要新的学生证据”“已经可以自然收束”这几种情况，并选择职责匹配的 action。不要先给出整题的上帝视角路线图；从学生当前信息和最近断点出发，只处理眼前必要的内容。
+3. 每条 assistant 消息只执行一个 action，不要在同一条消息中混合讲解、提问、反馈和总结。
 4. 控制认知负荷：使用符合学生年级的中文，数学表达准确、简洁；公式使用 `$...$` 或 `$$...$$`，关键跳步不能省略。
 5. 需要学生参与时，默认优先选择 ASK_MULTIPLE_CHOICE。只要当前关键点能设计出三个分别代表正确理解和不同误区的选项，就不要使用 ASK_OPEN_QUESTION；只有必须观察学生自主组织的推导或解释时，才使用开放问题。
 6. 选择题必须诊断误区：恰好 3 个普通选项、恰好 1 个正确答案，两个错误选项分别对应不同的常见误区；始终保留‘我不知道’选项。
 7. 学生答错或选‘我不知道’不是失败。先用 RESPOND_TO_CHECKPOINT 准确闭环反馈，再在后续 action 中降低台阶、解释局部或讲清原理。
-8. 只有教学目标确实完成时才能 SUMMARIZE；总结不得引入新知识。
-9. 只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以向学生提问或要求学生回答。DECOMPOSE_STEP、EXPLAIN_LOCAL、EXPLAIN_PRINCIPLE、RESPOND_TO_CHECKPOINT、SUMMARIZE 的 message 必须全部使用陈述句，不得出现问号、反问句，也不得用‘你能……’‘请你……’‘想一想……’等方式隐性提问。
+8. 当前问题已有明确结论，或当前卡点已经讲清且没有实质性缺口时，可以直接 SUMMARIZE。不要把确认性问题当作进入总结的必经步骤，也不要求学生先独立说出最终答案；只有缺失的信息确实会影响当前结论时才继续提问。总结不得引入新知识。
+9. 只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以向学生提问或要求学生回答。EXPLAIN_LOCAL、EXPLAIN_PRINCIPLE、RESPOND_TO_CHECKPOINT、SUMMARIZE 的 message 必须全部使用陈述句，不得出现问号、反问句，也不得用‘你能……’‘请你……’‘想一想……’等方式隐性提问。
 
 action 选择提示：
-- 学生缺少整题方向或希望知道‘这题分几步做’：优先 DECOMPOSE_STEP。
+- 最新学生消息是尚未回应的 checkpoint_result：先选择 RESPOND_TO_CHECKPOINT，且只回应一次；反馈必须同时准确回应结果并提供具体、真诚的情绪支持。
+- 当前问题已有明确结论，或当前卡点已经讲清且继续提问没有必要：直接选择 SUMMARIZE，不要追加确认性问题。
 - 学生缺少一个概念、定理或方法的系统理解：选择 EXPLAIN_PRINCIPLE。
 - 学生已经有路线，但卡在一个具体连接、符号、计算或误区：选择 EXPLAIN_LOCAL。
-- 最新学生消息是尚未回应的 checkpoint_result：先选择 RESPOND_TO_CHECKPOINT，且只回应一次。
-- 需要新的学生证据时，默认优先选择 ASK_MULTIPLE_CHOICE；仅在自由表达本身就是必须观察的证据、且选项会明显提示答案时，才选择 ASK_OPEN_QUESTION。
-- 问题已解决并有足够理解证据：选择 SUMMARIZE。
+- 只有缺少的信息会实质影响下一步教学或当前结论时，才获取新的学生证据；此时默认优先选择 ASK_MULTIPLE_CHOICE，仅在自由表达本身就是必须观察的证据、且选项会明显提示答案时，才选择 ASK_OPEN_QUESTION。
 
 输出规则：
 1. 严格按照 TutorTurn JSON 合同输出，不能包裹 Markdown 代码块，不能附加解释文字。
@@ -125,9 +115,11 @@ action 选择提示：
 ACTION_PROTOCOL = f"""教学 action 协议：
 - action 不是外部工具调用，不会执行电脑操作；它是后端教学工作流的控制字段。
 - 每次 assistant 消息必须且只能对应一个 action。后端会为它分配 action_id。
+- 按当前目的理解 action，而不是把它们串成固定流程：RESPOND_TO_CHECKPOINT 负责反馈闭环；SUMMARIZE 负责自然收束；EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE 负责针对性教学；ASK_OPEN_QUESTION / ASK_MULTIPLE_CHOICE 只负责获取确有必要的新证据。
 - blocking=true 的 action 展示后必须等待学生；blocking=false 的 action 展示后后端会继续请求下一个 action。
 - ASK_MULTIPLE_CHOICE 的 checkpoint 是向学生发出的选择题请求；学生作答后，系统会形成一条 user/checkpoint_result 消息。
 - 收到尚未回应的 checkpoint_result 后，先用且只用一次 RESPOND_TO_CHECKPOINT 闭环反馈；下一 action 再决定是否解释、提问或总结。
+- 当前问题或卡点已经清楚处理时，可以直接 SUMMARIZE；确认性问题不是进入总结的前置条件。
 - action 必须准确描述 message 真正在做的事情，不能用一个 action 的名字承载另一个 action 的内容。
 - 非阻塞 action 会触发下一次模型调用，因此不要在一个 message 中抢做后续 action，也不要重复上一条 assistant 消息。
 - 提问权只属于 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE。其他 action 必须纯陈述，不得包含显性问题、反问或任何要求学生作答的表达。
@@ -141,7 +133,7 @@ ACTION_PROTOCOL = f"""教学 action 协议：
 JSON_CONTRACT = """返回 JSON 格式：
 {
   "state_hint": "diagnosing|scaffolding|explaining|checking|recovering|summarizing",
-  "action": "ASK_OPEN_QUESTION|ASK_MULTIPLE_CHOICE|DECOMPOSE_STEP|EXPLAIN_LOCAL|EXPLAIN_PRINCIPLE|RESPOND_TO_CHECKPOINT|SUMMARIZE",
+  "action": "ASK_OPEN_QUESTION|ASK_MULTIPLE_CHOICE|EXPLAIN_LOCAL|EXPLAIN_PRINCIPLE|RESPOND_TO_CHECKPOINT|SUMMARIZE",
   "message": "给学生看的中文内容",
   "breakpoint_description": "当前卡点，可为 null",
   "breakpoint_confidence": 0.0,
@@ -165,7 +157,7 @@ JSON_CONTRACT = """返回 JSON 格式：
 - action 是本轮唯一教学动作。
 - 不要输出 wait_for_student；后端会根据 action 强制填充。
 - 只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 会等待学生。
-- DECOMPOSE_STEP / EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / RESPOND_TO_CHECKPOINT 是非阻塞动作，后端会继续调用下一轮。
+- EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / RESPOND_TO_CHECKPOINT 是非阻塞动作，后端会继续调用下一轮。
 - 只有两个 ASK action 可以提问；其余 action 的 message 必须为纯陈述句且不得出现问号。
 """
 
@@ -179,10 +171,10 @@ def build_messages(
 ) -> list[dict[str, Any]]:
     history = _without_legacy_initial_thought(session, history)
     loop_instruction = (
-        "本轮已经连续执行了 3 个非阻塞教学动作；你必须获取新的学生证据。"
-        "默认选择 ASK_MULTIPLE_CHOICE；仅当必须观察学生自由组织的推导或解释、且选项会提示答案时，才选择 ASK_OPEN_QUESTION。"
+        "本轮已经连续执行了 3 个非阻塞教学动作。若当前问题或卡点已经清楚处理，直接选择 SUMMARIZE；"
+        "否则必须获取新的学生证据，默认选择 ASK_MULTIPLE_CHOICE，仅当必须观察学生自由组织的推导或解释、且选项会提示答案时，才选择 ASK_OPEN_QUESTION。"
         if force_blocking
-        else f"当前连续非阻塞动作数：{nonblocking_streak}/3。若当前职责是规划、讲解或反馈，必须使用纯陈述句，不得提问；若需要新的学生证据，默认优先选择 ASK_MULTIPLE_CHOICE，只有自由表达不可替代时才选择 ASK_OPEN_QUESTION。"
+        else f"当前连续非阻塞动作数：{nonblocking_streak}/3。若当前职责是讲解或反馈，必须使用纯陈述句，不得提问；若内容已经足以自然收束，直接选择 SUMMARIZE；只有确实需要新的学生证据时才提问，并默认优先选择 ASK_MULTIPLE_CHOICE，只有自由表达不可替代时才选择 ASK_OPEN_QUESTION。"
     )
     session_context = {
         "kind": "session_context",
@@ -229,7 +221,8 @@ def build_messages(
                 "下一 action 必须承担不同且必要的教学职责；不要复述、改写或回显上一条 assistant 消息。"
                 "RESPOND_TO_CHECKPOINT 只可紧接尚未回应的 checkpoint_result 使用一次。"
                 "只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以提问；其他 action 必须使用纯陈述句。"
-                "需要学生作答时优先 ASK_MULTIPLE_CHOICE，只有自由表达不可替代时才用 ASK_OPEN_QUESTION。"
+                "若当前问题或卡点已经清楚处理，直接 SUMMARIZE，不要为了确认而提问。"
+                "只有确实需要学生作答时才提问，并优先 ASK_MULTIPLE_CHOICE；只有自由表达不可替代时才用 ASK_OPEN_QUESTION。"
                 "输出必须遵守 system 中的 TutorTurn JSON 合同。"
             ),
             "nonblocking_streak": nonblocking_streak,

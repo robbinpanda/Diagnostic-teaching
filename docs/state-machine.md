@@ -46,9 +46,10 @@ sequenceDiagram
 - LLM 每轮决定 `state_hint`、`action`、`message`、`breakpoint_description`、`checkpoint`。
 - 后端不信任模型给出的等待判断；`wait_for_student` 由后端根据 action 强制推导。
 - `ASK_OPEN_QUESTION` 和 `ASK_MULTIPLE_CHOICE` 是阻塞动作，会停下等待学生。
-- `DECOMPOSE_STEP`、`EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是非阻塞动作，后端会继续调用下一轮 LLM。
-- 连续 3 个非阻塞动作后，下一轮 prompt 会强制要求阻塞动作；若模型仍输出非阻塞动作，后端会转成 `ASK_OPEN_QUESTION`。
+- `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是非阻塞动作，后端会继续调用下一轮 LLM。
+- 连续 3 个非阻塞动作后，下一轮 prompt 会要求模型在“自然总结”和“获取必要的新证据”之间选择；若仍输出非阻塞动作，后端会转成 `ASK_OPEN_QUESTION`。
 - `SUMMARIZE` 是终止动作，不等待学生。
+- `SUMMARIZE` 不要求学生先独立给出最终答案，也不要求额外插入确认性问题；当前结论或卡点已经讲清即可自然收束。
 - 项目不主动截断、压缩或摘要历史；模型供应商自身的硬上下文限制仍然存在。
 
 ## 2. LLM 输出合同：TutorTurn
@@ -58,7 +59,7 @@ sequenceDiagram
 ```json
 {
   "state_hint": "diagnosing|scaffolding|explaining|checking|recovering|summarizing",
-  "action": "ASK_OPEN_QUESTION|ASK_MULTIPLE_CHOICE|DECOMPOSE_STEP|EXPLAIN_LOCAL|EXPLAIN_PRINCIPLE|RESPOND_TO_CHECKPOINT|SUMMARIZE",
+  "action": "ASK_OPEN_QUESTION|ASK_MULTIPLE_CHOICE|EXPLAIN_LOCAL|EXPLAIN_PRINCIPLE|RESPOND_TO_CHECKPOINT|SUMMARIZE",
   "message": "给学生看的中文内容",
   "breakpoint_description": "当前卡点，可为 null",
   "breakpoint_confidence": 0.0,
@@ -100,13 +101,12 @@ system prompt 会在 `ACTION_PROTOCOL` 中逐项告诉模型每个 action 的功
 
 | action | 类型 | 后端行为 |
 |---|---|---|
-| `DECOMPOSE_STEP` | 非阻塞 | 从整题全局视角给出 3—6 步解题路线图，不展开具体推导 |
 | `EXPLAIN_LOCAL` | 非阻塞 | 针对学生当前具体卡点，打通一个局部推理、符号、概念连接或计算 |
 | `EXPLAIN_PRINCIPLE` | 非阻塞 | 从定义和原理出发，系统讲清一个支撑当前题目的知识点 |
-| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 只闭环最近一次选择结果，指出理解证据或选项对应误区 |
+| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 闭环最近一次选择结果，指出理解证据或误区，并提供具体、真诚的情绪支持 |
 | `ASK_OPEN_QUESTION` | 阻塞 | 展示开放问题，`wait_for_student=true`，等待学生输入 |
 | `ASK_MULTIPLE_CHOICE` | 阻塞 | 要求存在合法 checkpoint，用三个可诊断选项定位学生误区 |
-| `SUMMARIZE` | 终止 | 展示总结，结束本轮 stream |
+| `SUMMARIZE` | 终止 | 当前问题或卡点已清楚处理时自然总结，不以确认性问题为前置条件 |
 
 后端会做动作归一化：
 
@@ -144,11 +144,12 @@ SUMMARIZE               -> wait_for_student = false，终止本轮 stream
 -> 否则继续下一轮
 ```
 
-连续非阻塞动作最多 3 个。第 4 次调用会带上强制提示：
+连续非阻塞动作最多 3 个。第 4 次调用会带上收束提示：
 
 ```text
 本轮已经连续执行了 3 个非阻塞教学动作；
-你必须选择 ASK_OPEN_QUESTION 或 ASK_MULTIPLE_CHOICE，让学生回答后再继续。
+若当前问题或卡点已经清楚处理，直接选择 SUMMARIZE；
+否则选择 ASK_OPEN_QUESTION 或 ASK_MULTIPLE_CHOICE 获取必要的新证据。
 ```
 
 因此模型可以形成更丰富的教学链路，例如：
@@ -156,12 +157,10 @@ SUMMARIZE               -> wait_for_student = false，终止本轮 stream
 ```text
 RESPOND_TO_CHECKPOINT
 -> EXPLAIN_PRINCIPLE
--> DECOMPOSE_STEP
--> ASK_MULTIPLE_CHOICE
--> 等学生
+-> SUMMARIZE
 ```
 
-而不是每轮都急着生成检查点。
+当现有信息不足以收束时，讲解后仍可进入 `ASK_MULTIPLE_CHOICE` 或 `ASK_OPEN_QUESTION`；确认题不再是每条链路进入总结前的固定关卡。
 
 ## 7. 检查点如何反馈给 LLM
 

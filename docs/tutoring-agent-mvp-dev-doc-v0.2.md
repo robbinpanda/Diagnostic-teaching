@@ -141,7 +141,7 @@ v0.1 中的流程图容易让人误解为：
 2. 学生答错检查点后，可能回到更基础的概念。
 3. 学生答对检查点后，可以继续原来的推导。
 4. 学生突然暴露新误解时，应该重新诊断当前断点。
-5. 总结前也可以再问一个迁移小问题。
+5. 只有缺失的信息会影响当前结论时才继续提问；问题或卡点已经讲清时可以直接总结。
 
 ### 4.2 v0.2 的设计
 
@@ -184,15 +184,12 @@ type TeachingPhase =
 1. `explaining -> checking`
 2. `scaffolding -> checking`
 3. `recovering -> checking`
-4. `summarizing -> checking`
-
 ### 4.4 教学动作集合
 
 ```ts
 type PedagogicalAction =
   | "ASK_OPEN_QUESTION"
-  | "ASK_MULTIPLE_CHOICE";     // multiple choice
-  | "DECOMPOSE_STEP"
+  | "ASK_MULTIPLE_CHOICE"      // multiple choice
   | "EXPLAIN_LOCAL"
   | "EXPLAIN_PRINCIPLE"
   | "RESPOND_TO_CHECKPOINT"
@@ -205,11 +202,10 @@ type PedagogicalAction =
 |---|---|---:|
 | `ASK_OPEN_QUESTION` | 开放式追问学生思路或卡点 | 是 |
 | `ASK_MULTIPLE_CHOICE` | 用三个可诊断选项定位学生对单一知识点的具体误区 | 是 |
-| `DECOMPOSE_STEP` | 从全局视角把整题拆成有顺序的解题路线图 | 否 |
 | `EXPLAIN_LOCAL` | 针对学生当前具体卡点打通一个局部推理 | 否 |
 | `EXPLAIN_PRINCIPLE` | 从定义和原理出发系统讲清一个知识点 | 否 |
-| `RESPOND_TO_CHECKPOINT` | 只闭环最近一次选择结果并指出理解证据或误区 | 否 |
-| `SUMMARIZE` | 总结卡点、方法和迁移题 | 是 |
+| `RESPOND_TO_CHECKPOINT` | 闭环最近一次选择结果，指出理解证据或误区并提供情绪支持 | 否 |
+| `SUMMARIZE` | 自然收束卡点、方法和迁移线索 | 否，直接结束 |
 
 ## 5. 事件驱动教学策略
 
@@ -239,7 +235,7 @@ type TeachingEvent =
 3. AI 引入了一个新概念、公式或性质。
 4. AI 从断点进入下一步推导前。
 5. 学生此前连续 2 次表示没懂或选错。
-6. 准备总结前，需要确认学生是否抓住关键桥梁。
+6. 只有现有信息不足以判断当前卡点是否解决时，才获取新的学生证据；总结前不强制追加确认题。
 
 强制限制：
 
@@ -266,7 +262,7 @@ stateDiagram-v2
     recovering --> explaining: 基础缺口较大
     scaffolding --> summarizing: 题目完成
     explaining --> summarizing: 题目完成
-    checking --> summarizing: 总结前检查通过
+    checking --> summarizing: 当前目标已清楚处理
     summarizing --> ended
     explaining --> diagnosing: 暴露新误解
     scaffolding --> diagnosing: 暴露新误解
@@ -401,7 +397,7 @@ flowchart TD
     O -- "是" --> Q["总结卡点、方法、相似题型、迁移小题"]
 ```
 
-注意：这张图只是常见路径，不是唯一固定路线。系统可以在讲解、补救、总结前随时触发检查点。
+注意：这张图只是常见路径，不是唯一固定路线。系统可以在讲解或补救时按需触发检查点，但总结前不强制检查。
 
 ## 8. 教学动作细节
 
@@ -430,7 +426,7 @@ flowchart TD
 1. AI 刚讲了一个关键数学跳步。
 2. AI 要判断学生是否理解当前概念。
 3. 学生刚经历一次补救讲解。
-4. 总结前确认学生是否掌握关键桥梁。
+4. 现有信息不足以支持继续教学或收束判断时，获取学生对关键桥梁的理解证据。
 
 示例：
 
@@ -445,21 +441,7 @@ flowchart TD
 3. `+5`
 4. 我不知道
 
-### 8.3 拆解步骤 `DECOMPOSE_STEP`
-
-用途：
-
-1. 断点清晰，但还不需要完整知识讲解。
-2. 学生差一个小桥梁就能继续。
-3. 复杂问题需要拆成局部可回答的小步。
-
-要求：
-
-1. 只拆当前断点。
-2. 不要一次拆完整题。
-3. 最好拆成一个可被检查点选择题验证的小概念。
-
-### 8.4 局部讲解 `EXPLAIN_LOCAL`
+### 8.3 局部讲解 `EXPLAIN_LOCAL`
 
 用途：
 
@@ -472,7 +454,7 @@ flowchart TD
 2. 尽量 80-180 字。
 3. 讲完一个跳步后考虑触发检查点。
 
-### 8.5 原理讲解 `EXPLAIN_PRINCIPLE`
+### 8.4 原理讲解 `EXPLAIN_PRINCIPLE`
 
 用途：
 
@@ -485,9 +467,9 @@ flowchart TD
 1. 先指出当前卡点。
 2. 从数学原理解释。
 3. 回到题目中的具体位置。
-4. 生成一个检查点选择题。
+4. 只有仍缺少会影响后续教学或结论的学生证据时，下一 action 才生成检查点。
 
-### 8.6 检查点反馈 `RESPOND_TO_CHECKPOINT`
+### 8.5 检查点反馈 `RESPOND_TO_CHECKPOINT`
 
 选择正确：
 
@@ -505,7 +487,7 @@ flowchart TD
 
 1. 不视为失败。
 2. 直接进入更基础解释。
-3. 解释后再给一个更容易的检查点。
+3. 解释后按实际信息决定直接总结，或再给一个更容易的检查点。
 
 ## 9. 前端界面设计
 

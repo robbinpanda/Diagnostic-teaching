@@ -330,10 +330,10 @@ def local_demo_response(messages: list[dict[str, Any]]) -> str:
                 action = "EXPLAIN_PRINCIPLE"
                 message = "没关系，我们从原理开始：平方项永远不小于 0，所以当它前面带负号时，平方项越大，整体反而越小。要拿到最大值，应该让平方项取到 0。"
         elif answer.startswith("A") or "尽量小" in answer or "为 0" in answer:
-            state_hint = "scaffolding"
+            state_hint = "summarizing" if already_explained else "scaffolding"
             if already_explained:
-                action = "ASK_OPEN_QUESTION"
-                message = "如果题目改成求最小值，你觉得还能直接用“平方项取 0”吗？先说说你的判断。"
+                action = "SUMMARIZE"
+                message = "这道题的关键已经打通：平方项 $(x-3)^2$ 始终非负，前面乘以负数后，要让整体最大就应让平方项取最小值 $0$。因此 $x=3$ 时函数取得最大值 $5$；以后看到“负系数乘平方项再加常数”，可以先判断平方项应取最小值。"
             else:
                 action = "EXPLAIN_LOCAL"
                 message = "对了。平方项 $(x-3)^2$ 当 $x=3$ 时为 0，这时整体 $-2(x-3)^2+5$ 取到最大值 5。"

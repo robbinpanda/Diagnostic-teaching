@@ -2,6 +2,16 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v0.9 — 2026-07-15
+
+### 教学流程轻量化
+
+- 删除 `DECOMPOSE_STEP`，避免模型先输出整题的上帝视角路线图并被该路线锚定；讲解改为只围绕当前断点选择 `EXPLAIN_LOCAL` 或 `EXPLAIN_PRINCIPLE`。
+- 重排 action 决策优先级：先闭环待处理的 checkpoint，能自然收束则直接总结，有明确知识缺口再讲解，只有缺少的信息会影响教学或结论时才提问。
+- 降低进入 `SUMMARIZE` 的门槛：学生不必先独立给出最终答案，也不必在总结前额外回答确认性问题。
+- 在 `RESPOND_TO_CHECKPOINT.description` 中明确要求提供基于真实表现的情绪价值；答错或选择“我不知道”时降低挫败感，答对时具体认可有效思考。
+- local demo 的正确答案链路改为 `RESPOND_TO_CHECKPOINT -> EXPLAIN_LOCAL -> SUMMARIZE`，覆盖无需追加确认题的自然收束。
+
 ## v0.8 — 2026-07-13
 
 ### 教学 action 协议升级
