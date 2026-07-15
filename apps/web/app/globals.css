@@ -450,15 +450,146 @@ textarea {
   z-index: 20;
 }
 
+.cardFilters {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 4px;
+  border-radius: 10px;
+  background: #edf2f2;
+}
+
+.cardFilters button {
+  border: 0;
+  border-radius: 7px;
+  padding: 7px 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cardFilters button.active {
+  background: #ffffff;
+  color: var(--accent-strong);
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(20, 30, 35, 0.08);
+}
+
+.cardLibraryList {
+  min-height: 0;
+  max-height: calc(100vh - 236px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding-right: 3px;
+}
+
+.cardLibraryItem {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 30px;
+  align-items: start;
+  gap: 9px;
+  padding: 11px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #ffffff;
+  outline: none;
+  user-select: none;
+}
+
+.cardLibraryItem:hover,
+.cardLibraryItem:focus-visible {
+  border-color: var(--accent);
+  background: #f7fbfa;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.cardLibraryIcon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+}
+
+.cardLibraryIcon.knowledge {
+  color: #0b6f71;
+  background: #dff5f1;
+}
+
+.cardLibraryIcon.problem {
+  color: #8b5a16;
+  background: #fff0cf;
+}
+
+.cardLibraryText {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.cardLibraryText strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardLibraryText span,
+.cardLibraryText time,
+.cardLibraryHint,
+.cardLibraryEmpty {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.cardLibraryEmpty {
+  padding: 18px 4px;
+  text-align: center;
+}
+
+.cardLibraryHint {
+  margin-top: auto;
+  text-align: center;
+}
+
+.cardLibraryDelete {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #9b6a60;
+}
+
+.cardLibraryDelete:hover:not(:disabled) {
+  background: #fff0ed;
+  color: var(--warn);
+}
+
 .checkpointBackdrop {
   place-items: center end;
   padding-right: clamp(20px, 4vw, 64px);
   background: rgba(20, 30, 35, 0.16);
 }
 
+.cardBackdrop {
+  place-items: center end;
+  padding-right: clamp(20px, 5vw, 76px);
+  background: rgba(20, 30, 35, 0.28);
+}
+
 .modelDialog,
 .checkpointDialog,
-.historyDialog {
+.historyDialog,
+.studyCardDialog {
   width: min(560px, 100%);
   max-height: calc(100vh - 40px);
   overflow: auto;
@@ -495,6 +626,188 @@ textarea {
   display: grid;
   gap: 9px;
   padding-right: 3px;
+}
+
+.studyCardDialog {
+  width: min(680px, 100%);
+  border-top: 5px solid var(--accent);
+}
+
+.studyCardDialog.problemCard {
+  border-top-color: #c58a2e;
+}
+
+.studyCardHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 22px 17px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.97);
+  backdrop-filter: blur(8px);
+}
+
+.studyCardHeader h2 {
+  margin-top: 7px;
+  font-size: 22px;
+  line-height: 1.45;
+}
+
+.studyCardKicker {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.problemCard .studyCardKicker {
+  color: #8b5a16;
+}
+
+.cardCloseButton {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 12px;
+  background: #edf2f2;
+  color: #26343b;
+}
+
+.cardCloseButton:hover:not(:disabled) {
+  background: #dde7e6;
+  color: #0b6f71;
+}
+
+.studyCardBody {
+  display: grid;
+  gap: 14px;
+  padding: 20px 22px 26px;
+}
+
+.studyCardBody section {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  line-height: 1.7;
+}
+
+.studyCardBody section h3 {
+  margin: 0 0 8px;
+  color: #304148;
+  font-size: 14px;
+}
+
+.studyCardBody .cardLeadSection {
+  display: grid;
+  gap: 6px;
+  border-color: #bfe3dd;
+  background: #effaf8;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.problemCard .studyCardBody .cardLeadSection {
+  border-color: #ead5ad;
+  background: #fff9eb;
+}
+
+.cardLeadSection > span:first-child {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.cardTextList,
+.cardStepList {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.cardTextList li + li,
+.cardStepList li + li {
+  margin-top: 8px;
+}
+
+.cardStepList li {
+  padding-left: 4px;
+}
+
+.cardStepList li strong {
+  display: block;
+  margin-bottom: 3px;
+  color: #24343b;
+}
+
+.studyCardBody .cardConnection,
+.studyCardBody .cardFinalAnswer {
+  border-color: #9fd5cc;
+  background: #e9f8f5;
+}
+
+.problemCard .studyCardBody .cardFinalAnswer {
+  border-color: #dfbd7a;
+  background: #fff3d8;
+}
+
+.problemStepList {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.problemStepList > li {
+  margin: 0;
+  padding: 12px;
+  border-radius: 9px;
+  background: #f7f9f8;
+}
+
+.problemStepTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.problemStepTitle > span {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #c58a2e;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stepReason {
+  margin: 7px 0 0;
+  color: #45565e;
+  font-size: 13px;
+}
+
+.stepResult {
+  margin-top: 7px;
+  padding: 8px 10px;
+  border-left: 3px solid #c58a2e;
+  background: #fff9eb;
+}
+
+.cardEmptyLine {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .historyItemRow {
@@ -636,7 +949,12 @@ textarea {
   }
 
   .debugPanel {
-    display: none;
+    grid-column: 1 / -1;
+    min-height: auto;
+  }
+
+  .cardLibraryList {
+    max-height: 280px;
   }
 }
 
@@ -671,8 +989,18 @@ textarea {
     background: rgba(20, 30, 35, 0.3);
   }
 
+  .cardBackdrop {
+    place-items: center;
+    padding: 16px;
+  }
+
   .checkpointDialog {
     width: min(560px, 100%);
+    max-height: calc(100vh - 32px);
+  }
+
+  .studyCardDialog {
+    width: min(680px, 100%);
     max-height: calc(100vh - 32px);
   }
 }

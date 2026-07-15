@@ -262,6 +262,40 @@ def local_demo_stream(messages: list[dict[str, Any]]) -> list[dict]:
     yield {"delta": "", "finish_reason": "stop"}
 
 
+def local_demo_knowledge_card() -> dict[str, Any]:
+    return {
+        "type": "knowledge_card",
+        "title": "负系数平方项与函数最值",
+        "knowledge_point": "利用平方项非负性判断形如 $-a(x-h)^2+k$ 的最大值",
+        "core_idea": "平方项始终不小于 0；乘上负系数后结果不大于 0，所以整体在平方项取 0 时最大。",
+        "derivation_steps": [
+            {"title": "确定平方项范围", "content": "对任意实数 $x$，都有 $(x-h)^2\\ge 0$。"},
+            {"title": "结合负系数", "content": "当 $a>0$ 时，$-a(x-h)^2\\le 0$。"},
+            {"title": "定位最值", "content": "当且仅当 $x=h$ 时平方项为 0，函数取得最大值 $k$。"},
+        ],
+        "when_to_use": ["函数已写成负系数乘平方项再加常数的形式", "需要直接判断二次函数最大值及其取值位置"],
+        "common_mistakes": ["只看到平方项非负，却忽略前面的负号", "误以为平方项越大，整个函数也越大"],
+        "connection_to_problem": "本题中 $(x-3)^2$ 最小为 0，因此 $-2(x-3)^2+5$ 在 $x=3$ 时最大。",
+    }
+
+
+def local_demo_problem_card() -> dict[str, Any]:
+    return {
+        "type": "problem_card",
+        "title": "函数 $y=-2(x-3)^2+5$ 的最大值",
+        "problem_summary": "求函数 $y=-2(x-3)^2+5$ 的最大值，并确定取得最大值时 $x$ 的取值。",
+        "solution_overview": "先用平方项非负确定 $-2(x-3)^2$ 的上界，再判断等号何时成立。",
+        "solution_steps": [
+            {"step": 1, "title": "锁定平方项范围", "reasoning": "看到完全平方 $(x-3)^2$，先利用它恒不小于 0。", "result": "$(x-3)^2\\ge 0$。"},
+            {"step": 2, "title": "处理负系数", "reasoning": "乘以负数时不等号方向改变，平方项越小，负项越大。", "result": "$-2(x-3)^2\\le 0$。"},
+            {"step": 3, "title": "确定最大值和取值点", "reasoning": "要让函数最大，就让负项达到上界 0；这要求平方项等于 0。", "result": "$x=3$ 时，$y_{\\max}=5$。"},
+        ],
+        "pitfalls": ["不能因为 $(x-3)^2\\ge0$ 就判断函数最小为 5；负号会反转大小关系。", "答案要同时写出最大值和取得最大值时的 $x$。"],
+        "how_to_think": ["看到完全平方，先问它的取值范围。", "再看平方项前系数的正负，判断应让平方项取最小还是最大。", "最后检查等号成立条件，把最值和自变量取值一起写出。"],
+        "final_answer": "当 $x=3$ 时，函数取得最大值 $5$。",
+    }
+
+
 def local_demo_response(messages: list[dict[str, Any]]) -> str:
     joined = "\n".join(message_text(message["content"]) for message in messages[-3:])
     last_user_index = next(
@@ -352,6 +386,8 @@ def local_demo_response(messages: list[dict[str, Any]]) -> str:
             "breakpoint_description": "已根据检查点选择推进",
             "breakpoint_confidence": 0.8,
             "checkpoint": None,
+            "knowledge_card": local_demo_knowledge_card() if action == "EXPLAIN_PRINCIPLE" else None,
+            "problem_card": local_demo_problem_card() if action == "SUMMARIZE" else None,
             "debug": {"source": "local_demo", "recent": joined[-120:]},
         }
         return json.dumps(payload, ensure_ascii=False)

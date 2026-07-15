@@ -158,6 +158,7 @@ class SessionRestoreResponse(BaseModel):
     problem_image_data_url: str | None = None
     messages: list[SessionRestoredMessage]
     pending_checkpoint: dict[str, Any] | None = None
+    pending_card: dict[str, Any] | None = None
 
 
 class ChatStreamRequest(BaseModel):
@@ -179,6 +180,62 @@ class CheckpointAnswerResponse(BaseModel):
     next_state_hint: str
     student_message: str
     action_id: str
+
+
+class TutorKnowledgeCardStep(BaseModel):
+    title: str = Field(min_length=1)
+    content: str = Field(min_length=1)
+
+
+class TutorKnowledgeCard(BaseModel):
+    type: Literal["knowledge_card"] = "knowledge_card"
+    title: str = Field(min_length=1)
+    knowledge_point: str = Field(min_length=1)
+    core_idea: str = Field(min_length=1)
+    derivation_steps: list[TutorKnowledgeCardStep] = Field(min_length=1)
+    when_to_use: list[str] = Field(min_length=1)
+    common_mistakes: list[str] = Field(default_factory=list)
+    connection_to_problem: str = Field(min_length=1)
+
+
+class TutorProblemCardStep(BaseModel):
+    step: int = Field(ge=1)
+    title: str = Field(min_length=1)
+    reasoning: str = Field(min_length=1)
+    result: str = Field(min_length=1)
+
+
+class TutorProblemCard(BaseModel):
+    type: Literal["problem_card"] = "problem_card"
+    title: str = Field(min_length=1)
+    problem_summary: str = Field(min_length=1)
+    solution_overview: str = Field(min_length=1)
+    solution_steps: list[TutorProblemCardStep] = Field(min_length=1)
+    pitfalls: list[str] = Field(default_factory=list)
+    how_to_think: list[str] = Field(min_length=1)
+    final_answer: str = Field(min_length=1)
+
+
+TutorCardContent = TutorKnowledgeCard | TutorProblemCard
+
+
+class StudyCardPublic(BaseModel):
+    id: str
+    session_id: str
+    card_type: Literal["knowledge_card", "problem_card"]
+    source_action_id: str
+    source_message_id: str
+    content: TutorCardContent
+    created_at: str
+    saved_at: str | None = None
+
+
+class StudyCardListResponse(BaseModel):
+    cards: list[StudyCardPublic]
+
+
+class StudyCardSaveRequest(BaseModel):
+    session_id: str
 
 
 class TutorCheckpointOption(BaseModel):
@@ -206,6 +263,8 @@ class TutorTurn(BaseModel):
     breakpoint_description: str | None = None
     breakpoint_confidence: float | None = None
     checkpoint: TutorCheckpoint | None = None
+    knowledge_card: TutorKnowledgeCard | None = None
+    problem_card: TutorProblemCard | None = None
     wait_for_student: bool = False
     debug: dict[str, Any] = {}
 

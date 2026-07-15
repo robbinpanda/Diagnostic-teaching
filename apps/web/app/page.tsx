@@ -1,22 +1,27 @@
 "use client";
 
-import { Bot, History, ImageUp, Loader2, Pencil, Plus, RotateCcw, Send, Settings2, Trash2, X } from "lucide-react";
+import { BookOpen, Bot, ClipboardCheck, History, ImageUp, Loader2, Pencil, Plus, RotateCcw, Send, Settings2, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckpointModal } from "../components/CheckpointModal";
 import { MathText } from "../components/MathText";
 import { ModelConfigDialog } from "../components/ModelConfigDialog";
+import { StudyCardModal } from "../components/StudyCardModal";
 import {
   answerCheckpoint,
   analyzeProblemImage,
   createSession,
+  deleteCard,
   deleteModelProfile,
   deleteSession,
+  fetchCards,
   fetchProfiles,
   fetchSessionHistory,
   ModelProfile,
   Checkpoint,
   restoreSession,
+  saveCard,
   SessionHistoryItem,
+  StudyCard,
   streamChat
 } from "../lib/api";
 
@@ -43,10 +48,11 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [checkpoint, setCheckpoint] = useState<Checkpoint | null>(null);
   const [checkpointStartedAt, setCheckpointStartedAt] = useState<number | null>(null);
-  const [stateHint, setStateHint] = useState("未开始");
-  const [action, setAction] = useState("-");
-  const [waitForStudent, setWaitForStudent] = useState(false);
-  const [breakpointText, setBreakpointText] = useState("-");
+  const [activeCard, setActiveCard] = useState<StudyCard | null>(null);
+  const [viewingCard, setViewingCard] = useState<StudyCard | null>(null);
+  const [cards, setCards] = useState<StudyCard[]>([]);
+  const [cardFilter, setCardFilter] = useState<"all" | "knowledge_card" | "problem_card">("all");
+  const [cardBusyId, setCardBusyId] = useState("");
   const [startBusy, setStartBusy] = useState(false);
   const [streamBusy, setStreamBusy] = useState(false);
   const [deleteBusyId, setDeleteBusyId] = useState("");
@@ -78,6 +84,10 @@ export default function Home() {
     : selectedProfile
       ? `删除模型配置：${selectedProfile.display_name}`
       : "先选择一个模型配置";
+  const filteredCards = useMemo(
+    () => cards.filter((card) => cardFilter === "all" || card.card_type === cardFilter),
+    [cards, cardFilter]
+  );
 
   useEffect(() => {
     refreshProfiles();
@@ -144,8 +154,7 @@ export default function Home() {
         session_id: source.session_id,
         model_profile_id: restoreProfileId
       });
-      const lastAssistant = [...restored.messages].reverse().find((message) => message.role === "assistant");
-      const lastMessage = restored.messages.at(-1);
+      const restoredCards = await fetchCards(restored.session_id);
       const restoredImage = restored.problem_image_data_url ?? null;
       setSessionId(restored.session_id);
       setSelectedProfileId(restored.model_profile_id);
@@ -165,17 +174,11 @@ export default function Home() {
           action: message.action
         }))
       ]);
-      setStateHint(restored.state_hint);
-      setAction(lastAssistant?.action ?? "-");
-      setWaitForStudent(
-        Boolean(
-          restored.pending_checkpoint ||
-          (lastMessage?.role === "assistant" && ["ASK_OPEN_QUESTION", "ASK_MULTIPLE_CHOICE"].includes(lastMessage.action))
-        )
-      );
-      setBreakpointText(restored.breakpoint_description ?? "-");
       setCheckpoint(restored.pending_checkpoint ?? null);
       setCheckpointStartedAt(restored.pending_checkpoint ? Date.now() : null);
+      setCards(restoredCards);
+      setActiveCard(restored.pending_card ?? null);
+      setViewingCard(null);
       setHistoryOpen(false);
     } catch (error) {
       setError(error instanceof Error ? error.message : "恢复历史会话失败");
@@ -204,10 +207,9 @@ export default function Home() {
         setMessages([]);
         setCheckpoint(null);
         setCheckpointStartedAt(null);
-        setStateHint("未开始");
-        setAction("-");
-        setWaitForStudent(false);
-        setBreakpointText("-");
+        setActiveCard(null);
+        setViewingCard(null);
+        setCards([]);
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : "删除历史会话失败");
@@ -238,6 +240,8 @@ export default function Home() {
     let retryingAssistant = false;
     let receivedVisibleText = false;
     let receivedCheckpoint = false;
+    let receivedCard = false;
+    let cardWaitingForMessageDone: StudyCard | null = null;
     let receivedError = false;
 
     function setAssistantMessage(nextText: string) {
@@ -294,10 +298,6 @@ export default function Home() {
       await streamChat({ session_id: nextSessionId, message }, (event) => {
         if (event.event === "decision") {
           const data = event.data as { state_hint?: string; action?: string; wait_for_student?: boolean; message?: string; breakpoint?: string };
-          setStateHint(data.state_hint ?? "-");
-          setAction(data.action ?? "-");
-          setWaitForStudent(Boolean(data.wait_for_student));
-          setBreakpointText(data.breakpoint ?? "-");
           reconcileAssistantMessage(data.message);
           if (assistantId && data.action) {
             const id = assistantId;
@@ -315,6 +315,10 @@ export default function Home() {
           receivedCheckpoint = true;
           setCheckpoint(event.data as Checkpoint);
           setCheckpointStartedAt(Date.now());
+        }
+        if (event.event === "card_ready") {
+          receivedCard = true;
+          cardWaitingForMessageDone = event.data as StudyCard;
         }
         if (event.event === "error") {
           receivedError = true;
@@ -335,9 +339,14 @@ export default function Home() {
           retryBaseline = "";
           retryText = "";
           retryingAssistant = false;
+          if (cardWaitingForMessageDone) {
+            setViewingCard(null);
+            setActiveCard(cardWaitingForMessageDone);
+            cardWaitingForMessageDone = null;
+          }
         }
       });
-      if (!receivedVisibleText && !receivedCheckpoint && !receivedError) {
+      if (!receivedVisibleText && !receivedCheckpoint && !receivedCard && !receivedError) {
         appendMessage("system", "这一轮模型没有返回可见内容。请再发一句你的当前想法，或重新开始这道题。");
       }
     } catch (error) {
@@ -377,7 +386,11 @@ export default function Home() {
         problem_image_data_url: problemNeedsImage ? originalProblemImage : null
       });
       setSessionId(session.session_id);
-      setStateHint(session.state_hint);
+      setCheckpoint(null);
+      setCheckpointStartedAt(null);
+      setActiveCard(null);
+      setViewingCard(null);
+      setCards([]);
       appendMessage("system", `已创建答疑会话，使用模型：${selectedProfile?.display_name ?? selectedProfileId}`);
       setStartBusy(false);
       await runStream(session.session_id);
@@ -482,6 +495,42 @@ export default function Home() {
     }
   }
 
+  async function handleActiveCardClose() {
+    if (!activeCard || !sessionId || cardBusyId || streamBusy) return;
+    const cardToSave = activeCard;
+    setCardBusyId(cardToSave.id);
+    setError("");
+    try {
+      const saved = await saveCard(cardToSave.id, sessionId);
+      setCards((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
+      setActiveCard(null);
+      if (cardToSave.card_type === "knowledge_card") {
+        await runStream(sessionId);
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "保存学习卡片失败");
+    } finally {
+      setCardBusyId("");
+    }
+  }
+
+  async function handleDeleteCard(card: StudyCard) {
+    if (!sessionId || cardBusyId) return;
+    const confirmed = window.confirm(`删除卡片“${card.content.title}”？删除后无法恢复。`);
+    if (!confirmed) return;
+    setCardBusyId(card.id);
+    setError("");
+    try {
+      await deleteCard(card.id, sessionId);
+      setCards((current) => current.filter((item) => item.id !== card.id));
+      setViewingCard((current) => current?.id === card.id ? null : current);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "删除学习卡片失败");
+    } finally {
+      setCardBusyId("");
+    }
+  }
+
   return (
     <main className="shell">
       <section className="topbar">
@@ -495,7 +544,7 @@ export default function Home() {
           </div>
         </div>
         <div className="modelStrip">
-          <button className="secondaryButton" type="button" onClick={openHistory} disabled={startBusy || streamBusy || historyBusy}>
+          <button className="secondaryButton" type="button" onClick={openHistory} disabled={startBusy || streamBusy || historyBusy || Boolean(activeCard)}>
             <History size={16} />
             历史会话
           </button>
@@ -622,6 +671,7 @@ export default function Home() {
             disabled={
               startBusy ||
               streamBusy ||
+              Boolean(activeCard) ||
               !problemText.trim() ||
               !selectedProfileId ||
               (problemNeedsImage && (!selectedProfile?.is_multimodal || !originalProblemImage))
@@ -663,10 +713,10 @@ export default function Home() {
               onKeyDown={(event) => {
                 if (event.key === "Enter") handleSend();
               }}
-              disabled={!sessionId || streamBusy || Boolean(checkpoint)}
+              disabled={!sessionId || streamBusy || Boolean(checkpoint) || Boolean(activeCard)}
               placeholder={sessionId ? "把你的下一步想法发给 AI" : "开始答疑后可以继续回复"}
             />
-            <button className="iconButton sendButton" type="button" onClick={handleSend} disabled={!sessionId || streamBusy || !input.trim()}>
+            <button className="iconButton sendButton" type="button" onClick={handleSend} disabled={!sessionId || streamBusy || Boolean(checkpoint) || Boolean(activeCard) || !input.trim()}>
               <Send size={18} />
             </button>
           </div>
@@ -675,23 +725,58 @@ export default function Home() {
 
         <aside className="debugPanel">
           <div className="panelHeader">
-            <h2>调试面板</h2>
-            <span>内部测试</span>
+            <h2>学习卡片</h2>
+            <span>{cards.length} 张已归档</span>
           </div>
-          <dl>
-            <dt>Session</dt>
-            <dd>{sessionId || "-"}</dd>
-            <dt>State Hint</dt>
-            <dd>{stateHint}</dd>
-            <dt>Action</dt>
-            <dd>{action}</dd>
-            <dt>Wait</dt>
-            <dd>{waitForStudent ? "yes" : "no"}</dd>
-            <dt>Breakpoint</dt>
-            <dd>{breakpointText}</dd>
-            <dt>Model</dt>
-            <dd>{selectedProfile?.model ?? "-"}</dd>
-          </dl>
+          <div className="cardFilters" aria-label="筛选学习卡片">
+            <button type="button" className={cardFilter === "all" ? "active" : ""} onClick={() => setCardFilter("all")}>全部</button>
+            <button type="button" className={cardFilter === "knowledge_card" ? "active" : ""} onClick={() => setCardFilter("knowledge_card")}>知识</button>
+            <button type="button" className={cardFilter === "problem_card" ? "active" : ""} onClick={() => setCardFilter("problem_card")}>题目</button>
+          </div>
+          {!sessionId ? (
+            <p className="cardLibraryEmpty">开始答疑后，归档的知识卡片和题目卡片会出现在这里。</p>
+          ) : filteredCards.length === 0 ? (
+            <p className="cardLibraryEmpty">当前筛选下还没有卡片。</p>
+          ) : (
+            <div className="cardLibraryList" aria-label="已归档学习卡片">
+              {filteredCards.map((card) => (
+                <div
+                  key={card.id}
+                  className="cardLibraryItem"
+                  role="button"
+                  tabIndex={0}
+                  onDoubleClick={() => setViewingCard(card)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") setViewingCard(card);
+                  }}
+                  title="双击查看卡片"
+                >
+                  <div className={`cardLibraryIcon ${card.card_type === "knowledge_card" ? "knowledge" : "problem"}`}>
+                    {card.card_type === "knowledge_card" ? <BookOpen size={17} /> : <ClipboardCheck size={17} />}
+                  </div>
+                  <div className="cardLibraryText">
+                    <strong>{card.content.title}</strong>
+                    <span>{card.card_type === "knowledge_card" ? "知识卡片" : "题目卡片"}</span>
+                    <time>{new Date(card.saved_at ?? card.created_at).toLocaleString("zh-CN")}</time>
+                  </div>
+                  <button
+                    className="cardLibraryDelete"
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleDeleteCard(card);
+                    }}
+                    disabled={Boolean(cardBusyId)}
+                    aria-label={`删除卡片：${card.content.title}`}
+                    title="删除卡片"
+                  >
+                    {cardBusyId === card.id ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="cardLibraryHint">双击卡片查看完整内容。</p>
         </aside>
       </section>
 
@@ -758,6 +843,11 @@ export default function Home() {
         </div>
       )}
       <CheckpointModal checkpoint={checkpoint} onChoose={handleCheckpoint} />
+      <StudyCardModal
+        card={activeCard ?? viewingCard}
+        onClose={activeCard ? handleActiveCardClose : () => setViewingCard(null)}
+        busy={Boolean(activeCard && (cardBusyId === activeCard.id || streamBusy))}
+      />
     </main>
   );
 }

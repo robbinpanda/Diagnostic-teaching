@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from app.core.schemas import ChatStreamRequest
 from app.core.teaching_controller import NONBLOCKING_ACTIONS, generate_tutor_turn_stream
 from app.llm.provider import LlmProfile
+from app.routes.cards import card_from_row
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -60,6 +61,8 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
         raise HTTPException(status_code=404, detail="会话或模型不存在") from exc
     if session["problem_image_data_url"] and not profile_row["is_multimodal"]:
         raise HTTPException(status_code=400, detail="该会话包含题图，必须使用支持图片识别的多模态模型")
+    if request.app.state.sessions.latest_pending_card(payload.session_id) is not None:
+        raise HTTPException(status_code=409, detail="请先关闭并保存当前学习卡片，再继续答疑")
 
     coordinator: SessionStreamCoordinator = request.app.state.chat_streams
     if not await coordinator.try_start(payload.session_id):
@@ -94,7 +97,13 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
     async def event_stream():
         try:
             try:
+                initial_history = request.app.state.sessions.list_messages(payload.session_id)
                 nonblocking_streak = 0
+                for row in reversed(initial_history):
+                    if row["role"] == "assistant" and row["action"] in NONBLOCKING_ACTIONS:
+                        nonblocking_streak += 1
+                        continue
+                    break
                 action_index = 0
                 while True:
                     current_session = request.app.state.sessions.get(payload.session_id)
@@ -121,7 +130,7 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                         yield sse("error", {"message": "本轮未拿到任何 teaching turn"})
                         return
 
-                    assistant_row, checkpoint_row = request.app.state.sessions.record_tutor_action(
+                    assistant_row, checkpoint_row, card_row = request.app.state.sessions.record_tutor_action(
                         payload.session_id,
                         turn,
                         action_index=action_index,
@@ -131,6 +140,11 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                     if turn.checkpoint:
                         checkpoint_payload = turn.checkpoint.model_dump()
                         checkpoint_payload["id"] = checkpoint_row["id"]
+                    card_payload = (
+                        card_from_row(card_row).model_dump(mode="json")
+                        if card_row is not None
+                        else None
+                    )
 
                     logger = getattr(request.app.state, "session_logger", None)
                     if logger is not None:
@@ -161,8 +175,11 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                             option.pop("is_correct", None)
                             option.pop("misconception", None)
                         yield sse("checkpoint_ready", checkpoint_payload)
+                    if card_payload:
+                        yield sse("card_ready", card_payload)
 
-                    should_stop = turn.wait_for_student or turn.action == "SUMMARIZE"
+                    awaiting_card_dismissal = card_payload is not None
+                    should_stop = turn.wait_for_student or turn.action == "SUMMARIZE" or awaiting_card_dismissal
                     yield sse(
                         "message_done",
                         {
@@ -170,6 +187,8 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                             "action_index": action_index,
                             "wait_for_student": turn.wait_for_student,
                             "will_continue": not should_stop,
+                            "awaiting_card_dismissal": awaiting_card_dismissal,
+                            "continue_after_card": turn.action == "EXPLAIN_PRINCIPLE",
                         },
                     )
                     if should_stop:

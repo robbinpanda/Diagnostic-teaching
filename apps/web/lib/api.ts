@@ -28,12 +28,46 @@ export type Checkpoint = {
   difficulty: "easy" | "medium";
 };
 
+export type KnowledgeCardContent = {
+  type: "knowledge_card";
+  title: string;
+  knowledge_point: string;
+  core_idea: string;
+  derivation_steps: Array<{ title: string; content: string }>;
+  when_to_use: string[];
+  common_mistakes: string[];
+  connection_to_problem: string;
+};
+
+export type ProblemCardContent = {
+  type: "problem_card";
+  title: string;
+  problem_summary: string;
+  solution_overview: string;
+  solution_steps: Array<{ step: number; title: string; reasoning: string; result: string }>;
+  pitfalls: string[];
+  how_to_think: string[];
+  final_answer: string;
+};
+
+export type StudyCard = {
+  id: string;
+  session_id: string;
+  card_type: "knowledge_card" | "problem_card";
+  source_action_id: string;
+  source_message_id: string;
+  content: KnowledgeCardContent | ProblemCardContent;
+  created_at: string;
+  saved_at?: string | null;
+};
+
 export type SseEvent =
   | { event: "decision"; data: { state_hint?: string; action?: string; action_id?: string; wait_for_student?: boolean; message?: string; breakpoint?: string; confidence?: number; action_index?: number } }
   | { event: "message_delta"; data: { text: string; action_index?: number } }
   | { event: "message_reset"; data: { action_index?: number } }
   | { event: "checkpoint_ready"; data: Checkpoint }
-  | { event: "message_done"; data: { ok: boolean; action_index?: number; wait_for_student?: boolean; will_continue?: boolean } }
+  | { event: "card_ready"; data: StudyCard }
+  | { event: "message_done"; data: { ok: boolean; action_index?: number; wait_for_student?: boolean; will_continue?: boolean; awaiting_card_dismissal?: boolean; continue_after_card?: boolean } }
   | { event: "error"; data: { message: string } }
   | { event: string; data: Record<string, unknown> };
 
@@ -69,6 +103,7 @@ export type RestoredSession = {
     action: string;
   }>;
   pending_checkpoint?: Checkpoint | null;
+  pending_card?: StudyCard | null;
 };
 
 export async function fetchProfiles(): Promise<ModelProfile[]> {
@@ -235,6 +270,36 @@ export async function answerCheckpoint(input: {
     student_message: string;
     action_id: string;
   }>;
+}
+
+export async function fetchCards(
+  sessionId: string,
+  cardType?: "knowledge_card" | "problem_card"
+): Promise<StudyCard[]> {
+  const params = new URLSearchParams({ session_id: sessionId });
+  if (cardType) params.set("card_type", cardType);
+  const response = await fetch(`${API_BASE}/api/cards?${params.toString()}`, { cache: "no-store" });
+  if (!response.ok) throw new Error("学习卡片加载失败");
+  const payload = await response.json();
+  return payload.cards;
+}
+
+export async function saveCard(cardId: string, sessionId: string): Promise<StudyCard> {
+  const response = await fetch(`${API_BASE}/api/cards/${cardId}/save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId })
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function deleteCard(cardId: string, sessionId: string) {
+  const params = new URLSearchParams({ session_id: sessionId });
+  const response = await fetch(`${API_BASE}/api/cards/${cardId}?${params.toString()}`, {
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error(await response.text());
 }
 
 export async function streamChat(

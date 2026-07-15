@@ -61,7 +61,22 @@ def timeline(conn: sqlite3.Connection, session_id: str) -> None:
         """,
         (session_id,),
     ).fetchall()
-    rows = sorted([*message_rows, *checkpoint_rows], key=lambda row: row["ts"])
+    card_rows = conn.execute(
+        """
+        SELECT created_at AS ts, card_type AS kind, title AS body,
+               json_object(
+                 'id', id,
+                 'source_action_id', source_action_id,
+                 'source_message_id', source_message_id,
+                 'saved_at', saved_at
+               ) AS extra
+        FROM study_cards
+        WHERE session_id = ?
+        ORDER BY created_at
+        """,
+        (session_id,),
+    ).fetchall()
+    rows = sorted([*message_rows, *checkpoint_rows, *card_rows], key=lambda row: row["ts"])
     if not rows:
         print("(empty)")
         return
@@ -126,6 +141,17 @@ def main() -> int:
         (session_id,),
     ).fetchall()
     print_json("CHECKPOINTS RAW", checkpoints)
+    cards = conn.execute(
+        """
+        SELECT id, card_type, title, content_json, source_action_id,
+               source_message_id, created_at, saved_at
+        FROM study_cards
+        WHERE session_id = ?
+        ORDER BY created_at
+        """,
+        (session_id,),
+    ).fetchall()
+    print_json("STUDY CARDS RAW", cards)
     return 0
 
 

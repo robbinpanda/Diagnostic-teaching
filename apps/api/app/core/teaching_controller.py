@@ -58,9 +58,9 @@ TEACHING_ACTION_DEFINITIONS = [
         "description": "围绕一个数学知识点做相对系统的讲解，从定义、核心原理或推导逻辑出发，说明成立条件、直观理解和基本用法。",
         "use_when": "学生缺的不是某一步操作，而是支撑这一步的概念、定理或方法本身时。",
         "blocking": False,
-        "requires": ["一次只讲一个知识点", "从原理而非口诀或结论堆砌出发", "至少说明它如何回到当前题目", "checkpoint 必须为 null"],
+        "requires": ["一次只讲一个知识点", "从原理而非口诀或结论堆砌出发", "至少说明它如何回到当前题目", "knowledge_card 必须把 message 的同一知识点结构化，不得另讲别的内容", "checkpoint 和 problem_card 必须为 null"],
         "boundaries": ["不要借机完整解完当前题", "不要与 EXPLAIN_LOCAL 一样只修补一个具体算式", "只能使用陈述句，不得向学生提问或要求回答"],
-        "backend_behavior": "展示后立即进入下一个教学 action。",
+        "backend_behavior": "message 展示完后弹出 knowledge_card；学生关闭并归档卡片后，继续进入下一个教学 action。",
     },
     {
         "name": "RESPOND_TO_CHECKPOINT",
@@ -77,9 +77,9 @@ TEACHING_ACTION_DEFINITIONS = [
         "use_when": "当前问题已有明确结论，或当前卡点已经讲清、继续提问不会带来必要的新信息时。进入 SUMMARIZE 不要求学生先答出最终答案，也不要求额外插入‘懂了吗’、复述答案或迁移题等确认性问题。",
         "blocking": False,
         "terminal": True,
-        "requires": ["只总结本轮已经出现并解决的内容", "指出可迁移的方法线索", "checkpoint 必须为 null"],
-        "boundaries": ["不要在总结中引入新知识或新的解题步骤", "仍有会影响当前结论的实质性缺口时不要总结", "现有上下文足以收束时，不要为了进入总结额外设置确认性问题", "只能使用陈述句，不得在结尾追加问题或练习邀请"],
-        "backend_behavior": "展示总结并结束当前生成流程。",
+        "requires": ["message 凝练本轮结论与可迁移线索", "message 与 problem_card 应在关键方法和结论上有必要重复", "problem_card 必须给出比 message 更完整、更结构化的整题上帝视角解答流程、坑点和步骤来源", "checkpoint 和 knowledge_card 必须为 null"],
+        "boundaries": ["message 不要在总结中引入新知识", "problem_card 可以把已经成立的结论重组为完整标准解法，但不得伪造题目条件", "仍有会影响当前结论的实质性缺口时不要总结", "现有上下文足以收束时，不要为了进入总结额外设置确认性问题", "只能使用陈述句，不得在结尾追加问题或练习邀请"],
+        "backend_behavior": "展示 message 后弹出 problem_card；学生关闭并归档卡片后结束当前生成流程。",
     },
 ]
 
@@ -94,7 +94,7 @@ SYSTEM_PROMPT = """你是一名面向中国初高中学生的诊断式数学导�
 5. 需要学生参与时，默认优先选择 ASK_MULTIPLE_CHOICE。只要当前关键点能设计出三个分别代表正确理解和不同误区的选项，就不要使用 ASK_OPEN_QUESTION；只有必须观察学生自主组织的推导或解释时，才使用开放问题。
 6. 选择题必须诊断误区：恰好 3 个普通选项、恰好 1 个正确答案，两个错误选项分别对应不同的常见误区；始终保留‘我不知道’选项。
 7. 学生答错或选‘我不知道’不是失败。先用 RESPOND_TO_CHECKPOINT 准确闭环反馈，再在后续 action 中降低台阶、解释局部或讲清原理。
-8. 当前问题已有明确结论，或当前卡点已经讲清且没有实质性缺口时，可以直接 SUMMARIZE。不要把确认性问题当作进入总结的必经步骤，也不要求学生先独立说出最终答案；只有缺失的信息确实会影响当前结论时才继续提问。总结不得引入新知识。
+8. 当前问题已有明确结论，或当前卡点已经讲清且没有实质性缺口时，可以直接 SUMMARIZE。不要把确认性问题当作进入总结的必经步骤，也不要求学生先独立说出最终答案；只有缺失的信息确实会影响当前结论时才继续提问。SUMMARIZE 的 message 不得引入新知识，problem_card 则要把整题已成立的结论重组为完整、结构化的上帝视角解法。
 9. 只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以向学生提问或要求学生回答。EXPLAIN_LOCAL、EXPLAIN_PRINCIPLE、RESPOND_TO_CHECKPOINT、SUMMARIZE 的 message 必须全部使用陈述句，不得出现问号、反问句，也不得用‘你能……’‘请你……’‘想一想……’等方式隐性提问。
 
 action 选择提示：
@@ -118,6 +118,8 @@ ACTION_PROTOCOL = f"""教学 action 协议：
 - 按当前目的理解 action，而不是把它们串成固定流程：RESPOND_TO_CHECKPOINT 负责反馈闭环；SUMMARIZE 负责自然收束；EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE 负责针对性教学；ASK_OPEN_QUESTION / ASK_MULTIPLE_CHOICE 只负责获取确有必要的新证据。
 - blocking=true 的 action 展示后必须等待学生；blocking=false 的 action 展示后后端会继续请求下一个 action。
 - ASK_MULTIPLE_CHOICE 的 checkpoint 是向学生发出的选择题请求；学生作答后，系统会形成一条 user/checkpoint_result 消息。
+- EXPLAIN_PRINCIPLE 必须同时输出 knowledge_card。它在教学语义上仍是非阻塞 action，但后端会在弹卡处暂停，等学生关闭并归档卡片后再继续请求下一 action。
+- SUMMARIZE 必须同时输出 problem_card。problem_card 是整题的结构化解答档案，关闭归档后本轮结束。
 - 收到尚未回应的 checkpoint_result 后，先用且只用一次 RESPOND_TO_CHECKPOINT 闭环反馈；下一 action 再决定是否解释、提问或总结。
 - 当前问题或卡点已经清楚处理时，可以直接 SUMMARIZE；确认性问题不是进入总结的前置条件。
 - action 必须准确描述 message 真正在做的事情，不能用一个 action 的名字承载另一个 action 的内容。
@@ -149,6 +151,30 @@ JSON_CONTRACT = """返回 JSON 格式：
     "tested_point": "这个检查点测试的知识点",
     "difficulty": "easy"
   },
+  "knowledge_card": null 或 {
+    "type": "knowledge_card",
+    "title": "知识卡片标题",
+    "knowledge_point": "本卡只讲的一个知识点",
+    "core_idea": "用一段话说明定义、原理和直观理解",
+    "derivation_steps": [
+      {"title": "推导步骤标题", "content": "公式与理由"}
+    ],
+    "when_to_use": ["识别这种方法适用场景的线索"],
+    "common_mistakes": ["常见误区；没有时可为空数组"],
+    "connection_to_problem": "这个知识点如何支撑当前题的当前一步"
+  },
+  "problem_card": null 或 {
+    "type": "problem_card",
+    "title": "题目卡片标题",
+    "problem_summary": "不遗漏关键条件的题目摘要",
+    "solution_overview": "上帝视角的一句话解法路线",
+    "solution_steps": [
+      {"step": 1, "title": "步骤标题", "reasoning": "为什么想到并执行这一步", "result": "本步得到的式子或结论"}
+    ],
+    "pitfalls": ["需要注意的坑点；没有时可为空数组"],
+    "how_to_think": ["从题目条件想到上述步骤的识别线索"],
+    "final_answer": "最终答案及必要条件"
+  },
   "debug": {}
 }
 
@@ -157,7 +183,11 @@ JSON_CONTRACT = """返回 JSON 格式：
 - action 是本轮唯一教学动作。
 - 不要输出 wait_for_student；后端会根据 action 强制填充。
 - 只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 会等待学生。
-- EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / RESPOND_TO_CHECKPOINT 是非阻塞动作，后端会继续调用下一轮。
+- EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / RESPOND_TO_CHECKPOINT 是非阻塞动作；其中 EXPLAIN_PRINCIPLE 会先等学生关闭 knowledge_card，再继续下一轮。
+- EXPLAIN_PRINCIPLE 时 knowledge_card 必须非 null，其余 action 时必须为 null。
+- SUMMARIZE 时 problem_card 必须非 null，其余 action 时必须为 null。
+- SUMMARIZE 的 message 与 problem_card 应共享关键方法和结论；problem_card 在此基础上提供更完整的结构化解法。
+- ASK_MULTIPLE_CHOICE 时 checkpoint 必须非 null，其余 action 时 checkpoint 必须为 null。
 - 只有两个 ASK action 可以提问；其余 action 的 message 必须为纯陈述句且不得出现问号。
 """
 
@@ -298,6 +328,10 @@ def render_history_message(row: Row | dict) -> dict[str, str]:
         rendered_action = action if action in VALID_ACTIONS else "EXPLAIN_LOCAL"
         if rendered_action == "ASK_MULTIPLE_CHOICE" and not metadata.get("checkpoint"):
             rendered_action = "EXPLAIN_LOCAL"
+        if rendered_action == "EXPLAIN_PRINCIPLE" and not metadata.get("knowledge_card"):
+            rendered_action = "EXPLAIN_LOCAL"
+        if rendered_action == "SUMMARIZE" and not metadata.get("problem_card"):
+            rendered_action = "EXPLAIN_LOCAL"
         debug: dict[str, Any] = {}
         if rendered_action != action:
             debug["history_original_action"] = action
@@ -308,6 +342,8 @@ def render_history_message(row: Row | dict) -> dict[str, str]:
             "breakpoint_description": metadata.get("breakpoint"),
             "breakpoint_confidence": None,
             "checkpoint": metadata.get("checkpoint") if rendered_action == "ASK_MULTIPLE_CHOICE" else None,
+            "knowledge_card": metadata.get("knowledge_card") if rendered_action == "EXPLAIN_PRINCIPLE" else None,
+            "problem_card": metadata.get("problem_card") if rendered_action == "SUMMARIZE" else None,
             "debug": debug,
         }
         return {"role": role, "content": json.dumps(turn_payload, ensure_ascii=False)}
@@ -386,7 +422,7 @@ def repair_unescaped_string_field(text: str, field: str) -> str:
 
     value_start = key_match.end()
     next_field = re.search(
-        r'"\s*,\s*"(?:state_hint|phase|action|message|breakpoint_description|breakpoint_confidence|checkpoint|wait_for_student|debug)"\s*:',
+        r'"\s*,\s*"(?:state_hint|phase|action|message|breakpoint_description|breakpoint_confidence|checkpoint|knowledge_card|problem_card|wait_for_student|debug)"\s*:',
         text[value_start:],
         re.DOTALL,
     )
@@ -422,7 +458,7 @@ def _json_string_field_lenient(text: str, field: str) -> str | None:
         return None
     value_start = key_match.end()
     next_field = re.search(
-        r'"\s*,\s*"(?:state_hint|phase|action|message|breakpoint_description|breakpoint_confidence|checkpoint|wait_for_student|debug)"\s*:',
+        r'"\s*,\s*"(?:state_hint|phase|action|message|breakpoint_description|breakpoint_confidence|checkpoint|knowledge_card|problem_card|wait_for_student|debug)"\s*:',
         text[value_start:],
         re.DOTALL,
     )
@@ -469,7 +505,7 @@ def recover_tutor_turn_from_raw(raw: str) -> TutorTurn:
         message = "这一轮模型返回的格式不完整。我先接着当前题目往下讲：你刚才的选择已经说明等比数列中可以用中项性质，下一步要把它和方程两个根的乘积联系起来。"
 
     action = _json_string_field(text, "action") or "EXPLAIN_LOCAL"
-    if action == "ASK_MULTIPLE_CHOICE":
+    if action in {"ASK_MULTIPLE_CHOICE", "EXPLAIN_PRINCIPLE", "SUMMARIZE"}:
         action = "EXPLAIN_LOCAL"
     turn = TutorTurn(
         state_hint=_json_string_field(text, "state_hint") or _json_string_field(text, "phase") or "explaining",
@@ -478,6 +514,8 @@ def recover_tutor_turn_from_raw(raw: str) -> TutorTurn:
         breakpoint_description=_json_string_field(text, "breakpoint_description"),
         breakpoint_confidence=_json_number_field(text, "breakpoint_confidence"),
         checkpoint=None,
+        knowledge_card=None,
+        problem_card=None,
         debug={"parse_fallback": True},
     )
     apply_backend_action_policy(turn)
@@ -498,6 +536,26 @@ def validate_checkpoint(checkpoint: TutorCheckpoint) -> None:
         raise ValueError("checkpoint question is too meta")
 
 
+def validate_card_contract(turn: TutorTurn) -> None:
+    if turn.action == "EXPLAIN_PRINCIPLE":
+        if turn.knowledge_card is None:
+            raise ValueError("EXPLAIN_PRINCIPLE requires knowledge_card")
+    elif turn.knowledge_card is not None:
+        raise ValueError("knowledge_card is only allowed for EXPLAIN_PRINCIPLE")
+
+    if turn.action == "SUMMARIZE":
+        if turn.problem_card is None:
+            raise ValueError("SUMMARIZE requires problem_card")
+        step_numbers = [step.step for step in turn.problem_card.solution_steps]
+        if step_numbers != list(range(1, len(step_numbers) + 1)):
+            raise ValueError("problem_card solution_steps must be numbered from 1 without gaps")
+    elif turn.problem_card is not None:
+        raise ValueError("problem_card is only allowed for SUMMARIZE")
+
+    if turn.action != "ASK_MULTIPLE_CHOICE" and turn.checkpoint is not None:
+        raise ValueError("checkpoint is only allowed for ASK_MULTIPLE_CHOICE")
+
+
 def apply_backend_action_policy(turn: TutorTurn, *, force_blocking: bool = False) -> None:
     original_action = turn.action
     if turn.action not in VALID_ACTIONS:
@@ -515,6 +573,8 @@ def apply_backend_action_policy(turn: TutorTurn, *, force_blocking: bool = False
     if force_blocking and turn.action in NONBLOCKING_ACTIONS:
         turn.debug["forced_blocking_after_action"] = turn.action
         turn.action = "ASK_OPEN_QUESTION"
+        turn.knowledge_card = None
+        turn.problem_card = None
         if not re.search(r"[？?]\s*$", turn.message):
             turn.message = turn.message.rstrip("。！？!?") + "。你先说说：这一步你觉得下一步应该做什么？"
 
@@ -543,6 +603,7 @@ def parse_and_validate_tutor_turn(raw: str, *, force_blocking: bool = False) -> 
     if turn.checkpoint:
         validate_checkpoint(turn.checkpoint)
     apply_backend_action_policy(turn, force_blocking=force_blocking)
+    validate_card_contract(turn)
     return turn
 
 

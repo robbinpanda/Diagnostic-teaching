@@ -2,6 +2,17 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v1.0 — 2026-07-15
+
+### 知识卡片与题目卡片
+
+- `EXPLAIN_PRINCIPLE` 现在必须在 `message` 外结构化输出 `knowledge_card`，包含单一知识点、核心原理、推导步骤、适用场景、常见误区和当前题连接。
+- `SUMMARIZE` 现在必须结构化输出 `problem_card`，包含题目摘要、上帝视角解法路线、逐步推理与结果、坑点、步骤来源和最终答案。
+- 新增 SQLite `study_cards` 表。生成 action 时先原子写入待归档卡片，学生关闭弹窗后写 `saved_at`；未归档卡片会阻止同 session 绕过弹窗继续生成。
+- `EXPLAIN_PRINCIPLE` 保持 `wait_for_student=false`，但 SSE 在 `card_ready` 后暂停；前端关闭并归档 knowledge card 后再继续答疑。`SUMMARIZE` 的 problem card 关闭归档后自然结束。
+- 新增 card 查询、保存、删除 API；恢复 session 时复制卡片并重建 card/action/message 引用，尚未关闭的卡片会在恢复后重新弹出。
+- 前端以统一卡片组件显示首次弹窗和历史查看；原调试面板改为可滚动、可筛选的卡片库，支持双击查看和删除。
+
 ## v0.9 — 2026-07-15
 
 ### 教学流程轻量化

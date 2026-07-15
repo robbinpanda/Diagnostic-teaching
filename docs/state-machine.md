@@ -1,10 +1,10 @@
 # 答疑状态机与 LLM 主导流程
 
-版本：v0.9
+版本：v1.0
 日期：2026-07-15
 适用项目：诊断式数学答疑 MVP
 
-本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作；后端根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop，直到需要学生回答或完成总结。**
+本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作；后端根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop。`EXPLAIN_PRINCIPLE` 和 `SUMMARIZE` 还会产生需要前端确认归档的结构化学习卡片。**
 
 如果后续要优化教学策略，优先改：
 
@@ -33,22 +33,27 @@ sequenceDiagram
     LLM-->>API: stream=true 原始 JSON token
     API-->>Student: SSE message_delta(本 action 可见内容)
     API->>API: raw 完整后解析 TutorTurn
-    API->>API: validate checkpoint + apply_backend_action_policy()
-    API->>DB: update state_hint + add assistant message/action
+    API->>API: validate checkpoint/card + apply_backend_action_policy()
+    API->>DB: update state_hint + add assistant message/action + pending card
     API->>Log: 追加 JSONL 事件和 Markdown 阅读版
     API-->>Student: decision + message_done
   end
-  API-->>Student: checkpoint_ready 或等待开放问题回复 / 或 SUMMARIZE 结束
+  API-->>Student: checkpoint_ready / card_ready / 等待开放问题回复
+  opt EXPLAIN_PRINCIPLE 或 SUMMARIZE 产出卡片
+    Student->>API: 关闭卡片并调用 card save
+    API->>DB: saved_at 入库，卡片进入右侧列表
+    Student->>API: EXPLAIN_PRINCIPLE 继续生成；SUMMARIZE 结束
+  end
 ```
 
 关键点：
 
-- LLM 每轮决定 `state_hint`、`action`、`message`、`breakpoint_description`、`checkpoint`。
+- LLM 每轮决定 `state_hint`、`action`、`message`、`breakpoint_description`、`checkpoint`、`knowledge_card`、`problem_card`。
 - 后端不信任模型给出的等待判断；`wait_for_student` 由后端根据 action 强制推导。
 - `ASK_OPEN_QUESTION` 和 `ASK_MULTIPLE_CHOICE` 是阻塞动作，会停下等待学生。
-- `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是非阻塞动作，后端会继续调用下一轮 LLM。
+- `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是教学语义上的非阻塞动作。`EXPLAIN_LOCAL` 和 `RESPOND_TO_CHECKPOINT` 直接继续；`EXPLAIN_PRINCIPLE` 会先弹出 `knowledge_card`，关闭归档后再继续。
 - 连续 3 个非阻塞动作后，下一轮 prompt 会要求模型在“自然总结”和“获取必要的新证据”之间选择；若仍输出非阻塞动作，后端会转成 `ASK_OPEN_QUESTION`。
-- `SUMMARIZE` 是终止动作，不等待学生。
+- `SUMMARIZE` 是终止动作，不等待学生回答，但会弹出 `problem_card`；关闭归档后流程结束。
 - `SUMMARIZE` 不要求学生先独立给出最终答案，也不要求额外插入确认性问题；当前结论或卡点已经讲清即可自然收束。
 - 项目不主动截断、压缩或摘要历史；模型供应商自身的硬上下文限制仍然存在。
 
@@ -64,9 +69,18 @@ sequenceDiagram
   "breakpoint_description": "当前卡点，可为 null",
   "breakpoint_confidence": 0.0,
   "checkpoint": null,
+  "knowledge_card": null,
+  "problem_card": null,
   "debug": {}
 }
 ```
+
+动作与结构化字段必须严格匹配：
+
+- `ASK_MULTIPLE_CHOICE`：`checkpoint` 非空，两个 card 字段为 `null`。
+- `EXPLAIN_PRINCIPLE`：`knowledge_card` 非空，`checkpoint/problem_card` 为 `null`。
+- `SUMMARIZE`：`problem_card` 非空，`checkpoint/knowledge_card` 为 `null`。
+- 其余 action：三个结构化附属字段都为 `null`。
 
 代码对应：
 
@@ -102,11 +116,11 @@ system prompt 会在 `ACTION_PROTOCOL` 中逐项告诉模型每个 action 的功
 | action | 类型 | 后端行为 |
 |---|---|---|
 | `EXPLAIN_LOCAL` | 非阻塞 | 针对学生当前具体卡点，打通一个局部推理、符号、概念连接或计算 |
-| `EXPLAIN_PRINCIPLE` | 非阻塞 | 从定义和原理出发，系统讲清一个支撑当前题目的知识点 |
+| `EXPLAIN_PRINCIPLE` | 非阻塞 + 卡片确认 | 从定义和原理出发讲清一个知识点，输出 `knowledge_card`，关闭归档后继续 |
 | `RESPOND_TO_CHECKPOINT` | 非阻塞 | 闭环最近一次选择结果，指出理解证据或误区，并提供具体、真诚的情绪支持 |
 | `ASK_OPEN_QUESTION` | 阻塞 | 展示开放问题，`wait_for_student=true`，等待学生输入 |
 | `ASK_MULTIPLE_CHOICE` | 阻塞 | 要求存在合法 checkpoint，用三个可诊断选项定位学生误区 |
-| `SUMMARIZE` | 终止 | 当前问题或卡点已清楚处理时自然总结，不以确认性问题为前置条件 |
+| `SUMMARIZE` | 终止 + 卡片确认 | 自然总结并输出整题上帝视角解法的 `problem_card`，关闭归档后结束 |
 
 后端会做动作归一化：
 
@@ -123,6 +137,7 @@ system prompt 会在 `ACTION_PROTOCOL` 中逐项告诉模型每个 action 的功
 ASK_OPEN_QUESTION       -> wait_for_student = true
 ASK_MULTIPLE_CHOICE     -> wait_for_student = true，前提是 checkpoint 合法
 SUMMARIZE               -> wait_for_student = false，终止本轮 stream
+EXPLAIN_PRINCIPLE       -> wait_for_student = false，但在 card_ready 后暂停 HTTP stream，等待关闭归档
 其他非阻塞 action       -> wait_for_student = false，继续 loop
 ```
 
@@ -140,7 +155,8 @@ SUMMARIZE               -> wait_for_student = false，终止本轮 stream
 -> 写 assistant message 和 JSONL tutor_turn
 -> 发 decision
 -> 发 message_done
--> 如果 wait_for_student 或 SUMMARIZE：停止
+-> 如果 wait_for_student、SUMMARIZE 或产生 card：停止当前 HTTP stream
+-> EXPLAIN_PRINCIPLE 的 card 关闭归档后，由前端发起无新 student message 的继续生成
 -> 否则继续下一轮
 ```
 
@@ -181,7 +197,24 @@ RESPOND_TO_CHECKPOINT
 
 checkpoint 类似一次需要结果的调用，但结果来自学生，而不是电脑工具。下一轮 LLM 同时看到可读的学生选择和结构化的正误、误区、耗时、event 与 next_state_hint。
 
-## 8. SSE 事件顺序
+## 8. knowledge_card 与 problem_card
+
+两类卡片共用 `study_cards` 表，但内容合同不同：
+
+- `knowledge_card`：`title / knowledge_point / core_idea / derivation_steps / when_to_use / common_mistakes / connection_to_problem`。
+- `problem_card`：`title / problem_summary / solution_overview / solution_steps / pitfalls / how_to_think / final_answer`。
+
+生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null`，不会出现在右侧卡片库；前端点大叉后调用 `POST /api/cards/{id}/save`，后端写入 `saved_at`，卡片才进入已归档列表。未归档卡片存在时，`/api/chat/stream` 返回 409，避免绕过确认继续生成。
+
+卡片接口：
+
+```text
+GET    /api/cards?session_id=...&card_type=knowledge_card|problem_card
+POST   /api/cards/{card_id}/save
+DELETE /api/cards/{card_id}?session_id=...
+```
+
+## 9. SSE 事件顺序
 
 一次 `/api/chat/stream` 可能包含多个 action。每个 action 都会有自己的事件段：
 
@@ -189,8 +222,11 @@ checkpoint 类似一次需要结果的调用，但结果来自学生，而不是
 message_delta   × N
 decision
 checkpoint_ready?  # 仅 ASK_MULTIPLE_CHOICE 且 checkpoint 合法
+card_ready?        # 仅 EXPLAIN_PRINCIPLE / SUMMARIZE 且 card 合法
 message_done
 ```
+
+`message_done` 在卡片 action 中额外带 `awaiting_card_dismissal=true`；`continue_after_card` 只在 `EXPLAIN_PRINCIPLE` 时为 true。
 
 `decision` 包含：
 
@@ -208,7 +244,7 @@ message_done
 
 前端收到 `message_done` 后会把下一个 action 开成新的 assistant 气泡，避免多个 LLM 调用的文本糊成一段。
 
-## 9. 日志口径
+## 10. 日志口径
 
 每次 LLM 调用都会同时追加严格 JSONL 和留白充足的 Markdown。JSONL 中每一次调用单独写一条 `tutor_turn`：
 
@@ -231,7 +267,7 @@ message_done
 5. 连续非阻塞动作是否超过预期
 6. 检查点答案后的下一轮是否真正响应学生选择
 
-## 10. fallback 与容错
+## 11. fallback 与容错
 
 当前后端仍保留几层容错：
 
@@ -244,6 +280,6 @@ message_done
 
 需要注意：fallback 后可能丢失原本 raw 中的 checkpoint，所以分析时不能只看 raw，也要看最终 `parsed_turn.checkpoint`。
 
-## 11. 一句话结论
+## 12. 一句话结论
 
 当前流程已经从“LLM 自选 phase/action/checkpoint 的软状态机”升级为“LLM 产出教学原子动作，后端强制 action 工作流”的结构：`state_hint` 只负责提示，`action` 决定控制流，`wait_for_student` 由后端推导，bounded loop 负责把多个非阻塞讲解动作串起来，直到真正需要学生参与。

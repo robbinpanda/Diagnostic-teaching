@@ -5,8 +5,8 @@
 ## 现行说明
 
 1. [本地启动与关闭](how-to-run.md)：首次安装、启动脚本、日志查看与常见排查。
-2. [答疑状态机与 LLM 主导流程](state-machine.md)：六类教学 action、后端守门、bounded loop 与 SSE。
-3. [上下文、Session 恢复与诊断日志](context-management.md)：模型上下文、SQLite 权威数据、历史恢复/删除和双份日志。
+2. [答疑状态机与 LLM 主导流程](state-machine.md)：六类教学 action、检查点、知识/题目卡片、后端守门、bounded loop 与 SSE。
+3. [上下文、Session 恢复与诊断日志](context-management.md)：模型上下文、SQLite 权威数据、卡片持久化、历史恢复/删除和双份日志。
 4. [AI 模型配置说明](ai-model-config-v0.2.md)：模型配置 API、密钥存储、多模态标记与 SQLite 字段。
 5. [改动记录](changelog.md)：按版本追溯重要行为变化。
 
@@ -23,7 +23,7 @@
 |---|---|
 | 教学 action、prompt 与输出合同 | `apps/api/app/core/teaching_controller.py` |
 | API 请求/响应 schema | `apps/api/app/core/schemas.py` |
-| Chat、session、checkpoint、题图与模型路由 | `apps/api/app/routes/` |
+| Chat、session、checkpoint、card、题图与模型路由 | `apps/api/app/routes/` |
 | SQLite schema 与数据关系 | `apps/api/app/storage/database.py`、`repositories.py` |
 | 前端 API 与 SSE 事件 | `apps/web/lib/api.ts` |
 | 当前行为回归测试 | `apps/api/tests/` |

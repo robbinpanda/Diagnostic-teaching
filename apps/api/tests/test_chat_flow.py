@@ -115,6 +115,45 @@ def test_tutor_action_rolls_back_if_checkpoint_insert_fails(tmp_path: Path):
     assert client.app.state.sessions.list_checkpoints(session_id) == []
 
 
+def test_tutor_action_rolls_back_if_card_insert_fails(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    turn = TutorTurn.model_validate(
+        {
+            "state_hint": "explaining",
+            "action": "EXPLAIN_PRINCIPLE",
+            "message": "先从平方项非负讲起。",
+            "knowledge_card": {
+                "type": "knowledge_card",
+                "title": "平方项非负",
+                "knowledge_point": "完全平方的非负性",
+                "core_idea": "任意实数的平方都不小于零。",
+                "derivation_steps": [{"title": "定义", "content": "$u^2\\ge0$。"}],
+                "when_to_use": ["判断含平方项表达式的范围"],
+                "common_mistakes": [],
+                "connection_to_problem": "用于判断当前函数的最大值。",
+            },
+        }
+    )
+    with client.app.state.db.connect() as conn:
+        conn.execute(
+            """
+            CREATE TRIGGER reject_card_insert
+            BEFORE INSERT ON study_cards
+            BEGIN
+              SELECT RAISE(ABORT, 'forced card failure');
+            END;
+            """
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="forced card failure"):
+        client.app.state.sessions.record_tutor_action(session_id, turn, action_index=0)
+
+    session = client.app.state.sessions.get(session_id)
+    assert session["phase"] == "diagnosing"
+    assert client.app.state.sessions.list_messages(session_id) == []
+    assert client.app.state.sessions.list_cards(session_id, include_pending=True) == []
+
+
 def test_checkpoint_answer_drives_followup_instead_of_loop(tmp_path: Path):
     """答题接口已写入 result，下一轮不重复提交 message 也能继续讲解。"""
     client, session_id = _bootstrap_app(tmp_path)
@@ -154,6 +193,84 @@ def test_checkpoint_answer_drives_followup_instead_of_loop(tmp_path: Path):
     visible = "".join(d.get("text", "") for d in deltas)
     assert visible.strip(), "第二轮应输出可见讲解而非空内容"
     assert "x=3" in visible or "为 0" in visible or "最大值 5" in visible
+
+
+def test_problem_card_waits_for_close_then_saves_lists_and_deletes(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    first = client.post("/api/chat/stream", json={"session_id": session_id})
+    checkpoint_id = next(d["id"] for e, d in _parse_sse_events(first.text) if e == "checkpoint_ready")
+    client.post(
+        f"/api/checkpoints/{checkpoint_id}/answer",
+        json={"session_id": session_id, "selected_option_id": "A", "elapsed_ms": 700},
+    )
+
+    response = client.post("/api/chat/stream", json={"session_id": session_id})
+    events = _parse_sse_events(response.text)
+    card = next(d for e, d in events if e == "card_ready")
+    message_done = [d for e, d in events if e == "message_done"][-1]
+
+    assert card["card_type"] == "problem_card"
+    assert card["content"]["type"] == "problem_card"
+    assert card["content"]["solution_steps"]
+    assert card["content"]["how_to_think"]
+    assert card["saved_at"] is None
+    assert message_done["awaiting_card_dismissal"] is True
+    assert message_done["continue_after_card"] is False
+    assert client.get(f"/api/cards?session_id={session_id}").json()["cards"] == []
+    assert client.post("/api/chat/stream", json={"session_id": session_id}).status_code == 409
+
+    profile_id = client.app.state.sessions.get(session_id)["model_profile_id"]
+    restored = client.post(
+        "/api/sessions/restore",
+        json={"session_id": session_id, "model_profile_id": profile_id},
+    )
+    assert restored.status_code == 200
+    restored_pending = restored.json()["pending_card"]
+    assert restored_pending["id"] != card["id"]
+    assert restored_pending["content"] == card["content"]
+
+    saved = client.post(
+        f"/api/cards/{card['id']}/save",
+        json={"session_id": session_id},
+    )
+    assert saved.status_code == 200
+    assert saved.json()["saved_at"]
+    listed = client.get(f"/api/cards?session_id={session_id}&card_type=problem_card")
+    assert [item["id"] for item in listed.json()["cards"]] == [card["id"]]
+
+    deleted = client.delete(f"/api/cards/{card['id']}?session_id={session_id}")
+    assert deleted.status_code == 204
+    assert client.get(f"/api/cards?session_id={session_id}").json()["cards"] == []
+
+
+def test_knowledge_card_close_resumes_nonblocking_tutoring(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    first = client.post("/api/chat/stream", json={"session_id": session_id})
+    checkpoint_id = next(d["id"] for e, d in _parse_sse_events(first.text) if e == "checkpoint_ready")
+    client.post(
+        f"/api/checkpoints/{checkpoint_id}/answer",
+        json={"session_id": session_id, "selected_option_id": "UNKNOWN", "elapsed_ms": 500},
+    )
+
+    response = client.post("/api/chat/stream", json={"session_id": session_id})
+    events = _parse_sse_events(response.text)
+    card = next(d for e, d in events if e == "card_ready")
+    card_decision = [d for e, d in events if e == "decision"][-1]
+    message_done = [d for e, d in events if e == "message_done"][-1]
+
+    assert card_decision["action"] == "EXPLAIN_PRINCIPLE"
+    assert card_decision["wait_for_student"] is False
+    assert card["card_type"] == "knowledge_card"
+    assert card["content"]["derivation_steps"]
+    assert message_done["continue_after_card"] is True
+
+    client.post(f"/api/cards/{card['id']}/save", json={"session_id": session_id})
+    continued = client.post("/api/chat/stream", json={"session_id": session_id})
+    continued_events = _parse_sse_events(continued.text)
+
+    assert continued.status_code == 200
+    assert any(e == "decision" for e, _ in continued_events)
+    assert not any(e == "card_ready" and d["id"] == card["id"] for e, d in continued_events)
 
 
 def test_checkpoint_answer_is_structured_student_result(tmp_path: Path):

@@ -5,12 +5,12 @@
 当前版本的核心特征是：**语言模型主导每一轮答疑决策**。后端不是写死“第几步讲什么”的脚本，而是每轮把题目、学生历史、当前阶段和 JSON 输出合同发给 LLM，由 LLM 返回结构化 `TutorTurn`：
 
 ```txt
-state_hint + action + message + breakpoint_description + checkpoint
+state_hint + action + message + breakpoint_description + checkpoint + knowledge_card + problem_card
 ```
 
 后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、弹出检查点并把学生选择回传给模型。
 
-当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、可切换的加密模型配置、检查点选择题、SQLite 历史恢复与删除，以及 JSONL/Markdown 双份诊断日志。含题图的会话会保留原图，并要求使用标记为多模态的模型。
+当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、可切换的加密模型配置、检查点选择题、知识卡片/题目卡片、SQLite 历史恢复与删除，以及 JSONL/Markdown 双份诊断日志。含题图的会话会保留原图，并要求使用标记为多模态的模型。
 
 ## 本地启动
 
@@ -45,8 +45,8 @@ docs/how-to-run.md
 如果后续要优化“AI 怎么教、什么时候弹检查点、答错后怎么恢复”，请先读：
 
 - `docs/README.md`：文档导航，以及“现行说明 / 历史设计基线”的边界
-- `docs/state-machine.md`：答疑状态机与 LLM 主导流程（`state_hint/action/checkpoint` 如何由模型决定，后端如何守门）
-- `docs/context-management.md`：上下文管理与诊断日志（prompt 拼装、history、检查点回传、SSE、JSONL）
+- `docs/state-machine.md`：答疑状态机与 LLM 主导流程（`state_hint/action/checkpoint/card` 如何由模型决定，后端如何守门）
+- `docs/context-management.md`：上下文管理与诊断日志（prompt 拼装、history、检查点/卡片回传、SSE、SQLite、JSONL）
 - `docs/changelog.md`：最近改动记录
 
 一句话理解当前架构：
@@ -56,9 +56,9 @@ docs/how-to-run.md
   -> SQLite 取完整结构化历史
   -> build_messages 按 system / user / assistant 多轮消息拼 prompt
   -> LLM 产出 TutorTurn JSON
-  -> 后端校验 checkpoint + SQLite 落库 + 追加诊断日志
+  -> 后端校验 checkpoint/card + SQLite 落库 + 追加诊断日志
   -> SSE 流式推给前端
-  -> 前端展示 message / KaTeX 公式 / checkpoint 弹窗
+  -> 前端展示 message / KaTeX 公式 / checkpoint 或学习卡片弹窗
 ```
 
 ## 技术栈
@@ -66,7 +66,7 @@ docs/how-to-run.md
 - Frontend: Next.js + React + TypeScript
 - Math Rendering: KaTeX（聊天气泡和检查点题干/选项支持 `$...$`、`$$...$$`、`\(...\)`、`\[...\]`）
 - Backend: FastAPI
-- Database: SQLite（session、结构化消息、checkpoint 的权威存储，也是历史恢复来源）
+- Database: SQLite（session、结构化消息、checkpoint、study_cards 的权威存储，也是历史恢复来源）
 - Diagnostic Log: JSONL（机器审计）+ Markdown（留白充足的人类阅读版）
 - Model API: OpenAI-compatible chat completions（**已支持流式 stream=true**）
 

@@ -224,6 +224,7 @@ class SessionRepository:
                 raise KeyError(session_id)
             conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
             conn.execute("DELETE FROM checkpoints WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM study_cards WHERE session_id = ?", (session_id,))
             conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
     def update_phase(
@@ -289,11 +290,13 @@ class SessionRepository:
         turn: TutorTurn,
         *,
         action_index: int,
-    ) -> tuple[sqlite3.Row, sqlite3.Row | None]:
-        """Atomically save the session state, assistant action, and optional checkpoint."""
+    ) -> tuple[sqlite3.Row, sqlite3.Row | None, sqlite3.Row | None]:
+        """Atomically save session state, assistant action, checkpoint, and pending card."""
         message_id = new_id("msg")
         action_id = new_id("act")
         checkpoint_id = new_id("chk") if turn.checkpoint else None
+        card_content = turn.knowledge_card or turn.problem_card
+        card_id = new_id("card") if card_content else None
         ts = now_iso()
         metadata = {
             "state_hint": turn.state_hint,
@@ -303,6 +306,9 @@ class SessionRepository:
             "action_index": action_index,
             "checkpoint_id": checkpoint_id,
             "checkpoint": turn.checkpoint.model_dump() if turn.checkpoint else None,
+            "card_id": card_id,
+            "knowledge_card": turn.knowledge_card.model_dump() if turn.knowledge_card else None,
+            "problem_card": turn.problem_card.model_dump() if turn.problem_card else None,
         }
 
         with self.db.connect() as conn:
@@ -368,12 +374,112 @@ class SessionRepository:
                     (checkpoint_id,),
                 ).fetchone()
 
+            card_row = None
+            if card_content and card_id:
+                conn.execute(
+                    """
+                    INSERT INTO study_cards (
+                      id, session_id, card_type, title, content_json,
+                      source_action_id, source_message_id, created_at, saved_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    """,
+                    (
+                        card_id,
+                        session_id,
+                        card_content.type,
+                        card_content.title,
+                        card_content.model_dump_json(),
+                        action_id,
+                        message_id,
+                        ts,
+                    ),
+                )
+                card_row = conn.execute(
+                    "SELECT * FROM study_cards WHERE id = ?",
+                    (card_id,),
+                ).fetchone()
+
             assistant_row = conn.execute(
                 "SELECT * FROM messages WHERE id = ?",
                 (message_id,),
             ).fetchone()
 
-        return assistant_row, checkpoint_row
+        return assistant_row, checkpoint_row, card_row
+
+    def get_card(self, card_id: str) -> sqlite3.Row:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM study_cards WHERE id = ?",
+                (card_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(card_id)
+        return row
+
+    def list_cards(self, session_id: str, *, include_pending: bool = False) -> list[sqlite3.Row]:
+        pending_clause = "" if include_pending else "AND saved_at IS NOT NULL"
+        with self.db.connect() as conn:
+            return conn.execute(
+                f"""
+                SELECT * FROM study_cards
+                WHERE session_id = ? {pending_clause}
+                ORDER BY created_at DESC, rowid DESC
+                """,
+                (session_id,),
+            ).fetchall()
+
+    def latest_pending_card(self, session_id: str) -> sqlite3.Row | None:
+        with self.db.connect() as conn:
+            return conn.execute(
+                """
+                SELECT * FROM study_cards
+                WHERE session_id = ? AND saved_at IS NULL
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT 1
+                """,
+                (session_id,),
+            ).fetchone()
+
+    def save_card(self, card_id: str, *, session_id: str) -> sqlite3.Row:
+        ts = now_iso()
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM study_cards WHERE id = ?",
+                (card_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(card_id)
+            if row["session_id"] != session_id:
+                raise PermissionError(card_id)
+            if row["saved_at"] is None:
+                conn.execute(
+                    "UPDATE study_cards SET saved_at = ? WHERE id = ?",
+                    (ts, card_id),
+                )
+                conn.execute(
+                    "UPDATE sessions SET updated_at = ? WHERE id = ?",
+                    (ts, session_id),
+                )
+            return conn.execute(
+                "SELECT * FROM study_cards WHERE id = ?",
+                (card_id,),
+            ).fetchone()
+
+    def delete_card(self, card_id: str, *, session_id: str) -> None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT session_id FROM study_cards WHERE id = ?",
+                (card_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(card_id)
+            if row["session_id"] != session_id:
+                raise PermissionError(card_id)
+            conn.execute("DELETE FROM study_cards WHERE id = ?", (card_id,))
+            conn.execute(
+                "UPDATE sessions SET updated_at = ? WHERE id = ?",
+                (now_iso(), session_id),
+            )
 
     def list_messages(self, session_id: str, limit: int | None = None) -> list[sqlite3.Row]:
         with self.db.connect() as conn:
@@ -564,6 +670,7 @@ class SessionRepository:
         source = self.get(source_session_id)
         messages = self.list_messages(source_session_id)
         checkpoints = self.list_checkpoints(source_session_id)
+        cards = self.list_cards(source_session_id, include_pending=True)
         new_session_id = new_id("sess")
         ts = now_iso()
         action_ids = {
@@ -573,6 +680,8 @@ class SessionRepository:
         }
         action_map = {action_id: new_id("act") for action_id in action_ids}
         checkpoint_map = {checkpoint["id"]: new_id("chk") for checkpoint in checkpoints}
+        message_map = {message["id"]: new_id("msg") for message in messages}
+        card_map = {card["id"]: new_id("card") for card in cards}
 
         with self.db.connect() as conn:
             conn.execute(
@@ -633,6 +742,13 @@ class SessionRepository:
                     metadata = {}
                 if metadata.get("checkpoint_id") in checkpoint_map:
                     metadata["checkpoint_id"] = checkpoint_map[metadata["checkpoint_id"]]
+                if metadata.get("card_id") in card_map:
+                    metadata["card_id"] = card_map[metadata["card_id"]]
+                elif metadata.get("card_id"):
+                    # A card deleted from the library still remains as structured
+                    # teaching history, but its old database id must not leak into
+                    # the restored branch.
+                    metadata["card_id"] = None
                 result = metadata.get("checkpoint_result") or metadata.get("checkpoint_answer")
                 if isinstance(result, dict) and result.get("checkpoint_id") in checkpoint_map:
                     result["checkpoint_id"] = checkpoint_map[result["checkpoint_id"]]
@@ -644,7 +760,7 @@ class SessionRepository:
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        new_id("msg"),
+                        message_map[message["id"]],
                         new_session_id,
                         message["role"],
                         message["content"],
@@ -653,6 +769,27 @@ class SessionRepository:
                         action_map.get(message["in_reply_to_action_id"], message["in_reply_to_action_id"]),
                         json.dumps(metadata, ensure_ascii=False),
                         message["created_at"],
+                    ),
+                )
+
+            for card in cards:
+                conn.execute(
+                    """
+                    INSERT INTO study_cards (
+                      id, session_id, card_type, title, content_json,
+                      source_action_id, source_message_id, created_at, saved_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        card_map[card["id"]],
+                        new_session_id,
+                        card["card_type"],
+                        card["title"],
+                        card["content_json"],
+                        action_map.get(card["source_action_id"], card["source_action_id"]),
+                        message_map.get(card["source_message_id"], card["source_message_id"]),
+                        card["created_at"],
+                        card["saved_at"],
                     ),
                 )
 

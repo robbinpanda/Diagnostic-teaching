@@ -1,6 +1,6 @@
 # 上下文、Session 恢复与诊断日志
 
-版本：v0.9
+版本：v1.0
 
 日期：2026-07-15
 
@@ -14,7 +14,7 @@
 
 | 数据 | 职责 | 是否用于恢复 |
 |---|---|---|
-| SQLite | 保存 session、结构化 messages、checkpoints 和 action 关联 | 是，唯一来源 |
+| SQLite | 保存 session、结构化 messages、checkpoints、study_cards 和 action 关联 | 是，唯一来源 |
 | `<session_id>.jsonl` | 严格的一行一事件机器日志，便于脚本分析和审计 | 否 |
 | `<session_id>.log.md` | 与 JSONL 同步写入、留白充足的人类可读时间线 | 否 |
 
@@ -43,6 +43,7 @@ user      学生消息
 assistant 教学 action
 user      学生回答或 checkpoint_result
 assistant 教学 action
+assistant 带 knowledge_card / problem_card 的教学 action
 ...
 ```
 
@@ -134,11 +135,11 @@ assistant 教学动作类似：
 | action | 类型 | 后端行为 |
 |---|---|---|
 | `EXPLAIN_LOCAL` | 非阻塞 | 修复学生当前具体卡点，然后继续请求模型 |
-| `EXPLAIN_PRINCIPLE` | 非阻塞 | 系统讲解一个知识原理，然后继续请求模型 |
+| `EXPLAIN_PRINCIPLE` | 非阻塞 + 卡片确认 | 系统讲解知识原理并产生 `knowledge_card`；关闭归档后继续请求模型 |
 | `RESPOND_TO_CHECKPOINT` | 非阻塞 | 闭环最近一次检查点答案，给出针对性反馈与情绪支持，然后继续 |
 | `ASK_OPEN_QUESTION` | 阻塞 | 停止生成，等待学生自由回答 |
 | `ASK_MULTIPLE_CHOICE` | 阻塞 | 创建带诊断选项的 checkpoint，等待学生选择 |
-| `SUMMARIZE` | 终止 | 问题或卡点已清楚处理时自然总结并结束本轮，无需额外确认题 |
+| `SUMMARIZE` | 终止 + 卡片确认 | 自然总结并产生 `problem_card`；关闭归档后结束，无需额外确认题 |
 
 模型只选择 action。`wait_for_student` 由后端根据 action 强制推导，模型不能自己决定。
 
@@ -197,7 +198,25 @@ assistant 教学动作类似：
 
 这就是它与普通 tool result 的关键差别：结果来自学生，而不是电脑或外部工具。
 
-## 5. SQLite session 恢复
+## 5. 学习卡片的待归档与持久化
+
+`EXPLAIN_PRINCIPLE` 必须带结构化 `knowledge_card`，`SUMMARIZE` 必须带结构化 `problem_card`。后端在保存 assistant message 时，同一事务把卡片写入 `study_cards`：
+
+```text
+id / session_id / card_type / title / content_json
+source_action_id / source_message_id / created_at / saved_at
+```
+
+`saved_at=null` 表示卡片正在弹窗中等待学生关闭。此时卡片不进入右侧已归档列表，后端也拒绝该 session 的新生成请求。学生点大叉后，前端调用 `POST /api/cards/{id}/save` 写入 `saved_at`：
+
+- knowledge card：保存后立即以无新增 student message 的 `/api/chat/stream` 继续答疑。
+- problem card：保存后结束，因为来源 action 是终止动作 `SUMMARIZE`。
+
+前端右侧卡片库调用 `GET /api/cards?session_id=...`，支持按 `card_type` 筛选；双击使用与首次弹窗相同的视图，删除调用 `DELETE /api/cards/{id}?session_id=...`。
+
+assistant 历史消息的 `metadata_json` 同时保存 `card_id` 和结构化 card，保证模型历史仍是完整 `TutorTurn` 格式；会话恢复时会重建 card ID、action ID 和 message ID 的引用。
+
+## 6. SQLite session 恢复
 
 前端“历史会话”调用：
 
@@ -213,21 +232,21 @@ DELETE /api/sessions/{session_id}
 
 1. 复制 session 题目、原图、初始思路、状态和卡点。
 
-2. 复制全部 messages 和 checkpoints。
+2. 复制全部 messages、checkpoints，以及已归档或待归档的 study_cards。
 
-3. 为新副本重新生成 message ID、action ID 和 checkpoint ID。
+3. 为新副本重新生成 message ID、action ID、checkpoint ID 和 card ID。
 
-4. 同步重写 `in_reply_to_action_id`、`source_action_id` 和 metadata 中的 checkpoint 引用。
+4. 同步重写 `in_reply_to_action_id`、`source_action_id`、`source_message_id` 和 metadata 中的 checkpoint/card 引用。
 
 5. 在新 session 的 `restored_from` 记录来源 ID。
 
-6. 若最后有未回答的 checkpoint，前端恢复后重新显示该 checkpoint；否则恢复对话消息并可继续输入。
+6. 若最后有未回答的 checkpoint 或未归档 card，前端恢复后重新显示对应弹窗；否则恢复对话消息并可继续输入。
 
 这样原始实验记录保持不变，恢复后的新分支也有独立、完整的数据关系。
 
-删除历史会话会同时删除该 session 的 SQLite 主记录、messages、checkpoints，以及对应的 JSONL/Markdown 诊断日志；模型配置不受影响。
+删除历史会话会同时删除该 session 的 SQLite 主记录、messages、checkpoints、study_cards，以及对应的 JSONL/Markdown 诊断日志；模型配置不受影响。
 
-## 6. 诊断日志
+## 7. 诊断日志
 
 日志目录：
 
@@ -235,7 +254,7 @@ DELETE /api/sessions/{session_id}
 logs/sessions/
 ```
 
-### 6.1 JSONL：给机器
+### 7.1 JSONL：给机器
 
 ```text
 logs/sessions/<session_id>.jsonl
@@ -252,7 +271,7 @@ logs/sessions/<session_id>.jsonl
 
 JSONL 保持紧凑，不为了人眼阅读插入跨行格式，否则会破坏“一行一事件”的可靠性。
 
-### 6.2 Markdown：给人
+### 7.2 Markdown：给人
 
 ```text
 logs/sessions/<session_id>.log.md
@@ -264,7 +283,7 @@ logs/sessions/<session_id>.log.md
 
 日志写入失败不会中断教学主流程。也正因如此，日志只能用于诊断，不能作为恢复依据。
 
-## 7. 流式输出
+## 8. 流式输出
 
 链路：
 
@@ -283,12 +302,13 @@ message_delta ...
 message_reset（仅格式重试时可能出现）
 decision
 checkpoint_ready（可选）
+card_ready（可选，仅 knowledge_card / problem_card）
 message_done
 ```
 
-只有学生可见的 `message` 字段会增量展示。若首个模型输出格式不合法并触发重试，`message_reset` 会让前端丢弃该 action 已展示的残片。`state_hint`、`action` 和 `checkpoint` 必须等完整 JSON 到达、校验和后端策略归一化后才通过 `decision` 发出。
+只有学生可见的 `message` 字段会增量展示。若首个模型输出格式不合法并触发重试，`message_reset` 会让前端丢弃该 action 已展示的残片。`state_hint`、`action`、`checkpoint` 和 card 必须等完整 JSON 到达、校验和后端策略归一化后才发出。`card_ready` 后当前 HTTP stream 停止，等待前端保存卡片。
 
-## 8. 排查建议
+## 9. 排查建议
 
 优先直接打开：
 

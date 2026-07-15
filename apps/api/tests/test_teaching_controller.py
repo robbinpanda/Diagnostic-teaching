@@ -206,7 +206,22 @@ def test_build_messages_ends_nonblocking_continuation_with_user_control_message(
             "action_id": "act_explain",
             "action": "EXPLAIN_PRINCIPLE",
             "in_reply_to_action_id": None,
-            "metadata_json": json.dumps({"state_hint": "recovering"}),
+            "metadata_json": json.dumps(
+                {
+                    "state_hint": "recovering",
+                    "knowledge_card": {
+                        "type": "knowledge_card",
+                        "title": "符号关系",
+                        "knowledge_point": "等比数列中的符号关系",
+                        "core_idea": "相邻项的比值固定。",
+                        "derivation_steps": [{"title": "写出通项", "content": "$a_n=a_1q^{n-1}$。"}],
+                        "when_to_use": ["判断等比数列各项符号"],
+                        "common_mistakes": [],
+                        "connection_to_problem": "用于判断 $a_3$ 的符号。",
+                    },
+                },
+                ensure_ascii=False,
+            ),
         }
     ]
 
@@ -222,6 +237,70 @@ def test_build_messages_ends_nonblocking_continuation_with_user_control_message(
     assert control["nonblocking_streak"] == 1
     assert "上一 action 已经展示" in control["instruction"]
     assert "不要复述、改写或回显" in control["instruction"]
+
+
+def test_explain_principle_requires_structured_knowledge_card():
+    payload = {
+        "state_hint": "explaining",
+        "action": "EXPLAIN_PRINCIPLE",
+        "message": "平方项始终不小于零。",
+        "checkpoint": None,
+        "knowledge_card": None,
+        "problem_card": None,
+        "debug": {},
+    }
+
+    with pytest.raises(ValueError, match="requires knowledge_card"):
+        teaching.parse_and_validate_tutor_turn(json.dumps(payload, ensure_ascii=False))
+
+    payload["knowledge_card"] = {
+        "type": "knowledge_card",
+        "title": "平方项非负",
+        "knowledge_point": "完全平方的非负性",
+        "core_idea": "任意实数的平方都不小于零。",
+        "derivation_steps": [{"title": "从定义出发", "content": "$u^2\\ge 0$。"}],
+        "when_to_use": ["判断含平方项表达式的范围"],
+        "common_mistakes": ["忽略平方项前系数的符号"],
+        "connection_to_problem": "本题用它判断函数最大值。",
+    }
+    turn = teaching.parse_and_validate_tutor_turn(json.dumps(payload, ensure_ascii=False))
+
+    assert turn.action == "EXPLAIN_PRINCIPLE"
+    assert turn.knowledge_card is not None
+    assert turn.knowledge_card.title == "平方项非负"
+
+
+def test_summarize_requires_structured_problem_card():
+    payload = {
+        "state_hint": "summarizing",
+        "action": "SUMMARIZE",
+        "message": "本题在平方项取零时达到最大值。",
+        "checkpoint": None,
+        "knowledge_card": None,
+        "problem_card": None,
+        "debug": {},
+    }
+
+    with pytest.raises(ValueError, match="requires problem_card"):
+        teaching.parse_and_validate_tutor_turn(json.dumps(payload, ensure_ascii=False))
+
+    payload["problem_card"] = {
+        "type": "problem_card",
+        "title": "二次函数最大值",
+        "problem_summary": "求 $y=-(x-1)^2+2$ 的最大值。",
+        "solution_overview": "用平方项非负确定上界。",
+        "solution_steps": [
+            {"step": 1, "title": "确定范围", "reasoning": "完全平方非负。", "result": "$y\\le2$。"}
+        ],
+        "pitfalls": [],
+        "how_to_think": ["看到完全平方先判断范围"],
+        "final_answer": "$x=1$ 时最大值为 $2$。",
+    }
+    turn = teaching.parse_and_validate_tutor_turn(json.dumps(payload, ensure_ascii=False))
+
+    assert turn.action == "SUMMARIZE"
+    assert turn.problem_card is not None
+    assert turn.problem_card.solution_steps[0].step == 1
 
 
 def test_build_messages_deduplicates_legacy_initial_thought():

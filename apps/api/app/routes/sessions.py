@@ -12,6 +12,7 @@ from app.core.schemas import (
     SessionRestoreResponse,
     SessionRestoredMessage,
 )
+from app.routes.cards import card_from_row
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -105,6 +106,12 @@ def restore_session(payload: SessionRestoreRequest, request: Request) -> Session
         for option in pending_payload.get("options", []):
             option.pop("is_correct", None)
             option.pop("misconception", None)
+    pending_card_row = request.app.state.sessions.latest_pending_card(session["id"])
+    pending_card_payload = (
+        card_from_row(pending_card_row).model_dump(mode="json")
+        if pending_card_row is not None
+        else None
+    )
 
     logger = getattr(request.app.state, "session_logger", None)
     if logger is not None:
@@ -149,4 +156,5 @@ def restore_session(payload: SessionRestoreRequest, request: Request) -> Session
             if row["role"] in {"student", "assistant"}
         ],
         pending_checkpoint=pending_payload,
+        pending_card=pending_card_payload,
     )

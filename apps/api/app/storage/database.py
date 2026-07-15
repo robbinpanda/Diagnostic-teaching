@@ -82,6 +82,21 @@ class Database:
                   created_at TEXT NOT NULL,
                   answered_at TEXT
                 );
+
+                CREATE TABLE IF NOT EXISTS study_cards (
+                  id TEXT PRIMARY KEY,
+                  session_id TEXT NOT NULL,
+                  card_type TEXT NOT NULL,
+                  title TEXT NOT NULL,
+                  content_json TEXT NOT NULL,
+                  source_action_id TEXT NOT NULL,
+                  source_message_id TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  saved_at TEXT
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_study_cards_session_saved
+                ON study_cards(session_id, saved_at, created_at);
                 """
             )
             added_multimodal_column = self._ensure_column(
