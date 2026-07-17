@@ -2,6 +2,16 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v1.5 — 2026-07-17
+
+### Codex 风格对话工作台与 session intake
+
+- 页面重构为左侧会话、中央对话、右侧知识卡片的三栏工作台；题目、已有思路、图片和会话内回复统一从底部 composer 发送。
+- 新增 `POST /api/sessions/intake`：后端累计并识别题目与学生当前思路，缺哪项就定向追问，两项齐备后才创建正式 session 并进入教学状态机。
+- 图片上传下沉为 composer 的小按钮；识别结果进入同一 intake，正式 session 保留用户原图并绑定多模态模型。
+- 新增 `GET /api/sessions/{session_id}`，左侧选择会话时直接打开 SQLite 原记录并恢复 pending checkpoint/card；`POST /api/sessions/restore` 继续保留为显式复制分支能力。
+- 中小屏默认收起右侧卡片抽屉，手机同时收起左侧会话抽屉；宽屏保持三栏常驻。
+
 ## v1.4 — 2026-07-15
 
 ### 测试数据一键清理

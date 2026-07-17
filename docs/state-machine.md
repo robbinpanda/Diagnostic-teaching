@@ -1,7 +1,7 @@
 # 答疑状态机与 LLM 主导流程
 
-版本：v1.0
-日期：2026-07-15
+版本：v1.1
+日期：2026-07-17
 适用项目：诊断式数学答疑 MVP
 
 本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作；后端根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop。`EXPLAIN_PRINCIPLE` 必须产生 `knowledge_card`，`EXPLAIN_LOCAL` 可按知识复用价值选择产生 `knowledge_card`，`SUMMARIZE` 必须产生 `problem_card`。**
@@ -25,7 +25,13 @@ sequenceDiagram
   participant Log as JSONL + Markdown
   participant LLM as 语言模型
 
-  Student->>API: 创建会话或发送消息 / 答检查点
+  Student->>API: POST /api/sessions/intake 发送统一输入
+  alt 缺少题目或当前思路
+    API-->>Student: needs_problem / needs_thought + 定向追问
+  else 两项齐备
+    API->>DB: 创建 diagnosing session
+  end
+  Student->>API: 会话消息 / 答检查点
   API->>DB: 写 student message / checkpoint answer
   loop 最多 3 个连续非阻塞 action
     API->>DB: 读取 session + 全部 messages
@@ -48,6 +54,8 @@ sequenceDiagram
 
 关键点：
 
+- 正式教学状态机开始前有一层 intake 门控。后端累计 `problem_text` 与 `student_initial_thought`；任一为空时只返回追问，不创建 session、不调用教学 LLM。
+- 单条输入可用“题目：… / 思路：…”标签同时提供两项；若首轮只有未标注文本，默认先视为题目，下一轮未标注文本补为当前思路。“完全没思路”也是有效的当前思路。
 - LLM 每轮决定 `state_hint`、`action`、`message`、`breakpoint_description`、`checkpoint`、`knowledge_card`、`problem_card`。
 - 后端不信任模型给出的等待判断；`wait_for_student` 由后端根据 action 强制推导。
 - `ASK_OPEN_QUESTION` 和 `ASK_MULTIPLE_CHOICE` 是阻塞动作，会停下等待学生。

@@ -90,7 +90,7 @@ system 消息由四部分组成：
 
 如果题目有原图，这条消息使用多模态 content，同时携带文本 JSON 和 `image_url`。
 
-图片识别与正式答疑是两条隔离链路：`POST /api/problem-images/analyze` 的结果只负责填写前端的 `problem_text`（数学题目）和 `student_initial_thought`（你已经想到哪一步）两个文本框；只有视觉模型判断题目必须看图时，创建 session 才会额外保存并发送用户上传的原图。裁剪图只用于前端预览，视觉识别返回的 `answer_text / correctness / mistake_summary / diagram_note / diagram_image_data_url` 不会作为独立字段进入答疑 prompt。批改痕迹会先由后端合并进用户可见、可编辑的“你已经想到哪一步”文本，再作为该文本框内容进入 session。
+图片识别与正式答疑仍是两条隔离链路：`POST /api/problem-images/analyze` 把可确认的题目写入 `problem_text`，把可见作答/批改痕迹合并进 `student_initial_thought`；前端随后把这两个结果和原图交给统一的 `POST /api/sessions/intake`。上传图片创建的 session 始终保存用户原图并要求多模态答疑模型，保证后续每轮仍可查看图形与版面。视觉识别返回的 `answer_text / correctness / mistake_summary / diagram_note / diagram_image_data_url` 不会作为独立字段旁路进入答疑 prompt。
 
 `SessionCreate` 禁止未声明的额外字段，`build_messages()` 也只对白名单中的题目、初始思路、年级、学科、状态和可选原图组装 `SESSION_START`，防止视觉模型内部元数据旁路进入教学上下文。
 
@@ -222,10 +222,11 @@ assistant 历史消息的 `metadata_json` 同时保存 `card_id` 和结构化 ca
 
 ## 6. SQLite session 恢复
 
-前端“历史会话”调用：
+左侧会话栏调用：
 
 ```text
 GET  /api/sessions/history
+GET  /api/sessions/{session_id}
 POST /api/sessions/restore
 DELETE /api/sessions
 DELETE /api/sessions/{session_id}
@@ -233,7 +234,9 @@ DELETE /api/sessions/{session_id}
 
 历史列表直接查询 SQLite，包括题目摘要、模型、message 数、checkpoint 数、状态和更新时间。
 
-恢复不是修改原记录，而是复制出一个新 session：
+点击左栏会话使用 `GET /api/sessions/{session_id}` 读取原 session、messages、未答 checkpoint 和待归档 card；该操作不写数据库、不生成新 ID。这样会话列表真正承担对话选择器的职责，普通查看与继续答疑不会制造副本。
+
+`POST /api/sessions/restore` 是显式实验分支能力，不是左栏普通打开动作。调用它时会复制出一个新 session：
 
 1. 复制 session 题目、原图、初始思路、状态和卡点。
 

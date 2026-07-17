@@ -1,15 +1,31 @@
 "use client";
 
-import { BookOpen, Bot, ClipboardCheck, History, ImageUp, Loader2, Pencil, Plus, RotateCcw, Send, Settings2, Trash2, X } from "lucide-react";
+import {
+  ArrowUp,
+  BookOpen,
+  Bot,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardCheck,
+  ImageUp,
+  Loader2,
+  MessageSquarePlus,
+  Paperclip,
+  Pencil,
+  Plus,
+  Settings2,
+  Trash2,
+  X
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckpointModal } from "../components/CheckpointModal";
 import { MathText } from "../components/MathText";
 import { ModelConfigDialog } from "../components/ModelConfigDialog";
 import { StudyCardModal } from "../components/StudyCardModal";
 import {
-  answerCheckpoint,
   analyzeProblemImage,
-  createSession,
+  answerCheckpoint,
+  Checkpoint,
   deleteAllCards,
   deleteAllSessions,
   deleteCard,
@@ -17,14 +33,15 @@ import {
   deleteSession,
   fetchCards,
   fetchProfiles,
+  fetchSession,
   fetchSessionHistory,
+  intakeSession,
   ModelProfile,
-  Checkpoint,
-  restoreSession,
   saveCard,
   SessionHistoryItem,
-  StudyCard,
-  streamChat
+  SessionIntakeResult,
+  streamChat,
+  StudyCard
 } from "../lib/api";
 
 type ChatMessage = {
@@ -32,6 +49,7 @@ type ChatMessage = {
   role: "student" | "assistant" | "system";
   text: string;
   action?: string;
+  imageUrl?: string | null;
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -44,8 +62,11 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 function teachingActionLabel(action: string) {
-  const label = ACTION_LABELS[action];
-  return label ? `${label} · ${action}` : action;
+  return ACTION_LABELS[action] ?? action;
+}
+
+function initialContextMessage(problem: string, thought: string) {
+  return `题目\n${problem}\n\n我目前想到\n${thought}`;
 }
 
 export default function Home() {
@@ -54,11 +75,7 @@ export default function Home() {
   const [gradeBand, setGradeBand] = useState<"junior" | "senior">("junior");
   const [problemText, setProblemText] = useState("");
   const [initialThought, setInitialThought] = useState("");
-  const [visionProfileId, setVisionProfileId] = useState("");
-  const [diagramImage, setDiagramImage] = useState<string | null>(null);
-  const [diagramNote, setDiagramNote] = useState("");
   const [originalProblemImage, setOriginalProblemImage] = useState<string | null>(null);
-  const [problemNeedsImage, setProblemNeedsImage] = useState(false);
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -68,22 +85,24 @@ export default function Home() {
   const [viewingCard, setViewingCard] = useState<StudyCard | null>(null);
   const [cards, setCards] = useState<StudyCard[]>([]);
   const [cardFilter, setCardFilter] = useState<"all" | "knowledge_card" | "problem_card">("all");
+  const [historyItems, setHistoryItems] = useState<SessionHistoryItem[]>([]);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [openSessionBusyId, setOpenSessionBusyId] = useState("");
+  const [deleteSessionBusyId, setDeleteSessionBusyId] = useState("");
+  const [deleteAllSessionsBusy, setDeleteAllSessionsBusy] = useState(false);
+  const [deleteAllCardsBusy, setDeleteAllCardsBusy] = useState(false);
+  const [deleteBusyId, setDeleteBusyId] = useState("");
   const [cardBusyId, setCardBusyId] = useState("");
   const [startBusy, setStartBusy] = useState(false);
   const [streamBusy, setStreamBusy] = useState(false);
-  const [deleteBusyId, setDeleteBusyId] = useState("");
   const [imageBusy, setImageBusy] = useState(false);
   const [error, setError] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ModelProfile | null>(null);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyItems, setHistoryItems] = useState<SessionHistoryItem[]>([]);
-  const [selectedHistoryId, setSelectedHistoryId] = useState("");
-  const [historyBusy, setHistoryBusy] = useState(false);
-  const [deleteSessionBusyId, setDeleteSessionBusyId] = useState("");
-  const [deleteAllSessionsBusy, setDeleteAllSessionsBusy] = useState(false);
-  const [deleteAllCardsBusy, setDeleteAllCardsBusy] = useState(false);
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const messageEndRef = useRef<HTMLDivElement | null>(null);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId),
@@ -93,15 +112,10 @@ export default function Home() {
     () => profiles.filter((profile) => profile.is_multimodal),
     [profiles]
   );
-  const selectedVisionProfile = useMemo(
-    () => multimodalProfiles.find((profile) => profile.id === visionProfileId),
-    [multimodalProfiles, visionProfileId]
+  const activeHistory = useMemo(
+    () => historyItems.find((item) => item.session_id === sessionId),
+    [historyItems, sessionId]
   );
-  const deleteButtonTitle = sessionId
-    ? "当前会话已绑定模型，重新开始前不删除配置"
-    : selectedProfile
-      ? `删除模型配置：${selectedProfile.display_name}`
-      : "先选择一个模型配置";
   const filteredCards = useMemo(
     () => cards.filter((card) => cardFilter === "all" || card.card_type === cardFilter),
     [cards, cardFilter]
@@ -110,160 +124,140 @@ export default function Home() {
   useEffect(() => {
     refreshProfiles();
     refreshCards();
+    refreshHistory();
+    if (window.innerWidth <= 1120) setRightOpen(false);
+    if (window.innerWidth <= 760) setLeftOpen(false);
   }, []);
 
   useEffect(() => {
-    if (visionProfileId && !multimodalProfiles.some((profile) => profile.id === visionProfileId)) {
-      setVisionProfileId("");
-    }
-  }, [multimodalProfiles, visionProfileId]);
+    messageEndRef.current?.scrollIntoView({ behavior: streamBusy ? "auto" : "smooth" });
+  }, [messages, streamBusy]);
 
   async function refreshProfiles(selectId?: string) {
     try {
       const nextProfiles = await fetchProfiles();
       setProfiles(nextProfiles);
-      const nextSelectedId = selectId ?? selectedProfileId;
-      const selectionStillExists = nextProfiles.some((profile) => profile.id === nextSelectedId);
-      if (selectId && selectionStillExists) {
-        setSelectedProfileId(selectId);
-      } else if (nextSelectedId && selectionStillExists) {
-        setSelectedProfileId(nextSelectedId);
+      const desiredId = selectId ?? selectedProfileId;
+      if (desiredId && nextProfiles.some((profile) => profile.id === desiredId)) {
+        setSelectedProfileId(desiredId);
       } else if (nextProfiles.length === 1) {
         setSelectedProfileId(nextProfiles[0].id);
-      } else {
+      } else if (!nextProfiles.some((profile) => profile.id === selectedProfileId)) {
         setSelectedProfileId("");
       }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "模型列表加载失败");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "模型列表加载失败");
     }
   }
 
   async function refreshCards() {
     try {
       setCards(await fetchCards());
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "学习卡片加载失败");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "学习卡片加载失败");
     }
   }
 
-  function appendMessage(role: ChatMessage["role"], text: string, action?: string) {
-    setMessages((current) => [...current, { id: crypto.randomUUID(), role, text, action }]);
+  async function refreshHistory() {
+    setHistoryBusy(true);
+    try {
+      setHistoryItems(await fetchSessionHistory());
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "历史会话加载失败");
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
+
+  function appendMessage(
+    role: ChatMessage["role"],
+    text: string,
+    action?: string,
+    imageUrl?: string | null
+  ) {
+    setMessages((current) => [
+      ...current,
+      { id: crypto.randomUUID(), role, text, action, imageUrl }
+    ]);
   }
 
   function clearCurrentSessionState() {
     setSessionId("");
+    setProblemText("");
+    setInitialThought("");
+    setOriginalProblemImage(null);
     setMessages([]);
     setInput("");
     setCheckpoint(null);
     setCheckpointStartedAt(null);
     setActiveCard(null);
     setViewingCard(null);
+    setError("");
   }
 
-  async function openHistory() {
-    setHistoryOpen(true);
-    setHistoryBusy(true);
+  async function handleOpenSession(nextSessionId: string) {
+    if (nextSessionId === sessionId || streamBusy || startBusy || activeCard) return;
+    setOpenSessionBusyId(nextSessionId);
     setError("");
     try {
-      const items = await fetchSessionHistory();
-      setHistoryItems(items);
-      setSelectedHistoryId((current) => current || items[0]?.session_id || "");
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "历史会话加载失败");
-    } finally {
-      setHistoryBusy(false);
-    }
-  }
-
-  async function handleRestoreSession() {
-    const source = historyItems.find((item) => item.session_id === selectedHistoryId);
-    if (!source) return;
-    const originalProfileAvailable = profiles.some((profile) => profile.id === source.model_profile_id);
-    const restoreProfileId = originalProfileAvailable ? source.model_profile_id : selectedProfileId;
-    if (!restoreProfileId) {
-      setError("原会话模型已不可用，请先在顶部选择一个替代模型再恢复。");
-      return;
-    }
-    setHistoryBusy(true);
-    setError("");
-    try {
-      const restored = await restoreSession({
-        session_id: source.session_id,
-        model_profile_id: restoreProfileId
-      });
-      const restoredCards = await fetchCards();
-      const restoredImage = restored.problem_image_data_url ?? null;
-      setSessionId(restored.session_id);
-      setSelectedProfileId(restored.model_profile_id);
-      setGradeBand(restored.grade_band);
-      setProblemText(restored.problem_text);
-      setInitialThought(restored.student_initial_thought);
-      setOriginalProblemImage(restoredImage);
-      setProblemNeedsImage(Boolean(restoredImage));
-      setDiagramImage(restoredImage);
-      setDiagramNote(restoredImage ? "从 SQLite 历史会话恢复的题目原图" : "");
+      const opened = await fetchSession(nextSessionId);
+      setSessionId(opened.session_id);
+      setSelectedProfileId(opened.model_profile_id);
+      setGradeBand(opened.grade_band);
+      setProblemText(opened.problem_text);
+      setInitialThought(opened.student_initial_thought);
+      setOriginalProblemImage(opened.problem_image_data_url ?? null);
       setMessages([
-        { id: crypto.randomUUID(), role: "system", text: `已从 SQLite 会话 ${source.session_id} 恢复为新会话。` },
-        ...restored.messages.map((message) => ({
+        {
+          id: `context-${opened.session_id}`,
+          role: "student",
+          text: initialContextMessage(opened.problem_text, opened.student_initial_thought),
+          imageUrl: opened.problem_image_data_url
+        },
+        ...opened.messages.map((message) => ({
           id: message.id,
           role: message.role,
           text: message.text,
           action: message.action
         }))
       ]);
-      setCheckpoint(restored.pending_checkpoint ?? null);
-      setCheckpointStartedAt(restored.pending_checkpoint ? Date.now() : null);
-      setCards(restoredCards);
-      setActiveCard(restored.pending_card ?? null);
+      setCheckpoint(opened.pending_checkpoint ?? null);
+      setCheckpointStartedAt(opened.pending_checkpoint ? Date.now() : null);
+      setActiveCard(opened.pending_card ?? null);
       setViewingCard(null);
-      setHistoryOpen(false);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "恢复历史会话失败");
+      setLeftOpen(false);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "打开会话失败");
     } finally {
-      setHistoryBusy(false);
+      setOpenSessionBusyId("");
     }
   }
 
   async function handleDeleteSession(item: SessionHistoryItem) {
-    const confirmed = window.confirm(
-      `删除历史会话“${item.title || "未命名题目"}”？会话记录和对应日志都会被永久删除，已归档学习卡片会继续保留在全局卡片库。`
-    );
-    if (!confirmed) return;
-
+    if (!window.confirm(`删除会话“${item.title || "未命名题目"}”？已归档卡片会保留。`)) return;
     setDeleteSessionBusyId(item.session_id);
     setError("");
     try {
       await deleteSession(item.session_id);
-      const remaining = historyItems.filter((candidate) => candidate.session_id !== item.session_id);
-      setHistoryItems(remaining);
-      setSelectedHistoryId((current) =>
-        current === item.session_id ? remaining[0]?.session_id || "" : current
-      );
-      if (sessionId === item.session_id) {
-        clearCurrentSessionState();
-      }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "删除历史会话失败");
+      setHistoryItems((current) => current.filter((candidate) => candidate.session_id !== item.session_id));
+      if (sessionId === item.session_id) clearCurrentSessionState();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "删除会话失败");
     } finally {
       setDeleteSessionBusyId("");
     }
   }
 
   async function handleDeleteAllSessions() {
-    const confirmed = window.confirm(
-      "清空全部会话？SQLite 中的所有会话、消息、检查点、未归档流程卡片和全部 session 日志都会永久删除。已归档学习卡片和模型配置会保留。"
-    );
-    if (!confirmed) return;
-
+    if (!window.confirm("清空全部会话？会话、消息、检查点和诊断日志会永久删除，已归档卡片会保留。")) return;
     setDeleteAllSessionsBusy(true);
     setError("");
     try {
       await deleteAllSessions();
       setHistoryItems([]);
-      setSelectedHistoryId("");
       clearCurrentSessionState();
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "清空全部会话失败");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "清空全部会话失败");
     } finally {
       setDeleteAllSessionsBusy(false);
     }
@@ -278,10 +272,7 @@ export default function Home() {
     });
   }
 
-  async function runStream(
-    nextSessionId: string,
-    message?: string
-  ) {
+  async function runStream(nextSessionId: string, message?: string) {
     setStreamBusy(true);
     setError("");
     let assistantId = "";
@@ -301,13 +292,10 @@ export default function Home() {
       if (!assistantId) assistantId = crypto.randomUUID();
       assistantText = nextText;
       const id = assistantId;
-      const textForState = nextText;
       setMessages((current) => {
         const exists = current.some((item) => item.id === id);
-        if (!exists) {
-          return [...current, { id, role: "assistant", text: textForState }];
-        }
-        return current.map((item) => (item.id === id ? { ...item, text: textForState } : item));
+        if (!exists) return [...current, { id, role: "assistant", text: nextText }];
+        return current.map((item) => (item.id === id ? { ...item, text: nextText } : item));
       });
     }
 
@@ -315,8 +303,6 @@ export default function Home() {
       if (!text) return;
       if (retryingAssistant) {
         retryText += text;
-        // Keep the already rendered text while the retry is reproducing the
-        // same prefix. This avoids clearing and typing the same answer twice.
         if (retryBaseline.startsWith(retryText)) return;
         retryingAssistant = false;
         setAssistantMessage(retryText);
@@ -348,20 +334,17 @@ export default function Home() {
     try {
       await streamChat({ session_id: nextSessionId, message }, (event) => {
         if (event.event === "decision") {
-          const data = event.data as { state_hint?: string; action?: string; wait_for_student?: boolean; message?: string; breakpoint?: string };
+          const data = event.data as { action?: string; message?: string };
           reconcileAssistantMessage(data.message);
           if (assistantId && data.action) {
             const id = assistantId;
-            setMessages((current) => current.map((item) => (item.id === id ? { ...item, action: data.action } : item)));
+            setMessages((current) => current.map((item) => (
+              item.id === id ? { ...item, action: data.action } : item
+            )));
           }
         }
-        if (event.event === "message_delta") {
-          const text = (event.data as { text: string }).text;
-          appendAssistantDelta(text);
-        }
-        if (event.event === "message_reset") {
-          resetAssistantMessage();
-        }
+        if (event.event === "message_delta") appendAssistantDelta((event.data as { text: string }).text);
+        if (event.event === "message_reset") resetAssistantMessage();
         if (event.event === "checkpoint_ready") {
           receivedCheckpoint = true;
           setCheckpoint(event.data as Checkpoint);
@@ -398,150 +381,126 @@ export default function Home() {
         }
       });
       if (!receivedVisibleText && !receivedCheckpoint && !receivedCard && !receivedError) {
-        appendMessage("system", "这一轮模型没有返回可见内容。请再发一句你的当前想法，或重新开始这道题。");
+        appendMessage("system", "这一轮模型没有返回可见内容，请再说一句你的当前想法。");
       }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "答疑请求失败");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "答疑请求失败");
     } finally {
       setStreamBusy(false);
+      void refreshHistory();
     }
   }
 
-  async function handleStart() {
-    if (!selectedProfileId) {
-      setError("请选择本次答疑使用的模型；如果还没有可用模型，请先添加模型配置。");
-      return;
-    }
-    if (!problemText.trim()) {
-      setError("请先粘贴一道数学题。");
-      return;
-    }
-    if (problemNeedsImage && !selectedProfile?.is_multimodal) {
-      setError("这道题包含必须查看的题图，请选择一个支持图片识别的多模态模型进行答疑。");
-      return;
-    }
-    if (problemNeedsImage && !originalProblemImage) {
-      setError("题目原图已丢失，请重新上传图片。");
-      return;
-    }
-    setStartBusy(true);
-    setError("");
-    setMessages([]);
-    try {
-      const session = await createSession({
-        grade_band: gradeBand,
-        subject: "math",
-        model_profile_id: selectedProfileId,
-        problem_text: problemText,
-        student_initial_thought: initialThought,
-        problem_image_data_url: problemNeedsImage ? originalProblemImage : null
-      });
-      setSessionId(session.session_id);
+  async function applyIntakeResult(result: SessionIntakeResult) {
+    setProblemText(result.problem_text);
+    setInitialThought(result.student_initial_thought);
+    appendMessage("assistant", result.assistant_message);
+    if (result.status === "ready" && result.session_id) {
+      setSessionId(result.session_id);
       setCheckpoint(null);
       setCheckpointStartedAt(null);
       setActiveCard(null);
-      setViewingCard(null);
-      appendMessage("system", `已创建答疑会话，使用模型：${selectedProfile?.display_name ?? selectedProfileId}`);
-      setStartBusy(false);
-      await runStream(session.session_id);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "创建会话失败");
-    } finally {
-      setStartBusy(false);
+      await refreshHistory();
+      await runStream(result.session_id);
     }
   }
 
-  async function handleDeleteProfile() {
-    if (!selectedProfile) return;
-    if (sessionId) {
-      setError("当前答疑会话已绑定这个模型。请在开始新答疑前删除模型配置。");
+  async function handleSend() {
+    const text = input.trim();
+    if (!text || startBusy || streamBusy) return;
+    if (!selectedProfileId) {
+      setError("请先在输入框下方选择一个模型；如果还没有模型，请打开设置添加。");
       return;
     }
-    const confirmed = window.confirm(`删除模型配置“${selectedProfile.display_name}”？删除后不会再出现在新答疑选择里。`);
-    if (!confirmed) return;
+    if (originalProblemImage && !selectedProfile?.is_multimodal) {
+      setError("这道题带有原图，请选择支持图片识别的多模态模型。");
+      return;
+    }
+    setInput("");
+    appendMessage("student", text, sessionId ? "STUDENT_RESPONSE" : undefined);
+    if (sessionId) {
+      await runStream(sessionId, text);
+      return;
+    }
 
-    setDeleteBusyId(selectedProfile.id);
+    setStartBusy(true);
     setError("");
     try {
-      await deleteModelProfile(selectedProfile.id);
-      await refreshProfiles();
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "删除模型配置失败");
+      const result = await intakeSession({
+        grade_band: gradeBand,
+        subject: "math",
+        model_profile_id: selectedProfileId,
+        message: text,
+        problem_text: problemText,
+        student_initial_thought: initialThought,
+        problem_image_data_url: originalProblemImage
+      });
+      await applyIntakeResult(result);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "创建答疑会话失败");
     } finally {
-      setDeleteBusyId("");
+      setStartBusy(false);
     }
   }
 
   async function handleImageFile(file?: File) {
-    if (!file) return;
-    if (!selectedVisionProfile) {
-      setError("请先选择一个已标记为多模态的模型配置，再上传图片。");
+    if (!file || sessionId) return;
+    const visionProfile = selectedProfile?.is_multimodal ? selectedProfile : multimodalProfiles[0];
+    if (!visionProfile) {
+      setError("上传图片需要多模态模型，请先在模型设置中添加并标记“支持图片识别”。");
       return;
     }
-    setProblemText("");
-    setInitialThought("");
-    setDiagramImage(null);
-    setDiagramNote("");
-    setOriginalProblemImage(null);
-    setProblemNeedsImage(false);
+    setSelectedProfileId(visionProfile.id);
     setImageBusy(true);
     setError("");
     try {
       const dataUrl = await readFileAsDataUrl(file);
-      const result = await analyzeProblemImage({
-        model_profile_id: selectedVisionProfile.id,
+      setOriginalProblemImage(dataUrl);
+      appendMessage("student", "上传了一张题目图片", undefined, dataUrl);
+      const analyzed = await analyzeProblemImage({
+        model_profile_id: visionProfile.id,
         image_base64: dataUrl,
         content_type: file.type || "image/png",
         filename: file.name
       });
-      setProblemText(result.problem_text);
-      setInitialThought(result.student_work_summary.trim());
-      setProblemNeedsImage(result.needs_diagram);
-      setOriginalProblemImage(dataUrl);
-      setDiagramImage(result.needs_diagram ? result.diagram_image_data_url ?? null : null);
-      setDiagramNote(result.diagram_note ?? "");
-      if (result.needs_diagram) {
-        setSelectedProfileId((current) => {
-          const profile = profiles.find((item) => item.id === current);
-          return profile?.is_multimodal ? current : "";
-        });
-      }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "图片识别失败");
+      const result = await intakeSession({
+        grade_band: gradeBand,
+        subject: "math",
+        model_profile_id: visionProfile.id,
+        problem_text: analyzed.problem_text,
+        student_initial_thought: analyzed.student_work_summary.trim() || initialThought,
+        problem_image_data_url: dataUrl
+      });
+      await applyIntakeResult(result);
+    } catch (nextError) {
+      setOriginalProblemImage(null);
+      setError(nextError instanceof Error ? nextError.message : "图片识别失败");
     } finally {
       setImageBusy(false);
       if (imageInputRef.current) imageInputRef.current.value = "";
     }
   }
 
-  async function handleSend() {
-    if (!sessionId || !input.trim()) return;
-    const text = input.trim();
-    setInput("");
-    appendMessage("student", text, "STUDENT_RESPONSE");
-    await runStream(sessionId, text);
-  }
-
   async function handleCheckpoint(optionId: string) {
     if (!checkpoint || !sessionId) return;
     const activeCheckpoint = checkpoint;
     const startedAt = checkpointStartedAt;
-    const elapsed = checkpointStartedAt ? Date.now() - checkpointStartedAt : 0;
+    const elapsed = startedAt ? Date.now() - startedAt : 0;
     setCheckpoint(null);
     setCheckpointStartedAt(null);
     try {
       const answer = await answerCheckpoint({
-        checkpointId: checkpoint.id,
+        checkpointId: activeCheckpoint.id,
         session_id: sessionId,
         selected_option_id: optionId,
         elapsed_ms: elapsed
       });
       appendMessage("student", answer.student_message, "CHECKPOINT_RESPONSE");
       await runStream(sessionId);
-    } catch (error) {
+    } catch (nextError) {
       setCheckpoint(activeCheckpoint);
       setCheckpointStartedAt(startedAt);
-      setError(error instanceof Error ? error.message : "提交检查点失败");
+      setError(nextError instanceof Error ? nextError.message : "提交检查点失败");
     }
   }
 
@@ -554,39 +513,31 @@ export default function Home() {
       const saved = await saveCard(cardToSave.id, sessionId);
       setCards((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
       setActiveCard(null);
-      if (cardToSave.card_type === "knowledge_card") {
-        await runStream(sessionId);
-      }
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "保存学习卡片失败");
+      if (cardToSave.card_type === "knowledge_card") await runStream(sessionId);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "保存学习卡片失败");
     } finally {
       setCardBusyId("");
     }
   }
 
   async function handleDeleteCard(card: StudyCard) {
-    if (cardBusyId) return;
-    const confirmed = window.confirm(`删除卡片“${card.content.title}”？删除后无法恢复。`);
-    if (!confirmed) return;
+    if (cardBusyId || !window.confirm(`删除卡片“${card.content.title}”？删除后无法恢复。`)) return;
     setCardBusyId(card.id);
     setError("");
     try {
       await deleteCard(card.id);
       setCards((current) => current.filter((item) => item.id !== card.id));
       setViewingCard((current) => current?.id === card.id ? null : current);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "删除学习卡片失败");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "删除学习卡片失败");
     } finally {
       setCardBusyId("");
     }
   }
 
   async function handleDeleteAllCards() {
-    const confirmed = window.confirm(
-      "清空全部学习卡片？所有知识卡片和题目卡片都会永久删除，会话、消息和日志会保留。"
-    );
-    if (!confirmed) return;
-
+    if (!window.confirm("清空全部学习卡片？会话、消息和日志会保留。")) return;
     setDeleteAllCardsBusy(true);
     setError("");
     try {
@@ -594,273 +545,254 @@ export default function Home() {
       setCards([]);
       setActiveCard(null);
       setViewingCard(null);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "清空全部学习卡片失败");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "清空学习卡片失败");
     } finally {
       setDeleteAllCardsBusy(false);
     }
   }
 
+  async function handleDeleteProfile() {
+    if (!selectedProfile || sessionId) return;
+    if (!window.confirm(`删除模型配置“${selectedProfile.display_name}”？`)) return;
+    setDeleteBusyId(selectedProfile.id);
+    setError("");
+    try {
+      await deleteModelProfile(selectedProfile.id);
+      await refreshProfiles();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "删除模型配置失败");
+    } finally {
+      setDeleteBusyId("");
+    }
+  }
+
+  const composerBlocked = startBusy || streamBusy || imageBusy || Boolean(checkpoint) || Boolean(activeCard);
+
   return (
-    <main className="shell">
-      <section className="topbar">
-        <div className="brand">
-          <div className="brandMark">
-            <Bot size={22} />
-          </div>
-          <div>
-            <h1>诊断式数学答疑 MVP</h1>
-            <p>先找卡点，再从断点附近讲。</p>
-          </div>
+    <main className={`appShell ${leftOpen ? "leftOpen" : "leftClosed"} ${rightOpen ? "rightOpen" : "rightClosed"}`}>
+      <aside className="sessionSidebar">
+        <div className="sidebarBrand">
+          <div className="brandGlyph"><Bot size={19} /></div>
+          <strong>析题</strong>
+          <button className="plainIconButton sidebarCollapse" type="button" onClick={() => setLeftOpen(false)} aria-label="收起会话栏">
+            <ChevronLeft size={18} />
+          </button>
         </div>
-        <div className="modelStrip">
-          <button className="secondaryButton" type="button" onClick={openHistory} disabled={startBusy || streamBusy || historyBusy || Boolean(activeCard)}>
-            <History size={16} />
-            历史会话
-          </button>
-          <select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)} disabled={startBusy || streamBusy || Boolean(deleteBusyId)}>
-            <option value="">选择本次模型</option>
-            {profiles.map((profile) => (
-              <option key={profile.id} value={profile.id} disabled={problemNeedsImage && !profile.is_multimodal}>
-                {profile.display_name} · {profile.model}{profile.is_multimodal ? " · 多模态" : ""}
-              </option>
-            ))}
-          </select>
+
+        <button className="newChatButton" type="button" onClick={clearCurrentSessionState} disabled={composerBlocked}>
+          <MessageSquarePlus size={18} />
+          新建答疑
+        </button>
+
+        <div className="sidebarSectionHeader">
+          <span>对话</span>
           <button
-            className="iconButton dangerIconButton"
+            className="plainIconButton"
             type="button"
-            onClick={handleDeleteProfile}
-            disabled={!selectedProfile || startBusy || streamBusy || Boolean(sessionId) || Boolean(deleteBusyId)}
-            title={deleteButtonTitle}
-            aria-label="删除模型配置"
+            onClick={handleDeleteAllSessions}
+            disabled={deleteAllSessionsBusy || streamBusy || historyItems.length === 0}
+            title="清空全部会话"
           >
-            {deleteBusyId && deleteBusyId === selectedProfileId ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
+            {deleteAllSessionsBusy ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
           </button>
+        </div>
+
+        <div className="sessionList">
+          {historyBusy && historyItems.length === 0 && <div className="sidebarEmpty"><Loader2 size={16} className="spin" /> 正在读取会话</div>}
+          {!historyBusy && historyItems.length === 0 && <div className="sidebarEmpty">还没有会话</div>}
+          {historyItems.map((item) => (
+            <div className={`sessionRow ${sessionId === item.session_id ? "active" : ""}`} key={item.session_id}>
+              <button
+                className="sessionEntry"
+                type="button"
+                onClick={() => handleOpenSession(item.session_id)}
+                disabled={Boolean(openSessionBusyId) || composerBlocked}
+              >
+                <strong>{item.title || "未命名题目"}</strong>
+                <span>{item.message_count} 条消息 · {new Date(item.updated_at).toLocaleDateString("zh-CN")}</span>
+              </button>
+              <button
+                className="sessionDeleteButton"
+                type="button"
+                onClick={() => handleDeleteSession(item)}
+                disabled={Boolean(deleteSessionBusyId) || streamBusy}
+                aria-label={`删除会话：${item.title}`}
+              >
+                {deleteSessionBusyId === item.session_id || openSessionBusyId === item.session_id
+                  ? <Loader2 size={14} className="spin" />
+                  : <Trash2 size={14} />}
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="sidebarFooter">
           <button
-            className="iconButton"
             type="button"
             onClick={() => {
               setEditingProfile(selectedProfile ?? null);
               setDialogOpen(true);
             }}
-            disabled={!selectedProfile || startBusy || streamBusy || Boolean(sessionId) || Boolean(deleteBusyId)}
-            title={sessionId ? "当前会话已绑定模型，重新开始前再修改配置" : "修改模型配置"}
-            aria-label="修改模型配置"
           >
-            <Pencil size={16} />
-          </button>
-          <button
-            className="secondaryButton"
-            type="button"
-            onClick={() => {
-              setEditingProfile(null);
-              setDialogOpen(true);
-            }}
-            disabled={Boolean(deleteBusyId)}
-          >
-            <Plus size={16} />
-            添加模型配置
+            <Settings2 size={17} />
+            <span>{selectedProfile ? selectedProfile.display_name : "模型设置"}</span>
           </button>
         </div>
-      </section>
+      </aside>
 
-      <section className="workspace">
-        <aside className="inputPanel">
-          <div className="panelHeader">
-            <h2>题目</h2>
-            <span>文本 / 图片输入</span>
-          </div>
-          <label>
-            年级
-            <div className="segmented">
-              <button className={gradeBand === "junior" ? "active" : ""} type="button" onClick={() => setGradeBand("junior")}>
-                初中
-              </button>
-              <button className={gradeBand === "senior" ? "active" : ""} type="button" onClick={() => setGradeBand("senior")}>
-                高中
-              </button>
-            </div>
-          </label>
-          <label>
-            数学题目
-            <textarea
-              className="problemBox"
-              value={problemText}
-              onChange={(event) => setProblemText(event.target.value)}
-              placeholder="粘贴一道初中或高中数学题，或用下方按钮上传题目图片自动识别。"
-            />
-          </label>
-          <div className="imageTools">
-            <select value={visionProfileId} onChange={(event) => setVisionProfileId(event.target.value)} disabled={imageBusy || multimodalProfiles.length === 0}>
-              <option value="">选择图片识别模型</option>
-              {multimodalProfiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.display_name} · {profile.model}
-                </option>
-              ))}
-            </select>
-            <input
-              ref={imageInputRef}
-              className="hiddenFileInput"
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              onChange={(event) => handleImageFile(event.target.files?.[0])}
-            />
-            <button
-              className="secondaryButton"
-              type="button"
-              onClick={() => imageInputRef.current?.click()}
-              disabled={imageBusy || !selectedVisionProfile}
-            >
-              {imageBusy ? <Loader2 size={16} className="spin" /> : <ImageUp size={16} />}
-              上传图片
+      <section className="conversationPanel">
+        <header className="conversationHeader">
+          {!leftOpen && (
+            <button className="plainIconButton" type="button" onClick={() => setLeftOpen(true)} aria-label="展开会话栏">
+              <ChevronRight size={18} />
             </button>
+          )}
+          <div className="conversationTitle">
+            <strong>{activeHistory?.title || "新答疑"}</strong>
+            <span>{sessionId ? `${gradeBand === "junior" ? "初中" : "高中"}数学 · ${selectedProfile?.display_name ?? "原模型不可用"}` : "先发题目，再告诉我你想到哪一步"}</span>
           </div>
-          {multimodalProfiles.length === 0 && <p className="emptyHint">要上传图片，请先添加或修改一个“支持图片识别”的模型配置。</p>}
-          {diagramImage && (
-            <div className="diagramPreview">
-              <img src={diagramImage} alt="题目中的图" />
-              {diagramNote && <p>{diagramNote}</p>}
-            </div>
-          )}
-          {problemNeedsImage && (
-            <p className="emptyHint">已识别为含题图的题目。答疑模型必须选择“多模态”模型，答疑时会发送你上传的原图。</p>
-          )}
-          <label>
-            你已经想到哪一步
-            <textarea
-              value={initialThought}
-              onChange={(event) => setInitialThought(event.target.value)}
-              placeholder="例：我知道要看平方项，但不知道为什么最大值是 5。"
-            />
-          </label>
-          <button
-            className="primaryButton startButton"
-            type="button"
-            onClick={handleStart}
-            disabled={
-              startBusy ||
-              streamBusy ||
-              Boolean(activeCard) ||
-              !problemText.trim() ||
-              !selectedProfileId ||
-              (problemNeedsImage && (!selectedProfile?.is_multimodal || !originalProblemImage))
-            }
-          >
-            {startBusy ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
-            {sessionId ? "重新开始答疑" : "开始答疑"}
+          {streamBusy && <span className="thinkingStatus"><Loader2 size={14} className="spin" /> 正在思考</span>}
+          <button className="plainIconButton cardPanelToggle" type="button" onClick={() => setRightOpen((value) => !value)} aria-label="切换卡片栏">
+            <BookOpen size={18} />
           </button>
-          {profiles.length === 0 && (
-            <p className="emptyHint">还没有可用模型。先添加一个 OpenAI-compatible 模型配置。</p>
-          )}
-        </aside>
+        </header>
 
-        <section className="chatPanel">
-          <div className="chatHeader">
-            <div>
-              <h2>答疑过程</h2>
-              <p>{selectedProfile ? `当前模型：${selectedProfile.display_name}` : "尚未选择模型"}</p>
-            </div>
-            {streamBusy && <span className="thinkingBadge">AI 正在回复</span>}
-          </div>
-          <div className="messages">
+        <div className="messageViewport">
+          <div className="messageColumn">
             {messages.length === 0 && (
-              <div className="welcome">
-                <Settings2 size={24} />
-                <p>先选择模型并粘贴题目。AI 会先诊断你的思路，再在需要时弹出小检查点。</p>
+              <div className="welcomeState">
+                <div className="welcomeGlyph"><Bot size={30} /></div>
+                <h1>从你卡住的地方开始</h1>
+                <p>在下方一次输入题目和你想到哪一步，也可以先只发题目。信息不完整时，我会继续追问。</p>
+                <div className="welcomeExamples">
+                  <span>题目：已知……求……</span>
+                  <span>我的思路：我做到……但不懂……</span>
+                </div>
               </div>
             )}
+
             {messages.map((message) => (
-              <div key={message.id} className={`message ${message.role}`}>
-                <div className="messageContent"><MathText text={message.text} /></div>
-                {message.role === "assistant" && message.action && (
-                  <div className="messageActionTag" title={`教学 action：${message.action}`}>
-                    {teachingActionLabel(message.action)}
-                  </div>
-                )}
-              </div>
+              <article className={`chatMessage ${message.role}`} key={message.id}>
+                <div className="messageAvatar">
+                  {message.role === "assistant" ? <Bot size={17} /> : message.role === "student" ? "你" : "·"}
+                </div>
+                <div className="messageBody">
+                  {message.imageUrl && <img className="messageImage" src={message.imageUrl} alt="学生上传的题目" />}
+                  <div className="messageText"><MathText text={message.text} /></div>
+                  {message.role === "assistant" && message.action && (
+                    <span className="actionTag" title={`教学 action：${message.action}`}>{teachingActionLabel(message.action)}</span>
+                  )}
+                </div>
+              </article>
             ))}
+            <div ref={messageEndRef} />
           </div>
-          <div className="composer">
-            <input
+        </div>
+
+        <div className="composerDock">
+          {error && <div className="inlineError"><span>{error}</span><button type="button" onClick={() => setError("")}><X size={15} /></button></div>}
+          {!sessionId && originalProblemImage && (
+            <div className="attachmentContext">
+              <img src={originalProblemImage} alt="已读取的题目图片" />
+              <div><strong>题目图片已读取</strong><span>原图会随每轮答疑发送给多模态模型</span></div>
+              <button type="button" onClick={() => { setOriginalProblemImage(null); setProblemText(""); }} aria-label="移除图片"><X size={15} /></button>
+            </div>
+          )}
+          <div className="composerCard">
+            <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") handleSend();
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void handleSend();
+                }
               }}
-              disabled={!sessionId || streamBusy || Boolean(checkpoint) || Boolean(activeCard)}
-              placeholder={sessionId ? "把你的下一步想法发给 AI" : "开始答疑后可以继续回复"}
+              disabled={composerBlocked}
+              placeholder={sessionId ? "继续说说你的想法…" : "输入题目和你想到哪一步，或上传题目图片…"}
+              rows={3}
             />
-            <button className="iconButton sendButton" type="button" onClick={handleSend} disabled={!sessionId || streamBusy || Boolean(checkpoint) || Boolean(activeCard) || !input.trim()}>
-              <Send size={18} />
-            </button>
-          </div>
-          {error && <div className="errorBox">{error}</div>}
-        </section>
-
-        <aside className="debugPanel">
-          <div className="panelHeader">
-            <h2>学习卡片</h2>
-            <span>{cards.length} 张已归档</span>
-          </div>
-          <div className="cardFilters" aria-label="筛选学习卡片">
-            <button type="button" className={cardFilter === "all" ? "active" : ""} onClick={() => setCardFilter("all")}>全部</button>
-            <button type="button" className={cardFilter === "knowledge_card" ? "active" : ""} onClick={() => setCardFilter("knowledge_card")}>知识</button>
-            <button type="button" className={cardFilter === "problem_card" ? "active" : ""} onClick={() => setCardFilter("problem_card")}>题目</button>
-          </div>
-          <button
-            className="dangerButton clearLibraryButton"
-            type="button"
-            onClick={handleDeleteAllCards}
-            disabled={deleteAllCardsBusy || Boolean(cardBusyId) || streamBusy || cards.length === 0}
-          >
-            {deleteAllCardsBusy ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
-            清空全部卡片
-          </button>
-          {filteredCards.length === 0 ? (
-            <p className="cardLibraryEmpty">全局卡片库在当前筛选下还没有卡片。</p>
-          ) : (
-            <div className="cardLibraryList" aria-label="已归档学习卡片">
-              {filteredCards.map((card) => (
-                <div
-                  key={card.id}
-                  className="cardLibraryItem"
-                  role="button"
-                  tabIndex={0}
-                  onDoubleClick={() => setViewingCard(card)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") setViewingCard(card);
-                  }}
-                  title="双击查看卡片"
+            <div className="composerToolbar">
+              <div className="composerActions">
+                <input
+                  ref={imageInputRef}
+                  className="hiddenFileInput"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={(event) => void handleImageFile(event.target.files?.[0])}
+                />
+                <button
+                  className="toolButton"
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={composerBlocked || Boolean(sessionId)}
+                  title="上传题目图片"
                 >
-                  <div className={`cardLibraryIcon ${card.card_type === "knowledge_card" ? "knowledge" : "problem"}`}>
-                    {card.card_type === "knowledge_card" ? <BookOpen size={17} /> : <ClipboardCheck size={17} />}
-                  </div>
-                  <div className="cardLibraryText">
-                    <strong><MathText text={card.content.title} /></strong>
-                    <span>{card.card_type === "knowledge_card" ? "知识卡片" : "题目卡片"}</span>
-                    <time>{new Date(card.saved_at ?? card.created_at).toLocaleString("zh-CN")}</time>
-                  </div>
-                  <button
-                    className="cardLibraryDelete"
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleDeleteCard(card);
-                    }}
-                    disabled={Boolean(cardBusyId)}
-                    aria-label={`删除卡片：${card.content.title}`}
-                    title="删除卡片"
-                  >
-                    {cardBusyId === card.id ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
+                  {imageBusy ? <Loader2 size={17} className="spin" /> : <Paperclip size={17} />}
+                </button>
+                <select value={gradeBand} onChange={(event) => setGradeBand(event.target.value as typeof gradeBand)} disabled={Boolean(sessionId) || composerBlocked} aria-label="年级">
+                  <option value="junior">初中</option>
+                  <option value="senior">高中</option>
+                </select>
+                <select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)} disabled={Boolean(sessionId) || composerBlocked} aria-label="答疑模型">
+                  <option value="">选择模型</option>
+                  {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.display_name}</option>)}
+                </select>
+                <button
+                  className="toolButton"
+                  type="button"
+                  onClick={() => { setEditingProfile(selectedProfile ?? null); setDialogOpen(true); }}
+                  title={selectedProfile ? "修改模型配置" : "添加模型配置"}
+                >
+                  {selectedProfile ? <Pencil size={16} /> : <Plus size={16} />}
+                </button>
+                {selectedProfile && !sessionId && (
+                  <button className="toolButton danger" type="button" onClick={handleDeleteProfile} disabled={Boolean(deleteBusyId)} title="删除模型配置">
+                    {deleteBusyId ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
                   </button>
-                </div>
-              ))}
+                )}
+              </div>
+              <button className="sendButton" type="button" onClick={handleSend} disabled={composerBlocked || !input.trim()} aria-label="发送">
+                {startBusy || streamBusy ? <Loader2 size={18} className="spin" /> : <ArrowUp size={19} />}
+              </button>
             </div>
-          )}
-          <p className="cardLibraryHint">双击卡片查看完整内容。</p>
-        </aside>
+          </div>
+          <p className="composerHint">Enter 发送 · Shift + Enter 换行 · 开始答疑前需同时识别题目与当前思路</p>
+        </div>
       </section>
+
+      <aside className="cardSidebar">
+        <div className="cardSidebarHeader">
+          <div><strong>知识卡片</strong><span>{cards.length} 张已归档</span></div>
+          <button className="plainIconButton" type="button" onClick={() => setRightOpen(false)} aria-label="收起卡片栏"><ChevronRight size={18} /></button>
+        </div>
+        <div className="cardFilters" aria-label="筛选学习卡片">
+          <button type="button" className={cardFilter === "all" ? "active" : ""} onClick={() => setCardFilter("all")}>全部</button>
+          <button type="button" className={cardFilter === "knowledge_card" ? "active" : ""} onClick={() => setCardFilter("knowledge_card")}>知识</button>
+          <button type="button" className={cardFilter === "problem_card" ? "active" : ""} onClick={() => setCardFilter("problem_card")}>题目</button>
+        </div>
+        <div className="cardList">
+          {filteredCards.length === 0 && <div className="cardEmpty"><BookOpen size={21} /><span>还没有卡片</span></div>}
+          {filteredCards.map((card) => (
+            <div className="cardItem" key={card.id}>
+              <button className="cardOpenButton" type="button" onClick={() => setViewingCard(card)}>
+                <span className={`cardIcon ${card.card_type === "knowledge_card" ? "knowledge" : "problem"}`}>
+                  {card.card_type === "knowledge_card" ? <BookOpen size={16} /> : <ClipboardCheck size={16} />}
+                </span>
+                <span className="cardText"><strong><MathText text={card.content.title} /></strong><small>{card.card_type === "knowledge_card" ? "知识卡片" : "题目卡片"}</small></span>
+              </button>
+              <button className="cardDeleteButton" type="button" onClick={() => handleDeleteCard(card)} disabled={Boolean(cardBusyId)} aria-label={`删除卡片：${card.content.title}`}>
+                {cardBusyId === card.id ? <Loader2 size={14} className="spin" /> : <Trash2 size={14} />}
+              </button>
+            </div>
+          ))}
+        </div>
+        <button className="clearCardsButton" type="button" onClick={handleDeleteAllCards} disabled={deleteAllCardsBusy || streamBusy || cards.length === 0}>
+          {deleteAllCardsBusy ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
+          清空卡片
+        </button>
+      </aside>
 
       <ModelConfigDialog
         open={dialogOpen}
@@ -868,71 +800,6 @@ export default function Home() {
         onClose={() => setDialogOpen(false)}
         onSaved={(profileId) => refreshProfiles(profileId)}
       />
-      {historyOpen && (
-        <div className="modalBackdrop" role="dialog" aria-modal="true" aria-label="恢复历史会话">
-          <section className="historyDialog">
-            <div className="dialogHeader">
-              <div>
-                <h2>从 SQLite 恢复会话</h2>
-                <p>恢复会复制为新会话，原历史不会被修改。</p>
-              </div>
-              <button className="iconButton" type="button" onClick={() => setHistoryOpen(false)} aria-label="关闭">
-                <X size={17} />
-              </button>
-            </div>
-            {historyBusy && historyItems.length === 0 ? (
-              <div className="historyLoading"><Loader2 size={18} className="spin" /> 正在读取 SQLite…</div>
-            ) : historyItems.length === 0 ? (
-              <p className="emptyHint">SQLite 中还没有可恢复的会话。</p>
-            ) : (
-              <div className="historyList">
-                {historyItems.map((item) => (
-                  <div className="historyItemRow" key={item.session_id}>
-                    <button
-                      type="button"
-                      className={`historyItem ${selectedHistoryId === item.session_id ? "active" : ""}`}
-                      onClick={() => setSelectedHistoryId(item.session_id)}
-                      disabled={Boolean(deleteSessionBusyId)}
-                    >
-                      <strong>{item.title || "未命名题目"}</strong>
-                      <span>{item.model_display_name} · {item.grade_band === "junior" ? "初中" : "高中"}</span>
-                      {item.restored_from && <span>恢复分支 · 来源 {item.restored_from}</span>}
-                      <span>{item.message_count} 条消息 · {item.checkpoint_count} 个检查点 · {item.state_hint}</span>
-                      <time>{new Date(item.updated_at).toLocaleString("zh-CN")}</time>
-                    </button>
-                    <button
-                      className="historyDeleteButton"
-                      type="button"
-                      onClick={() => handleDeleteSession(item)}
-                      disabled={Boolean(deleteSessionBusyId)}
-                      title={`删除会话：${item.title || "未命名题目"}`}
-                      aria-label={`删除会话：${item.title || "未命名题目"}`}
-                    >
-                      {deleteSessionBusyId === item.session_id ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="dialogActions">
-              <button
-                className="dangerButton"
-                type="button"
-                onClick={handleDeleteAllSessions}
-                disabled={historyBusy || deleteAllSessionsBusy || Boolean(deleteSessionBusyId) || historyItems.length === 0}
-              >
-                {deleteAllSessionsBusy ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
-                清空全部会话
-              </button>
-              <button className="secondaryButton" type="button" onClick={() => setHistoryOpen(false)}>取消</button>
-              <button className="primaryButton" type="button" onClick={handleRestoreSession} disabled={!selectedHistoryId || historyBusy || deleteAllSessionsBusy || Boolean(deleteSessionBusyId)}>
-                {historyBusy ? <Loader2 size={16} className="spin" /> : <RotateCcw size={16} />}
-                恢复为新会话
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
       <CheckpointModal checkpoint={checkpoint} onChoose={handleCheckpoint} />
       <StudyCardModal
         card={activeCard ?? viewingCard}

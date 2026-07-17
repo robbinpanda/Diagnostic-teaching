@@ -87,7 +87,7 @@ export type SessionHistoryItem = {
 
 export type RestoredSession = {
   session_id: string;
-  restored_from: string;
+  restored_from?: string | null;
   state_hint: string;
   breakpoint_description?: string | null;
   model_profile_id: string;
@@ -104,6 +104,16 @@ export type RestoredSession = {
   }>;
   pending_checkpoint?: Checkpoint | null;
   pending_card?: StudyCard | null;
+};
+
+export type SessionIntakeResult = {
+  status: "needs_problem" | "needs_thought" | "ready";
+  assistant_message: string;
+  problem_text: string;
+  student_initial_thought: string;
+  session_id?: string | null;
+  state_hint?: string | null;
+  model_profile_id: string;
 };
 
 export async function fetchProfiles(): Promise<ModelProfile[]> {
@@ -223,11 +233,35 @@ export async function createSession(input: {
   return response.json() as Promise<{ session_id: string; state_hint: string; model_profile_id: string }>;
 }
 
+export async function intakeSession(input: {
+  grade_band: "junior" | "senior";
+  subject: "math";
+  model_profile_id: string;
+  message?: string;
+  problem_text?: string;
+  student_initial_thought?: string;
+  problem_image_data_url?: string | null;
+}): Promise<SessionIntakeResult> {
+  const response = await fetch(`${API_BASE}/api/sessions/intake`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
 export async function fetchSessionHistory(): Promise<SessionHistoryItem[]> {
   const response = await fetch(`${API_BASE}/api/sessions/history`, { cache: "no-store" });
   if (!response.ok) throw new Error("历史会话加载失败");
   const payload = await response.json();
   return payload.sessions;
+}
+
+export async function fetchSession(sessionId: string): Promise<RestoredSession> {
+  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
 }
 
 export async function deleteSession(sessionId: string) {

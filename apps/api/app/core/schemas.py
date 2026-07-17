@@ -117,6 +117,30 @@ class SessionCreateResponse(BaseModel):
     model_profile_id: str
 
 
+class SessionIntakeRequest(BaseModel):
+    """One turn of the pre-session conversation used to collect required context."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    grade_band: Literal["junior", "senior"]
+    subject: Literal["math"] = "math"
+    model_profile_id: str
+    message: str = Field(default="", max_length=20_000)
+    problem_text: str = Field(default="", max_length=20_000)
+    student_initial_thought: str = Field(default="", max_length=20_000)
+    problem_image_data_url: str | None = Field(default=None, max_length=17_000_000)
+
+
+class SessionIntakeResponse(BaseModel):
+    status: Literal["needs_problem", "needs_thought", "ready"]
+    assistant_message: str
+    problem_text: str
+    student_initial_thought: str
+    session_id: str | None = None
+    state_hint: str | None = None
+    model_profile_id: str
+
+
 class SessionHistoryItem(BaseModel):
     session_id: str
     restored_from: str | None = None
@@ -150,7 +174,7 @@ class SessionRestoredMessage(BaseModel):
 
 class SessionRestoreResponse(BaseModel):
     session_id: str
-    restored_from: str
+    restored_from: str | None = None
     state_hint: str
     breakpoint_description: str | None = None
     model_profile_id: str
