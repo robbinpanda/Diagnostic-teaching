@@ -7,10 +7,10 @@ import { MathText } from "../components/MathText";
 import { ModelConfigDialog } from "../components/ModelConfigDialog";
 import { StudyCardModal } from "../components/StudyCardModal";
 import {
-  KnowledgeCardExportDialog,
-  type KnowledgeCardExportLayout
-} from "../components/KnowledgeCardExportDialog";
-import { KnowledgeCardPrintView } from "../components/KnowledgeCardPrintView";
+  LearningCardExportDialog,
+  type LearningCardExportLayout
+} from "../components/LearningCardExportDialog";
+import { LearningCardPrintView } from "../components/LearningCardPrintView";
 import {
   answerCheckpoint,
   analyzeProblemImage,
@@ -39,10 +39,9 @@ type ChatMessage = {
   action?: string;
 };
 
-type KnowledgeCardPrintJob = {
+type LearningCardPrintJob = {
   cards: StudyCard[];
-  layout: KnowledgeCardExportLayout;
-  id: number;
+  layout: LearningCardExportLayout;
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -94,8 +93,8 @@ export default function Home() {
   const [deleteSessionBusyId, setDeleteSessionBusyId] = useState("");
   const [deleteAllSessionsBusy, setDeleteAllSessionsBusy] = useState(false);
   const [deleteAllCardsBusy, setDeleteAllCardsBusy] = useState(false);
-  const [knowledgeExportOpen, setKnowledgeExportOpen] = useState(false);
-  const [knowledgeCardPrintJob, setKnowledgeCardPrintJob] = useState<KnowledgeCardPrintJob | null>(null);
+  const [learningCardExportOpen, setLearningCardExportOpen] = useState(false);
+  const [learningCardPrintJob, setLearningCardPrintJob] = useState<LearningCardPrintJob | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedProfile = useMemo(
@@ -119,11 +118,6 @@ export default function Home() {
     () => cards.filter((card) => cardFilter === "all" || card.card_type === cardFilter),
     [cards, cardFilter]
   );
-  const knowledgeCards = useMemo(
-    () => cards.filter((card) => card.card_type === "knowledge_card"),
-    [cards]
-  );
-
   useEffect(() => {
     refreshProfiles();
     refreshCards();
@@ -136,12 +130,12 @@ export default function Home() {
   }, [multimodalProfiles, visionProfileId]);
 
   useEffect(() => {
-    if (!knowledgeCardPrintJob) return;
+    if (!learningCardPrintJob) return;
 
     let cancelled = false;
     const previousTitle = document.title;
-    document.title = "我的数学知识卡片";
-    const handleAfterPrint = () => setKnowledgeCardPrintJob(null);
+    document.title = "我的数学学习卡片";
+    const handleAfterPrint = () => setLearningCardPrintJob(null);
     window.addEventListener("afterprint", handleAfterPrint);
 
     async function openPrintDialog() {
@@ -156,7 +150,7 @@ export default function Home() {
       document.title = previousTitle;
       window.removeEventListener("afterprint", handleAfterPrint);
     };
-  }, [knowledgeCardPrintJob]);
+  }, [learningCardPrintJob]);
 
   async function refreshProfiles(selectId?: string) {
     try {
@@ -641,9 +635,9 @@ export default function Home() {
     }
   }
 
-  function handleKnowledgeCardExport(selectedCards: StudyCard[], layout: KnowledgeCardExportLayout) {
-    setKnowledgeExportOpen(false);
-    setKnowledgeCardPrintJob({ cards: selectedCards, layout, id: Date.now() });
+  function handleLearningCardExport(selectedCards: StudyCard[], layout: LearningCardExportLayout) {
+    setLearningCardExportOpen(false);
+    setLearningCardPrintJob({ cards: selectedCards, layout });
   }
 
   return (
@@ -858,11 +852,11 @@ export default function Home() {
             <button
               className="secondaryButton exportCardsButton"
               type="button"
-              onClick={() => setKnowledgeExportOpen(true)}
-              disabled={knowledgeCards.length === 0}
+              onClick={() => setLearningCardExportOpen(true)}
+              disabled={cards.length === 0}
             >
               <FileDown size={15} />
-              导出知识卡片
+              导出学习卡片
             </button>
             <button
               className="dangerButton clearLibraryButton"
@@ -996,15 +990,15 @@ export default function Home() {
         onClose={activeCard ? handleActiveCardClose : () => setViewingCard(null)}
         busy={Boolean(activeCard && (cardBusyId === activeCard.id || streamBusy))}
       />
-      <KnowledgeCardExportDialog
+      <LearningCardExportDialog
         cards={cards}
-        open={knowledgeExportOpen}
-        onClose={() => setKnowledgeExportOpen(false)}
-        onExport={handleKnowledgeCardExport}
+        open={learningCardExportOpen}
+        onClose={() => setLearningCardExportOpen(false)}
+        onExport={handleLearningCardExport}
       />
     </main>
-    {knowledgeCardPrintJob && (
-      <KnowledgeCardPrintView cards={knowledgeCardPrintJob.cards} layout={knowledgeCardPrintJob.layout} />
+    {learningCardPrintJob && (
+      <LearningCardPrintView cards={learningCardPrintJob.cards} layout={learningCardPrintJob.layout} />
     )}
     </>
   );

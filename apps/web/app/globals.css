@@ -772,6 +772,9 @@ textarea {
   border-radius: 5px;
   background: #ffffff;
   color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .knowledgeExportCardOption.selected .knowledgeExportCheckbox {
@@ -789,6 +792,11 @@ textarea {
   color: var(--accent-strong);
 }
 
+.knowledgeExportCardIcon.problem {
+  background: #fff1d6;
+  color: #9a651b;
+}
+
 .knowledgeExportCardCopy {
   min-width: 0;
   display: grid;
@@ -796,7 +804,8 @@ textarea {
 }
 
 .knowledgeExportCardCopy strong,
-.knowledgeExportCardCopy small {
+.knowledgeExportCardSummary,
+.knowledgeExportCardSummary small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -807,7 +816,31 @@ textarea {
   font-size: 13px;
 }
 
-.knowledgeExportCardCopy small {
+.knowledgeExportCardSummary {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.knowledgeExportCardSummary em {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: #e8f5f2;
+  color: var(--accent-strong);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.knowledgeExportCardIcon.problem + .knowledgeExportCardCopy .knowledgeExportCardSummary em {
+  background: #fff0d2;
+  color: #8b5a16;
+}
+
+.knowledgeExportCardSummary small {
+  min-width: 0;
   color: var(--muted);
   font-size: 11px;
 }
@@ -876,6 +909,13 @@ textarea {
   flex: 1;
   border-radius: 1px;
   background: repeating-linear-gradient(to bottom, #9eb2b4 0 2px, transparent 2px 5px);
+}
+
+.knowledgeExportHint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
 }
 
 .knowledgeExportFooter {
@@ -1367,12 +1407,23 @@ textarea {
     print-color-adjust: exact;
   }
 
+  body::before {
+    content: "";
+    position: fixed;
+    z-index: -1;
+    inset: 0;
+    background: #ffffff;
+  }
+
   .shell {
     display: none !important;
   }
 
   .knowledgeCardPrintRoot {
     display: block !important;
+    position: relative;
+    z-index: 0;
+    background: #ffffff;
     font-family: "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif;
     font-size: 9pt;
     line-height: 1.58;
@@ -1413,6 +1464,7 @@ textarea {
   .knowledgeCardPrintColumns {
     column-gap: 6mm;
     column-fill: auto;
+    background: #ffffff;
   }
 
   .printLayout-double .knowledgeCardPrintColumns,
@@ -1438,6 +1490,11 @@ textarea {
     -webkit-box-decoration-break: clone;
   }
 
+  .knowledgeCardPrintCard.problemCard {
+    border-color: #ddc69c;
+    border-top-color: #c58a2e;
+  }
+
   .knowledgeCardPrintCard > header {
     display: grid;
     grid-template-columns: 7mm minmax(0, 1fr);
@@ -1461,6 +1518,10 @@ textarea {
     font-weight: 800;
   }
 
+  .knowledgeCardPrintCard.problemCard > header > span {
+    background: #c58a2e;
+  }
+
   .knowledgeCardPrintCard > header small {
     display: block;
     margin-bottom: 0.6mm;
@@ -1468,6 +1529,11 @@ textarea {
     font-size: 6.8pt;
     font-weight: 800;
     letter-spacing: 0.08em;
+  }
+
+  .knowledgeCardPrintCard.problemCard > header small,
+  .knowledgeCardPrintCard.problemCard h3 {
+    color: #8b5a16;
   }
 
   .knowledgeCardPrintCard h2 {
@@ -1522,6 +1588,24 @@ textarea {
     color: #263d43;
   }
 
+  .printSolutionStepList li {
+    padding-left: 0.8mm;
+    break-inside: avoid;
+  }
+
+  .printSolutionStepList strong {
+    display: block;
+    margin-bottom: 0.8mm;
+    color: #4c3b22;
+  }
+
+  .printStepResult {
+    margin-top: 1mm;
+    padding: 1.2mm 1.5mm;
+    border-left: 0.7mm solid #d7a64f;
+    background: #fff9eb;
+  }
+
   .knowledgeCardPrintCard .printKnowledgeLead,
   .knowledgeCardPrintCard .printProblemConnection {
     margin: 0 -1.5mm;
@@ -1539,6 +1623,24 @@ textarea {
     border-bottom: 0;
   }
 
+  .knowledgeCardPrintCard.problemCard .printProblemLead,
+  .knowledgeCardPrintCard.problemCard .printFinalAnswer {
+    margin: 0 -1.5mm;
+    padding: 2.4mm 1.5mm;
+    border-radius: 1.5mm;
+    background: #fff7e7;
+  }
+
+  .knowledgeCardPrintCard.problemCard .printProblemLead {
+    margin-bottom: 0.8mm;
+  }
+
+  .knowledgeCardPrintCard.problemCard .printFinalAnswer {
+    margin-top: 0.8mm;
+    border-bottom: 0;
+    background: #fff0cf;
+  }
+
   .printEmptyLine {
     color: #738084;
     font-style: italic;
@@ -1548,6 +1650,11 @@ textarea {
     overflow: visible;
     margin: 1.5mm 0;
     font-size: 0.92em;
+  }
+
+  .knowledgeCardPrintRoot .mathInline,
+  .knowledgeCardPrintRoot .mathInline .katex {
+    white-space: normal;
   }
 
   .knowledgeCardPrintRoot .katex-display {
@@ -1604,7 +1711,9 @@ textarea {
   }
 
   .printLayout-triple .knowledgeCardPrintCard .printKnowledgeLead,
-  .printLayout-triple .knowledgeCardPrintCard .printProblemConnection {
+  .printLayout-triple .knowledgeCardPrintCard .printProblemConnection,
+  .printLayout-triple .knowledgeCardPrintCard.problemCard .printProblemLead,
+  .printLayout-triple .knowledgeCardPrintCard.problemCard .printFinalAnswer {
     padding: 1.8mm 1.3mm;
   }
 }
