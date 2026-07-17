@@ -182,7 +182,8 @@ def list_session_history(request: Request) -> SessionHistoryListResponse:
             {
                 "session_id": row["id"],
                 "restored_from": row["restored_from"],
-                "title": row["problem_text"].strip().replace("\n", " ")[:72],
+                # Keep complete math delimiters; the frontend applies visual ellipsis.
+                "title": row["problem_text"].strip().replace("\n", " "),
                 "grade_band": row["grade_band"],
                 "model_profile_id": row["model_profile_id"],
                 "model_display_name": row["model_display_name"],

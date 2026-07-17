@@ -19,6 +19,10 @@ export type ModelProfile = {
   last_test_latency_ms?: number | null;
 };
 
+export function modelProfileLabel(profile: Pick<ModelProfile, "display_name" | "model">) {
+  return `${profile.display_name} · ${profile.model}`;
+}
+
 export type Checkpoint = {
   id: string;
   question: string;
@@ -174,7 +178,10 @@ export async function testModelProfile(input: {
   base_url: string;
   api_key?: string;
   model: string;
+  timeout_ms?: number;
   max_output_tokens: number;
+  probe_multimodal?: boolean;
+  require_multimodal?: boolean;
 }) {
   const response = await fetch(`${API_BASE}/api/model-profiles/test`, {
     method: "POST",
@@ -182,7 +189,14 @@ export async function testModelProfile(input: {
     body: JSON.stringify(input)
   });
   if (!response.ok) throw new Error(await response.text());
-  return response.json() as Promise<{ ok: boolean; latency_ms: number | null; message: string }>;
+  return response.json() as Promise<{
+    ok: boolean;
+    latency_ms: number | null;
+    message: string;
+    multimodal_ok?: boolean | null;
+    multimodal_latency_ms?: number | null;
+    multimodal_message?: string | null;
+  }>;
 }
 
 export async function analyzeProblemImage(input: {
@@ -249,6 +263,26 @@ export async function intakeSession(input: {
   });
   if (!response.ok) throw new Error(await response.text());
   return response.json();
+}
+
+export async function createModelProfiles(input: {
+  display_name: string;
+  provider: "openai" | "openai_compatible" | "local_demo";
+  base_url: string;
+  api_key: string;
+  models: Array<{ model: string; is_multimodal: boolean }>;
+  tags: string[];
+  timeout_ms: number;
+  temperature: number;
+  max_output_tokens: number;
+}) {
+  const response = await fetch(`${API_BASE}/api/model-profiles/batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json() as Promise<{ profiles: ModelProfile[] }>;
 }
 
 export async function fetchSessionHistory(): Promise<SessionHistoryItem[]> {

@@ -99,7 +99,7 @@ p {
 
 .sessionSidebar {
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 10px;
   padding: 12px 10px 10px;
   border-right: 1px solid var(--line);
@@ -241,19 +241,19 @@ p {
   text-align: left;
 }
 
-.sessionEntry strong,
-.sessionEntry span {
+.sessionEntry > strong,
+.sessionEntry > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sessionEntry strong {
+.sessionEntry > strong {
   font-size: 13px;
   font-weight: 560;
 }
 
-.sessionEntry span {
+.sessionEntry > span {
   color: var(--muted);
   font-size: 10px;
 }
@@ -282,34 +282,6 @@ p {
   font-size: 12px;
 }
 
-.sidebarFooter {
-  padding-top: 8px;
-  border-top: 1px solid var(--line);
-}
-
-.sidebarFooter > button {
-  width: 100%;
-  min-height: 42px;
-  border: 0;
-  border-radius: 9px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 11px;
-  color: #4d4d49;
-  background: transparent;
-}
-
-.sidebarFooter > button:hover {
-  background: var(--sidebar-hover);
-}
-
-.sidebarFooter span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .conversationPanel {
   min-width: 0;
   height: 100vh;
@@ -336,19 +308,19 @@ p {
   gap: 2px;
 }
 
-.conversationTitle strong,
-.conversationTitle span {
+.conversationTitle > strong,
+.conversationTitle > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.conversationTitle strong {
+.conversationTitle > strong {
   font-size: 14px;
   font-weight: 620;
 }
 
-.conversationTitle span {
+.conversationTitle > span {
   color: var(--muted);
   font-size: 11px;
 }
@@ -549,6 +521,15 @@ p {
 
 .mathDisplay .katex-display {
   margin: 0;
+}
+
+.titleMathText,
+.titleMathText .mathDisplay,
+.titleMathText .katex-display {
+  display: inline;
+  margin: 0;
+  overflow: visible;
+  white-space: nowrap;
 }
 
 .composerDock {
@@ -912,6 +893,7 @@ p {
 }
 
 .modelDialog {
+  width: min(680px, 100%);
   padding: 20px;
   display: grid;
   gap: 14px;
@@ -983,6 +965,117 @@ p {
 .checkboxLabel input {
   width: auto;
   min-height: auto;
+}
+
+.modelEntriesSection {
+  display: grid;
+  gap: 9px;
+}
+
+.modelEntriesHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modelEntriesHeader > div {
+  display: grid;
+  gap: 3px;
+}
+
+.modelEntriesHeader strong {
+  color: #42423e;
+  font-size: 11px;
+}
+
+.modelEntriesHeader span,
+.modelTestMessage {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.modelAddButton,
+.modelRemoveButton {
+  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #555550;
+  background: #f5f5f2;
+}
+
+.modelAddButton {
+  min-height: 32px;
+  gap: 5px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.modelRemoveButton {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.modelAddButton:hover:not(:disabled),
+.modelRemoveButton:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.modelEntryList {
+  display: grid;
+  gap: 8px;
+}
+
+.modelEntryCard {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #fafaf8;
+}
+
+.modelEntryTop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.modelTestIcon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--faint);
+}
+
+.modelTestIcon.success,
+.modelTestMessage.success {
+  color: var(--accent);
+}
+
+.modelTestIcon.error,
+.modelTestMessage.error {
+  color: var(--danger);
+}
+
+.modelCapabilityToggle {
+  color: #60605b !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+}
+
+.modelTestMessage {
+  overflow-wrap: anywhere;
 }
 
 .primaryButton,

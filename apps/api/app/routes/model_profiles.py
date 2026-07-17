@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import base64
 import json
 import time
+from functools import lru_cache
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from app.core.schemas import (
+    ModelProfileBatchCreate,
+    ModelProfileBatchCreateResponse,
     ModelProfileCreate,
     ModelProfileCreateResponse,
     ModelProfileListResponse,
@@ -14,10 +19,17 @@ from app.core.schemas import (
     ModelProfileTestResponse,
     ModelProfileUpdate,
 )
-from app.llm.provider import LlmProfile, test_connection
+from app.llm.provider import LlmProfile, test_connection, test_multimodal_connection
 from app.storage.repositories import host_from_url
 
 router = APIRouter(prefix="/api/model-profiles", tags=["model profiles"])
+MULTIMODAL_PROBE_IMAGE = Path(__file__).resolve().parents[1] / "assets" / "multimodal-probe.png"
+
+
+@lru_cache(maxsize=1)
+def multimodal_probe_data_url() -> str:
+    encoded = base64.b64encode(MULTIMODAL_PROBE_IMAGE.read_bytes()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 
 def to_public(row) -> ModelProfilePublic:
@@ -60,6 +72,33 @@ def create_profile(payload: ModelProfileCreate, request: Request) -> ModelProfil
     )
 
 
+@router.post("/batch", response_model=ModelProfileBatchCreateResponse)
+def create_profiles_batch(
+    payload: ModelProfileBatchCreate,
+    request: Request,
+) -> ModelProfileBatchCreateResponse:
+    normalized_models = [item.model.strip() for item in payload.models]
+    if len(set(normalized_models)) != len(normalized_models):
+        raise HTTPException(status_code=400, detail="同一供应商配置中不能重复填写 model name")
+    profiles = [
+        ModelProfileCreate(
+            display_name=payload.display_name,
+            provider=payload.provider,
+            base_url=payload.base_url,
+            api_key=payload.api_key,
+            model=item.model,
+            tags=payload.tags,
+            timeout_ms=payload.timeout_ms,
+            temperature=payload.temperature,
+            max_output_tokens=payload.max_output_tokens,
+            is_multimodal=item.is_multimodal,
+        )
+        for item in payload.models
+    ]
+    rows = request.app.state.model_profiles.create_many(profiles)
+    return ModelProfileBatchCreateResponse(profiles=[to_public(row) for row in rows])
+
+
 @router.patch("/{profile_id}", response_model=ModelProfilePublic)
 def update_profile(profile_id: str, payload: ModelProfileUpdate, request: Request) -> ModelProfilePublic:
     try:
@@ -92,21 +131,48 @@ async def test_profile(payload: ModelProfileTestRequest, request: Request) -> Mo
             raise HTTPException(status_code=404, detail="模型配置不存在") from exc
         api_key = request.app.state.model_profiles.decrypt_api_key(saved_profile)
         profile_id = saved_profile["id"]
-    ok, latency, message = await test_connection(
-        LlmProfile(
-            id=profile_id,
-            provider=payload.provider,
-            base_url=str(payload.base_url).rstrip("/"),
-            api_key=api_key,
-            model=payload.model,
-            timeout_ms=payload.timeout_ms,
-            temperature=0,
-            max_output_tokens=payload.max_output_tokens,
-        )
+    profile = LlmProfile(
+        id=profile_id,
+        provider=payload.provider,
+        base_url=str(payload.base_url).rstrip("/"),
+        api_key=api_key,
+        model=payload.model,
+        timeout_ms=payload.timeout_ms,
+        temperature=0,
+        max_output_tokens=payload.max_output_tokens,
     )
+    ok, latency, message = await test_connection(profile)
     if latency is None:
         latency = int((time.perf_counter() - started) * 1000)
-    return ModelProfileTestResponse(ok=ok, latency_ms=latency, message=message)
+    multimodal_ok: bool | None = None
+    multimodal_latency: int | None = None
+    multimodal_message: str | None = None
+    if ok and payload.probe_multimodal:
+        multimodal_ok, multimodal_latency, multimodal_message = await test_multimodal_connection(
+            profile,
+            multimodal_probe_data_url(),
+        )
+        if multimodal_ok:
+            message = f"{message}；图片探测通过"
+        elif payload.require_multimodal:
+            ok = False
+            message = f"文本连接成功，但图片探测失败：{multimodal_message}"
+        else:
+            message = f"{message}；图片探测未通过，保留为文本模型"
+    if payload.profile_id:
+        request.app.state.model_profiles.update_test_status(
+            payload.profile_id,
+            "ok" if ok else "error",
+            latency,
+        )
+    return ModelProfileTestResponse(
+        ok=ok,
+        latency_ms=latency,
+        message=message,
+        multimodal_ok=multimodal_ok,
+        multimodal_latency_ms=multimodal_latency,
+        multimodal_message=multimodal_message,
+    )
 
 
 def get_profile_or_404(request: Request, profile_id: str):

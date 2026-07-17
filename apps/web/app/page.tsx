@@ -13,7 +13,6 @@ import {
   Paperclip,
   Pencil,
   Plus,
-  Settings2,
   Trash2,
   X
 } from "lucide-react";
@@ -36,6 +35,7 @@ import {
   fetchSession,
   fetchSessionHistory,
   intakeSession,
+  modelProfileLabel,
   ModelProfile,
   saveCard,
   SessionHistoryItem,
@@ -554,7 +554,7 @@ export default function Home() {
 
   async function handleDeleteProfile() {
     if (!selectedProfile || sessionId) return;
-    if (!window.confirm(`删除模型配置“${selectedProfile.display_name}”？`)) return;
+    if (!window.confirm(`删除模型配置“${modelProfileLabel(selectedProfile)}”？`)) return;
     setDeleteBusyId(selectedProfile.id);
     setError("");
     try {
@@ -609,7 +609,7 @@ export default function Home() {
                 onClick={() => handleOpenSession(item.session_id)}
                 disabled={Boolean(openSessionBusyId) || composerBlocked}
               >
-                <strong>{item.title || "未命名题目"}</strong>
+                <strong><MathText text={item.title || "未命名题目"} className="titleMathText" /></strong>
                 <span>{item.message_count} 条消息 · {new Date(item.updated_at).toLocaleDateString("zh-CN")}</span>
               </button>
               <button
@@ -627,18 +627,6 @@ export default function Home() {
           ))}
         </div>
 
-        <div className="sidebarFooter">
-          <button
-            type="button"
-            onClick={() => {
-              setEditingProfile(selectedProfile ?? null);
-              setDialogOpen(true);
-            }}
-          >
-            <Settings2 size={17} />
-            <span>{selectedProfile ? selectedProfile.display_name : "模型设置"}</span>
-          </button>
-        </div>
       </aside>
 
       <section className="conversationPanel">
@@ -649,8 +637,8 @@ export default function Home() {
             </button>
           )}
           <div className="conversationTitle">
-            <strong>{activeHistory?.title || "新答疑"}</strong>
-            <span>{sessionId ? `${gradeBand === "junior" ? "初中" : "高中"}数学 · ${selectedProfile?.display_name ?? "原模型不可用"}` : "先发题目，再告诉我你想到哪一步"}</span>
+            <strong><MathText text={activeHistory?.title || "新答疑"} className="titleMathText" /></strong>
+            <span>{sessionId ? `${gradeBand === "junior" ? "初中" : "高中"}数学 · ${selectedProfile ? modelProfileLabel(selectedProfile) : "原模型不可用"}` : "先发题目，再告诉我你想到哪一步"}</span>
           </div>
           {streamBusy && <span className="thinkingStatus"><Loader2 size={14} className="spin" /> 正在思考</span>}
           <button className="plainIconButton cardPanelToggle" type="button" onClick={() => setRightOpen((value) => !value)} aria-label="切换卡片栏">
@@ -737,7 +725,7 @@ export default function Home() {
                 </select>
                 <select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)} disabled={Boolean(sessionId) || composerBlocked} aria-label="答疑模型">
                   <option value="">选择模型</option>
-                  {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.display_name}</option>)}
+                  {profiles.map((profile) => <option key={profile.id} value={profile.id}>{modelProfileLabel(profile)}</option>)}
                 </select>
                 <button
                   className="toolButton"

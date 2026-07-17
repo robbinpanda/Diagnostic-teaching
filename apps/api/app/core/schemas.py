@@ -21,6 +21,23 @@ class ModelProfileCreate(BaseModel):
     is_multimodal: bool = False
 
 
+class ModelProfileBatchItem(BaseModel):
+    model: str = Field(min_length=1, max_length=120)
+    is_multimodal: bool = False
+
+
+class ModelProfileBatchCreate(BaseModel):
+    display_name: str = Field(min_length=1, max_length=80)
+    provider: Provider = "openai_compatible"
+    base_url: HttpUrl
+    api_key: str = Field(min_length=1)
+    models: list[ModelProfileBatchItem] = Field(min_length=1, max_length=20)
+    tags: list[str] = []
+    timeout_ms: int = Field(default=30000, ge=1000, le=120000)
+    temperature: float = Field(default=0.2, ge=0, le=2)
+    max_output_tokens: int = Field(default=8000, ge=100, le=64000)
+
+
 class ModelProfileUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=80)
     provider: Provider | None = None
@@ -42,6 +59,8 @@ class ModelProfileTestRequest(BaseModel):
     model: str = Field(min_length=1)
     timeout_ms: int = Field(default=15000, ge=1000, le=60000)
     max_output_tokens: int = Field(default=8000, ge=100, le=64000)
+    probe_multimodal: bool = False
+    require_multimodal: bool = False
 
 
 class ModelProfilePublic(BaseModel):
@@ -68,6 +87,10 @@ class ModelProfileListResponse(BaseModel):
     require_user_selection: bool = True
 
 
+class ModelProfileBatchCreateResponse(BaseModel):
+    profiles: list[ModelProfilePublic]
+
+
 class ModelProfileCreateResponse(BaseModel):
     id: str
     display_name: str
@@ -80,6 +103,9 @@ class ModelProfileTestResponse(BaseModel):
     ok: bool
     latency_ms: int | None = None
     message: str
+    multimodal_ok: bool | None = None
+    multimodal_latency_ms: int | None = None
+    multimodal_message: str | None = None
 
 
 class ProblemImageAnalyzeRequest(BaseModel):

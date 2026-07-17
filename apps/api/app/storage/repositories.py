@@ -39,36 +39,44 @@ class ModelProfileRepository:
         self.secrets = secrets
 
     def create(self, payload: ModelProfileCreate) -> sqlite3.Row:
-        profile_id = new_id("prof")
-        api_key = payload.api_key.strip()
+        return self.create_many([payload])[0]
+
+    def create_many(self, payloads: list[ModelProfileCreate]) -> list[sqlite3.Row]:
+        if not payloads:
+            return []
         ts = now_iso()
+        profile_ids: list[str] = []
         with self.db.connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO model_profiles (
-                  id, display_name, provider, base_url, model, api_key_ciphertext,
-                  api_key_mask, tags_json, enabled, timeout_ms, temperature,
-                  max_output_tokens, is_multimodal, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    profile_id,
-                    payload.display_name.strip(),
-                    payload.provider,
-                    normalize_base_url(str(payload.base_url)),
-                    payload.model.strip(),
-                    self.secrets.encrypt(api_key),
-                    mask_api_key(api_key),
-                    json.dumps(payload.tags, ensure_ascii=False),
-                    payload.timeout_ms,
-                    payload.temperature,
-                    payload.max_output_tokens,
-                    int(payload.is_multimodal),
-                    ts,
-                    ts,
-                ),
-            )
-        return self.get(profile_id)
+            for payload in payloads:
+                profile_id = new_id("prof")
+                profile_ids.append(profile_id)
+                api_key = payload.api_key.strip()
+                conn.execute(
+                    """
+                    INSERT INTO model_profiles (
+                      id, display_name, provider, base_url, model, api_key_ciphertext,
+                      api_key_mask, tags_json, enabled, timeout_ms, temperature,
+                      max_output_tokens, is_multimodal, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        profile_id,
+                        payload.display_name.strip(),
+                        payload.provider,
+                        normalize_base_url(str(payload.base_url)),
+                        payload.model.strip(),
+                        self.secrets.encrypt(api_key),
+                        mask_api_key(api_key),
+                        json.dumps(payload.tags, ensure_ascii=False),
+                        payload.timeout_ms,
+                        payload.temperature,
+                        payload.max_output_tokens,
+                        int(payload.is_multimodal),
+                        ts,
+                        ts,
+                    ),
+                )
+        return [self.get(profile_id) for profile_id in profile_ids]
 
     def list_public(self) -> list[sqlite3.Row]:
         with self.db.connect() as conn:
@@ -680,7 +688,10 @@ class SessionRepository:
             return conn.execute(
                 """
                 SELECT s.*,
-                       COALESCE(mp.display_name, '已删除的模型') AS model_display_name,
+                       CASE
+                         WHEN mp.id IS NULL THEN '已删除的模型'
+                         ELSE mp.display_name || ' · ' || mp.model
+                       END AS model_display_name,
                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count,
                        (SELECT COUNT(*) FROM checkpoints c WHERE c.session_id = s.id) AS checkpoint_count
                 FROM sessions s
