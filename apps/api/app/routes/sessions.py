@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
@@ -8,6 +9,8 @@ from app.core.schemas import (
     SessionCreate,
     SessionCreateResponse,
     SessionHistoryListResponse,
+    SessionIntakeRequest,
+    SessionIntakeResponse,
     SessionRestoreRequest,
     SessionRestoreResponse,
     SessionRestoredMessage,
@@ -16,9 +19,77 @@ from app.routes.cards import card_from_row
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
+INTAKE_LABEL_RE = re.compile(
+    r"(?:^|\n)\s*(?P<label>题目|问题|题干|我的思路|思路|想法|尝试|我想到哪|我做到哪)\s*[:：]\s*",
+    re.IGNORECASE,
+)
+THOUGHT_LABELS = {"我的思路", "思路", "想法", "尝试", "我想到哪", "我做到哪"}
+THOUGHT_ONLY_RE = re.compile(
+    r"^\s*(?:我|目前|现在|还没|没有|完全不会|不知道|没思路|卡在|做到|想到)",
+    re.IGNORECASE,
+)
+INLINE_THOUGHT_RE = re.compile(
+    r"(?:\n+|[。；;]\s*)(?P<thought>(?:我|目前|现在|还没|没有|完全不会|不知道|没思路|卡在).+)$",
+    re.IGNORECASE | re.DOTALL,
+)
 
-@router.post("", response_model=SessionCreateResponse)
-def create_session(payload: SessionCreate, request: Request) -> SessionCreateResponse:
+
+def resolve_intake(
+    message: str,
+    problem_text: str = "",
+    student_initial_thought: str = "",
+) -> tuple[str, str]:
+    """Merge one free-form composer turn into the two fields required by tutoring.
+
+    Explicit labels win. Once one field has been collected, the next unlabeled turn
+    fills the missing field, which makes the follow-up conversation deterministic.
+    """
+
+    problem = problem_text.strip()
+    thought = student_initial_thought.strip()
+    text = message.strip()
+    if not text:
+        return problem, thought
+
+    matches = list(INTAKE_LABEL_RE.finditer(text))
+    labeled_problem = ""
+    labeled_thought = ""
+    for index, match in enumerate(matches):
+        value_start = match.end()
+        value_end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        value = text[value_start:value_end].strip()
+        if not value:
+            continue
+        if match.group("label") in THOUGHT_LABELS:
+            labeled_thought = value
+        else:
+            labeled_problem = value
+
+    if labeled_problem:
+        problem = labeled_problem
+    if labeled_thought:
+        thought = labeled_thought
+    if matches:
+        return problem, thought
+
+    if problem and not thought:
+        return problem, text
+    if thought and not problem:
+        return text, thought
+
+    inline_thought = INLINE_THOUGHT_RE.search(text)
+    if inline_thought and inline_thought.start("thought") > 0:
+        possible_problem = text[: inline_thought.start()].strip(" \n。；;")
+        possible_thought = inline_thought.group("thought").strip()
+        if possible_problem and possible_thought:
+            return possible_problem, possible_thought
+
+    if THOUGHT_ONLY_RE.match(text):
+        return problem, text
+    return text, thought
+
+
+def validate_session_profile(payload: SessionCreate, request: Request):
     try:
         profile = request.app.state.model_profiles.get(payload.model_profile_id)
     except KeyError as exc:
@@ -28,6 +99,11 @@ def create_session(payload: SessionCreate, request: Request) -> SessionCreateRes
             raise HTTPException(status_code=400, detail="题目原图格式无效")
         if not profile["is_multimodal"]:
             raise HTTPException(status_code=400, detail="包含题图的题目必须选择支持图片识别的多模态答疑模型")
+    return profile
+
+
+def persist_session(payload: SessionCreate, request: Request):
+    profile = validate_session_profile(payload, request)
     session = request.app.state.sessions.create(payload)
     logger = getattr(request.app.state, "session_logger", None)
     if logger is not None:
@@ -38,10 +114,63 @@ def create_session(payload: SessionCreate, request: Request) -> SessionCreateRes
             problem_text=session["problem_text"],
             student_initial_thought=session["student_initial_thought"],
         )
+    return session
+
+
+@router.post("", response_model=SessionCreateResponse)
+def create_session(payload: SessionCreate, request: Request) -> SessionCreateResponse:
+    session = persist_session(payload, request)
     return SessionCreateResponse(
         session_id=session["id"],
         state_hint=session["phase"],
         model_profile_id=session["model_profile_id"],
+    )
+
+
+@router.post("/intake", response_model=SessionIntakeResponse)
+def intake_session(payload: SessionIntakeRequest, request: Request) -> SessionIntakeResponse:
+    problem, thought = resolve_intake(
+        payload.message,
+        payload.problem_text,
+        payload.student_initial_thought,
+    )
+    common = {
+        "problem_text": problem,
+        "student_initial_thought": thought,
+        "model_profile_id": payload.model_profile_id,
+    }
+    if not problem:
+        return SessionIntakeResponse(
+            status="needs_problem",
+            assistant_message=(
+                "我先记下了你目前的想法。请把完整题目也发给我；可以直接粘贴文字，或点回形针上传题目图片。"
+                if thought
+                else "先把题目发给我吧。你可以直接粘贴文字，或点回形针上传题目图片。"
+            ),
+            **common,
+        )
+    if not thought:
+        return SessionIntakeResponse(
+            status="needs_thought",
+            assistant_message="题目收到了。你已经想到哪一步、试过什么，或者具体卡在哪里？完全没思路也可以直接说。",
+            **common,
+        )
+
+    session_payload = SessionCreate(
+        grade_band=payload.grade_band,
+        subject=payload.subject,
+        model_profile_id=payload.model_profile_id,
+        problem_text=problem,
+        student_initial_thought=thought,
+        problem_image_data_url=payload.problem_image_data_url,
+    )
+    session = persist_session(session_payload, request)
+    return SessionIntakeResponse(
+        status="ready",
+        assistant_message="题目和你的思路都收到了，我们从你当前卡住的位置开始。",
+        session_id=session["id"],
+        state_hint=session["phase"],
+        **common,
     )
 
 
@@ -53,7 +182,8 @@ def list_session_history(request: Request) -> SessionHistoryListResponse:
             {
                 "session_id": row["id"],
                 "restored_from": row["restored_from"],
-                "title": row["problem_text"].strip().replace("\n", " ")[:72],
+                # Keep complete math delimiters; the frontend applies visual ellipsis.
+                "title": row["problem_text"].strip().replace("\n", " "),
                 "grade_band": row["grade_band"],
                 "model_profile_id": row["model_profile_id"],
                 "model_display_name": row["model_display_name"],
@@ -66,6 +196,58 @@ def list_session_history(request: Request) -> SessionHistoryListResponse:
             for row in rows
         ]
     )
+
+
+def session_detail_response(request: Request, session) -> SessionRestoreResponse:
+    messages = request.app.state.sessions.list_messages(session["id"])
+    checkpoints = request.app.state.sessions.list_checkpoints(session["id"])
+    pending = next((row for row in reversed(checkpoints) if row["selected_option_id"] is None), None)
+    pending_payload = None
+    if pending:
+        pending_payload = json.loads(pending["options_json"])
+        pending_payload["id"] = pending["id"]
+        for option in pending_payload.get("options", []):
+            option.pop("is_correct", None)
+            option.pop("misconception", None)
+    pending_card_row = request.app.state.sessions.latest_pending_card(session["id"])
+    pending_card_payload = (
+        card_from_row(pending_card_row).model_dump(mode="json")
+        if pending_card_row is not None
+        else None
+    )
+    return SessionRestoreResponse(
+        session_id=session["id"],
+        restored_from=session["restored_from"],
+        state_hint=session["phase"],
+        breakpoint_description=session["breakpoint_description"],
+        model_profile_id=session["model_profile_id"],
+        grade_band=session["grade_band"],
+        problem_text=session["problem_text"],
+        student_initial_thought=session["student_initial_thought"],
+        problem_image_data_url=session["problem_image_data_url"],
+        messages=[
+            SessionRestoredMessage(
+                id=row["id"],
+                role=row["role"],
+                text=row["content"],
+                action_id=row["action_id"],
+                action=row["action"],
+            )
+            for row in messages
+            if row["role"] in {"student", "assistant"}
+        ],
+        pending_checkpoint=pending_payload,
+        pending_card=pending_card_payload,
+    )
+
+
+@router.get("/{session_id}", response_model=SessionRestoreResponse)
+def get_session(session_id: str, request: Request) -> SessionRestoreResponse:
+    try:
+        session = request.app.state.sessions.get(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
+    return session_detail_response(request, session)
 
 
 @router.delete("", status_code=204)

@@ -10,9 +10,13 @@ state_hint + action + message + breakpoint_description + checkpoint + knowledge_
 
 后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、标注每条 AI 消息对应的教学 action、弹出检查点并把学生选择回传给模型。
 
-当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、可切换的加密模型配置、检查点选择题、跨 session 的全局知识卡片/题目卡片库、学习卡片 PDF 多排版导出、SQLite 历史恢复与删除，以及 JSONL/Markdown 双份诊断日志。图片识别先把 KaTeX 格式题目和可见作答/批改痕迹填入两个可编辑文本框；只有题目必须看图时，正式答疑才额外携带用户原图并要求使用标记为多模态的模型。
+当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、可切换的加密模型配置、检查点选择题、跨 session 的全局知识卡片/题目卡片库、学习卡片 PDF 多排版导出、SQLite 历史会话与删除，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
 
-历史会话弹窗提供“一键清空全部会话”，会同时清理 SQLite 会话业务态和全部 session 日志，但保留已归档全局卡片；右侧卡片库另有“清空全部卡片”，不会删除会话、日志或模型配置。两项操作都需要二次确认。
+模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name。每个模型独立设置是否多模态；连接测试会逐模型显示成功或失败，并用内置样例图自动探测未勾选模型的图片能力。模型选择器统一显示为“供应商名称 · model name”。
+
+`POST /api/sessions/intake` 会累计统一输入中的题目和学生已有思路：缺题目就追问题目，只有题目就追问“想到哪一步”，两项齐备后才创建正式 session。图片识别结果也进入同一 intake；上传图片创建的 session 会保留用户原图并绑定多模态模型。
+
+左侧会话栏直接从 SQLite 读取并通过 `GET /api/sessions/{session_id}` 打开原 session，不会仅因查看而复制记录；原有 `POST /api/sessions/restore` 仍保留给需要显式创建实验分支的调用方。左侧可清空全部会话和 session 日志，右侧可清空全部卡片；两项操作都需要二次确认，且互不删除对方保留的数据。
 
 知识卡片策略为：`EXPLAIN_PRINCIPLE` 必须输出，`EXPLAIN_LOCAL` 仅在讲解包含值得独立记忆、可迁移复用的公式、定理、性质或方法辨析时由模型选择输出；任一 knowledge card 都会在消息结束后弹窗，关闭归档后继续答疑。
 
@@ -60,7 +64,7 @@ docs/how-to-run.md
 一句话理解当前架构：
 
 ```txt
-学生输入/检查点选择
+统一输入 intake（题目 + 当前思路）/ 会话消息 / 检查点选择
   -> SQLite 取完整结构化历史
   -> build_messages 按 system / user / assistant 多轮消息拼 prompt
   -> LLM 产出 TutorTurn JSON
@@ -103,7 +107,7 @@ logs/sessions/<session_id>.jsonl
 logs/sessions/<session_id>.log.md
 ```
 
-`.jsonl` 每行一个事件，适合脚本处理和审计；`.log.md` 按事件和消息分段并保留大量空行，适合直接阅读。两者都是只追加诊断数据，不参与业务恢复；历史会话列表与恢复全部从 SQLite 读取，恢复时复制为一个新的 session，保留原 session 不变。
+`.jsonl` 每行一个事件，适合脚本处理和审计；`.log.md` 按事件和消息分段并保留大量空行，适合直接阅读。两者都是只追加诊断数据，不参与业务恢复；历史会话列表、直接打开和显式分支恢复都只读 SQLite。左栏直接打开保持原 session id，调用 `POST /api/sessions/restore` 时才复制为新的 session。
 
 读取示例：
 

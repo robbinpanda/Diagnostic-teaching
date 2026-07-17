@@ -110,6 +110,60 @@ def test_update_model_profile_changes_editable_fields_and_can_replace_key(tmp_pa
     assert app.state.model_profiles.decrypt_api_key(row) == "sk-new-secret"
 
 
+def test_batch_create_adds_multiple_models_for_one_supplier(tmp_path: Path):
+    app = create_app()
+    app.state.db = Database(tmp_path / "app.db")
+    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/model-profiles/batch",
+        json={
+            "display_name": "Example Cloud",
+            "provider": "openai_compatible",
+            "base_url": "https://example.com/v1",
+            "api_key": "shared-secret",
+            "models": [
+                {"model": "text-model", "is_multimodal": False},
+                {"model": "vision-model", "is_multimodal": True},
+            ],
+            "tags": ["math"],
+        },
+    )
+
+    assert response.status_code == 200
+    profiles = response.json()["profiles"]
+    assert [profile["model"] for profile in profiles] == ["text-model", "vision-model"]
+    assert [profile["is_multimodal"] for profile in profiles] == [False, True]
+    assert all(profile["display_name"] == "Example Cloud" for profile in profiles)
+    for profile in profiles:
+        row = app.state.model_profiles.get(profile["id"])
+        assert app.state.model_profiles.decrypt_api_key(row) == "shared-secret"
+
+
+def test_batch_create_rejects_duplicate_model_names(tmp_path: Path):
+    app = create_app()
+    app.state.db = Database(tmp_path / "app.db")
+    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/model-profiles/batch",
+        json={
+            "display_name": "Example Cloud",
+            "base_url": "https://example.com/v1",
+            "api_key": "shared-secret",
+            "models": [
+                {"model": "same-model"},
+                {"model": " same-model "},
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "不能重复" in response.json()["detail"]
+
+
 def test_problem_image_analysis_requires_multimodal_profile(tmp_path: Path):
     app = create_app()
     app.state.db = Database(tmp_path / "app.db")
@@ -324,3 +378,105 @@ def test_edit_connection_test_uses_saved_api_key_when_input_is_blank(tmp_path: P
     assert tested_profile.api_key == "saved-secret-key"
     assert tested_profile.base_url == "https://new.example.com/v1"
     assert tested_profile.model == "new-model"
+
+
+def test_connection_test_probes_and_reports_multimodal_support(tmp_path: Path, monkeypatch):
+    app = create_app()
+    app.state.db = Database(tmp_path / "app.db")
+    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    client = TestClient(app)
+    captured = {}
+
+    async def fake_test_connection(profile):
+        return True, 11, "文本连接成功"
+
+    async def fake_test_multimodal_connection(profile, image_data_url):
+        captured["image_data_url"] = image_data_url
+        return True, 17, "图片请求成功"
+
+    monkeypatch.setattr(model_profiles, "test_connection", fake_test_connection)
+    monkeypatch.setattr(model_profiles, "test_multimodal_connection", fake_test_multimodal_connection)
+    response = client.post(
+        "/api/model-profiles/test",
+        json={
+            "provider": "openai_compatible",
+            "base_url": "https://example.com/v1",
+            "api_key": "test-secret",
+            "model": "vision-model",
+            "probe_multimodal": True,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["multimodal_ok"] is True
+    assert payload["multimodal_latency_ms"] == 17
+    assert "图片探测通过" in payload["message"]
+    assert captured["image_data_url"].startswith("data:image/png;base64,")
+
+
+def test_required_multimodal_probe_failure_marks_test_failed(tmp_path: Path, monkeypatch):
+    app = create_app()
+    app.state.db = Database(tmp_path / "app.db")
+    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    client = TestClient(app)
+
+    async def fake_test_connection(profile):
+        return True, 11, "文本连接成功"
+
+    async def fake_test_multimodal_connection(profile, image_data_url):
+        return False, 9, "模型不接受 image_url"
+
+    monkeypatch.setattr(model_profiles, "test_connection", fake_test_connection)
+    monkeypatch.setattr(model_profiles, "test_multimodal_connection", fake_test_multimodal_connection)
+    response = client.post(
+        "/api/model-profiles/test",
+        json={
+            "provider": "openai_compatible",
+            "base_url": "https://example.com/v1",
+            "api_key": "test-secret",
+            "model": "text-model",
+            "probe_multimodal": True,
+            "require_multimodal": True,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["multimodal_ok"] is False
+    assert "图片探测失败" in payload["message"]
+
+
+def test_optional_multimodal_probe_failure_keeps_text_model_available(tmp_path: Path, monkeypatch):
+    app = create_app()
+    app.state.db = Database(tmp_path / "app.db")
+    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    client = TestClient(app)
+
+    async def fake_test_connection(profile):
+        return True, 8, "文本连接成功"
+
+    async def fake_test_multimodal_connection(profile, image_data_url):
+        return False, 7, "模型不接受 image_url"
+
+    monkeypatch.setattr(model_profiles, "test_connection", fake_test_connection)
+    monkeypatch.setattr(model_profiles, "test_multimodal_connection", fake_test_multimodal_connection)
+    response = client.post(
+        "/api/model-profiles/test",
+        json={
+            "provider": "openai_compatible",
+            "base_url": "https://example.com/v1",
+            "api_key": "test-secret",
+            "model": "text-model",
+            "probe_multimodal": True,
+            "require_multimodal": False,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["multimodal_ok"] is False
+    assert "保留为文本模型" in payload["message"]

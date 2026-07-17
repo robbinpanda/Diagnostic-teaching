@@ -63,13 +63,50 @@ def chat_completions_url(base_url: str) -> str:
 
 
 async def test_connection(profile: LlmProfile) -> tuple[bool, int | None, str]:
-    started = time.perf_counter()
     if profile.provider == "local_demo":
         return True, 1, "本地演示模型可用"
-    stream = chat_stream_completion(
+    return await _test_messages(
         profile,
         [{"role": "user", "content": "你好"}],
+        success_prefix="连接成功，模型已开始回复",
         max_tokens=min(max(profile.max_output_tokens, 1024), 8192),
+    )
+
+
+async def test_multimodal_connection(
+    profile: LlmProfile,
+    image_data_url: str,
+) -> tuple[bool, int | None, str]:
+    if profile.provider == "local_demo":
+        return True, 1, "本地演示模型接受图片请求"
+    return await _test_messages(
+        profile,
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "请确认你能读取这张测试图片，只回复 OK。"},
+                    {"type": "image_url", "image_url": {"url": image_data_url}},
+                ],
+            }
+        ],
+        success_prefix="图片请求成功，模型已开始回复",
+        max_tokens=128,
+    )
+
+
+async def _test_messages(
+    profile: LlmProfile,
+    messages: list[dict[str, Any]],
+    *,
+    success_prefix: str,
+    max_tokens: int,
+) -> tuple[bool, int | None, str]:
+    started = time.perf_counter()
+    stream = chat_stream_completion(
+        profile,
+        messages,
+        max_tokens=max_tokens,
         temperature=0,
     )
     try:
@@ -78,7 +115,7 @@ async def test_connection(profile: LlmProfile) -> tuple[bool, int | None, str]:
             if delta.strip():
                 latency = int((time.perf_counter() - started) * 1000)
                 preview = delta.strip().replace("\n", " ")[:40]
-                return True, latency, f"连接成功，模型已开始回复：{preview}"
+                return True, latency, f"{success_prefix}：{preview}"
         raise LlmProviderError("模型没有返回可见内容")
     except Exception as exc:  # pragma: no cover - exact provider errors vary
         latency = int((time.perf_counter() - started) * 1000)

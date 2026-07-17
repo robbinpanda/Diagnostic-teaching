@@ -419,6 +419,33 @@ def test_sqlite_history_can_be_restored_as_new_session(tmp_path: Path):
     assert copied_checkpoint["source_action_id"] == copied_messages[0]["action_id"]
 
 
+def test_session_history_keeps_complete_latex_title_for_frontend_rendering(tmp_path: Path):
+    client, existing_session_id = _bootstrap_app(tmp_path)
+    profile_id = client.app.state.sessions.get(existing_session_id)["model_profile_id"]
+    problem_text = (
+        "已知 $\\{a_n\\}$ 是等比数列，$a_1$、$a_5$ 是函数 $y=x^2+6x+1$ 的两个零点，"
+        "并且数列各项均为实数。请结合等比中项的性质，求 $a_3$ 的所有可能值。"
+    )
+    created = client.post(
+        "/api/sessions",
+        json={
+            "grade_band": "senior",
+            "subject": "math",
+            "model_profile_id": profile_id,
+            "problem_text": problem_text,
+            "student_initial_thought": "我准备先求两个零点。",
+        },
+    )
+
+    assert created.status_code == 200
+    session_id = created.json()["session_id"]
+    history = client.get("/api/sessions/history").json()["sessions"]
+    item = next(item for item in history if item["session_id"] == session_id)
+    assert len(item["title"]) > 72
+    assert item["title"] == problem_text
+    assert item["title"].endswith("$a_3$ 的所有可能值。")
+
+
 def test_session_delete_removes_sqlite_children_and_log_files(tmp_path: Path):
     client, session_id = _bootstrap_app(tmp_path)
     response = client.post("/api/chat/stream", json={"session_id": session_id})

@@ -19,6 +19,10 @@ export type ModelProfile = {
   last_test_latency_ms?: number | null;
 };
 
+export function modelProfileLabel(profile: Pick<ModelProfile, "display_name" | "model">) {
+  return `${profile.display_name} · ${profile.model}`;
+}
+
 export type Checkpoint = {
   id: string;
   question: string;
@@ -87,7 +91,7 @@ export type SessionHistoryItem = {
 
 export type RestoredSession = {
   session_id: string;
-  restored_from: string;
+  restored_from?: string | null;
   state_hint: string;
   breakpoint_description?: string | null;
   model_profile_id: string;
@@ -104,6 +108,16 @@ export type RestoredSession = {
   }>;
   pending_checkpoint?: Checkpoint | null;
   pending_card?: StudyCard | null;
+};
+
+export type SessionIntakeResult = {
+  status: "needs_problem" | "needs_thought" | "ready";
+  assistant_message: string;
+  problem_text: string;
+  student_initial_thought: string;
+  session_id?: string | null;
+  state_hint?: string | null;
+  model_profile_id: string;
 };
 
 export async function fetchProfiles(): Promise<ModelProfile[]> {
@@ -164,7 +178,10 @@ export async function testModelProfile(input: {
   base_url: string;
   api_key?: string;
   model: string;
+  timeout_ms?: number;
   max_output_tokens: number;
+  probe_multimodal?: boolean;
+  require_multimodal?: boolean;
 }) {
   const response = await fetch(`${API_BASE}/api/model-profiles/test`, {
     method: "POST",
@@ -172,7 +189,14 @@ export async function testModelProfile(input: {
     body: JSON.stringify(input)
   });
   if (!response.ok) throw new Error(await response.text());
-  return response.json() as Promise<{ ok: boolean; latency_ms: number | null; message: string }>;
+  return response.json() as Promise<{
+    ok: boolean;
+    latency_ms: number | null;
+    message: string;
+    multimodal_ok?: boolean | null;
+    multimodal_latency_ms?: number | null;
+    multimodal_message?: string | null;
+  }>;
 }
 
 export async function analyzeProblemImage(input: {
@@ -223,11 +247,55 @@ export async function createSession(input: {
   return response.json() as Promise<{ session_id: string; state_hint: string; model_profile_id: string }>;
 }
 
+export async function intakeSession(input: {
+  grade_band: "junior" | "senior";
+  subject: "math";
+  model_profile_id: string;
+  message?: string;
+  problem_text?: string;
+  student_initial_thought?: string;
+  problem_image_data_url?: string | null;
+}): Promise<SessionIntakeResult> {
+  const response = await fetch(`${API_BASE}/api/sessions/intake`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function createModelProfiles(input: {
+  display_name: string;
+  provider: "openai" | "openai_compatible" | "local_demo";
+  base_url: string;
+  api_key: string;
+  models: Array<{ model: string; is_multimodal: boolean }>;
+  tags: string[];
+  timeout_ms: number;
+  temperature: number;
+  max_output_tokens: number;
+}) {
+  const response = await fetch(`${API_BASE}/api/model-profiles/batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json() as Promise<{ profiles: ModelProfile[] }>;
+}
+
 export async function fetchSessionHistory(): Promise<SessionHistoryItem[]> {
   const response = await fetch(`${API_BASE}/api/sessions/history`, { cache: "no-store" });
   if (!response.ok) throw new Error("历史会话加载失败");
   const payload = await response.json();
   return payload.sessions;
+}
+
+export async function fetchSession(sessionId: string): Promise<RestoredSession> {
+  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
 }
 
 export async function deleteSession(sessionId: string) {
