@@ -268,6 +268,20 @@ textarea {
   font-size: 12px;
 }
 
+.cardLibraryActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.exportCardsButton {
+  min-height: 34px;
+  padding: 0 9px;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .startButton {
   width: 100%;
 }
@@ -610,6 +624,284 @@ textarea {
 .cardLibraryDelete:hover:not(:disabled) {
   background: #fff0ed;
   color: var(--warn);
+}
+
+.exportDialogBackdrop {
+  background: rgba(20, 30, 35, 0.5);
+}
+
+.knowledgeExportDialog {
+  width: min(880px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 28px 90px rgba(20, 30, 35, 0.28);
+}
+
+.knowledgeExportHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 22px 17px;
+  border-bottom: 1px solid var(--line);
+}
+
+.knowledgeExportHeader h2 {
+  margin: 5px 0 4px;
+  font-size: 22px;
+}
+
+.knowledgeExportHeader p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.knowledgeExportKicker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.dialogIconButton {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: #edf2f2;
+  color: #33434a;
+}
+
+.dialogIconButton:hover {
+  background: #dde7e6;
+  color: var(--accent-strong);
+}
+
+.knowledgeExportBody {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 20px;
+  padding: 20px 22px 24px;
+}
+
+.knowledgeExportSection {
+  display: grid;
+  gap: 12px;
+}
+
+.knowledgeExportSectionHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.knowledgeExportSectionHeader h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.knowledgeExportSectionHeader span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.textButton {
+  border: 0;
+  padding: 6px 2px;
+  background: transparent;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.knowledgeExportCardList {
+  max-height: 248px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding-right: 3px;
+}
+
+.knowledgeExportCardOption {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 22px 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.knowledgeExportCardOption:hover,
+.knowledgeExportCardOption.selected,
+.knowledgeExportCardOption:focus-within {
+  border-color: #8ecfc5;
+  background: #f3fbf9;
+}
+
+.knowledgeExportCardOption input,
+.knowledgeExportLayout input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.knowledgeExportCheckbox {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #b8c5c7;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #ffffff;
+}
+
+.knowledgeExportCardOption.selected .knowledgeExportCheckbox {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.knowledgeExportCardIcon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: #dff5f1;
+  color: var(--accent-strong);
+}
+
+.knowledgeExportCardCopy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.knowledgeExportCardCopy strong,
+.knowledgeExportCardCopy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledgeExportCardCopy strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.knowledgeExportCardCopy small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.knowledgeExportEmpty {
+  padding: 22px;
+  border: 1px dashed #cbd6d6;
+  border-radius: 10px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.knowledgeExportLayouts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.knowledgeExportLayout {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 11px;
+  row-gap: 3px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.knowledgeExportLayout:hover,
+.knowledgeExportLayout.selected,
+.knowledgeExportLayout:focus-within {
+  border-color: var(--accent);
+  background: #f3fbf9;
+  box-shadow: 0 0 0 2px rgba(15, 139, 141, 0.08);
+}
+
+.knowledgeExportLayout strong {
+  align-self: end;
+  color: #26363d;
+  font-size: 13px;
+}
+
+.knowledgeExportLayout small {
+  grid-column: 2;
+  align-self: start;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.layoutPreview {
+  grid-row: 1 / span 2;
+  height: 54px;
+  display: flex;
+  gap: 3px;
+  padding: 5px;
+  border: 1px solid #aebdbf;
+  border-radius: 3px;
+  background: #ffffff;
+}
+
+.layoutPreview i {
+  flex: 1;
+  border-radius: 1px;
+  background: repeating-linear-gradient(to bottom, #9eb2b4 0 2px, transparent 2px 5px);
+}
+
+.knowledgeExportFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 22px;
+  border-top: 1px solid var(--line);
+  background: #f8faf9;
+}
+
+.knowledgeExportFooter > span {
+  max-width: 470px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.knowledgeExportFooter > div {
+  display: flex;
+  gap: 8px;
+}
+
+.knowledgeCardPrintRoot {
+  display: none;
 }
 
 .checkpointBackdrop {
@@ -1040,5 +1332,279 @@ textarea {
   .studyCardDialog {
     width: min(680px, 100%);
     max-height: calc(100vh - 32px);
+  }
+
+  .exportDialogBackdrop {
+    padding: 12px;
+  }
+
+  .knowledgeExportDialog {
+    max-height: calc(100vh - 24px);
+  }
+
+  .knowledgeExportCardList,
+  .knowledgeExportLayouts {
+    grid-template-columns: 1fr;
+  }
+
+  .knowledgeExportFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .knowledgeExportFooter > div {
+    justify-content: flex-end;
+  }
+}
+
+@media print {
+  html,
+  body {
+    margin: 0 !important;
+    background: #ffffff !important;
+    color: #17282d !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .shell {
+    display: none !important;
+  }
+
+  .knowledgeCardPrintRoot {
+    display: block !important;
+    font-family: "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif;
+    font-size: 9pt;
+    line-height: 1.58;
+  }
+
+  .knowledgeCardPrintHeader {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12mm;
+    margin: 0 0 6mm;
+    padding: 0 0 4mm;
+    border-bottom: 0.45mm solid #167f80;
+    break-after: avoid;
+  }
+
+  .knowledgeCardPrintHeader span {
+    color: #167f80;
+    font-size: 8pt;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+  }
+
+  .knowledgeCardPrintHeader h1 {
+    margin: 1mm 0 0;
+    color: #16262c;
+    font-size: 19pt;
+    line-height: 1.2;
+  }
+
+  .knowledgeCardPrintHeader p {
+    margin: 0 0 0.8mm;
+    color: #68777b;
+    font-size: 7.5pt;
+    white-space: nowrap;
+  }
+
+  .knowledgeCardPrintColumns {
+    column-gap: 6mm;
+    column-fill: auto;
+  }
+
+  .printLayout-double .knowledgeCardPrintColumns,
+  .printLayout-triple .knowledgeCardPrintColumns {
+    column-rule: 0.2mm solid #dce7e5;
+  }
+
+  .printLayout-triple .knowledgeCardPrintColumns {
+    column-fill: balance;
+  }
+
+  .knowledgeCardPrintCard {
+    width: 100%;
+    margin: 0 0 5mm;
+    padding: 4mm;
+    border: 0.3mm solid #b9cfcc;
+    border-top: 1.3mm solid #16888a;
+    border-radius: 2.2mm;
+    background: #ffffff;
+    break-inside: avoid-column;
+    page-break-inside: avoid;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  .knowledgeCardPrintCard > header {
+    display: grid;
+    grid-template-columns: 7mm minmax(0, 1fr);
+    align-items: start;
+    gap: 2.5mm;
+    margin-bottom: 3mm;
+    padding-bottom: 2.5mm;
+    border-bottom: 0.2mm solid #dbe5e4;
+    break-inside: avoid;
+  }
+
+  .knowledgeCardPrintCard > header > span {
+    width: 7mm;
+    height: 7mm;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: #16888a;
+    color: #ffffff;
+    font-size: 7.5pt;
+    font-weight: 800;
+  }
+
+  .knowledgeCardPrintCard > header small {
+    display: block;
+    margin-bottom: 0.6mm;
+    color: #16888a;
+    font-size: 6.8pt;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+  }
+
+  .knowledgeCardPrintCard h2 {
+    margin: 0;
+    color: #17272d;
+    font-size: 12.5pt;
+    line-height: 1.35;
+  }
+
+  .knowledgeCardPrintCard section {
+    padding: 2.4mm 0;
+    border-bottom: 0.2mm solid #e3eae9;
+    break-inside: avoid;
+  }
+
+  .knowledgeCardPrintCard section:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  .knowledgeCardPrintCard h3 {
+    margin: 0 0 1.2mm;
+    color: #426167;
+    font-size: 7.5pt;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+
+  .knowledgeCardPrintCard p,
+  .knowledgeCardPrintCard ul,
+  .knowledgeCardPrintCard ol {
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+
+  .knowledgeCardPrintCard ul,
+  .knowledgeCardPrintCard ol {
+    padding-left: 4.5mm;
+  }
+
+  .knowledgeCardPrintCard li + li {
+    margin-top: 1.4mm;
+  }
+
+  .printDerivationList li {
+    padding-left: 0.8mm;
+    break-inside: avoid;
+  }
+
+  .printDerivationList strong {
+    display: block;
+    color: #263d43;
+  }
+
+  .knowledgeCardPrintCard .printKnowledgeLead,
+  .knowledgeCardPrintCard .printProblemConnection {
+    margin: 0 -1.5mm;
+    padding: 2.4mm 1.5mm;
+    border-radius: 1.5mm;
+    background: #eef9f7;
+  }
+
+  .knowledgeCardPrintCard .printKnowledgeLead {
+    margin-bottom: 0.8mm;
+  }
+
+  .knowledgeCardPrintCard .printProblemConnection {
+    margin-top: 0.8mm;
+    border-bottom: 0;
+  }
+
+  .printEmptyLine {
+    color: #738084;
+    font-style: italic;
+  }
+
+  .knowledgeCardPrintRoot .mathDisplay {
+    overflow: visible;
+    margin: 1.5mm 0;
+    font-size: 0.92em;
+  }
+
+  .knowledgeCardPrintRoot .katex-display {
+    white-space: normal;
+  }
+
+  .printLayout-single .knowledgeCardPrintCard {
+    font-size: 10pt;
+  }
+
+  .printLayout-single .knowledgeCardPrintCard h2 {
+    font-size: 14pt;
+  }
+
+  .printLayout-triple .knowledgeCardPrintCard {
+    margin-bottom: 3mm;
+    padding: 3mm;
+    font-size: 7.7pt;
+    line-height: 1.4;
+  }
+
+  .printLayout-triple .knowledgeCardPrintCard > header {
+    grid-template-columns: 6mm minmax(0, 1fr);
+    gap: 2mm;
+    margin-bottom: 2mm;
+    padding-bottom: 1.8mm;
+  }
+
+  .printLayout-triple .knowledgeCardPrintCard > header > span {
+    width: 6mm;
+    height: 6mm;
+    font-size: 6.8pt;
+  }
+
+  .printLayout-triple .knowledgeCardPrintCard > header small {
+    font-size: 6.2pt;
+  }
+
+  .printLayout-triple .knowledgeCardPrintCard h2 {
+    font-size: 10.8pt;
+  }
+
+  .printLayout-triple .knowledgeCardPrintCard section {
+    padding: 1.6mm 0;
+  }
+
+  .printLayout-triple .knowledgeCardPrintCard h3 {
+    margin-bottom: 0.8mm;
+    font-size: 6.8pt;
+  }
+
+  .printLayout-triple .knowledgeCardPrintCard li + li {
+    margin-top: 0.8mm;
+  }
+
+  .printLayout-triple .knowledgeCardPrintCard .printKnowledgeLead,
+  .printLayout-triple .knowledgeCardPrintCard .printProblemConnection {
+    padding: 1.8mm 1.3mm;
   }
 }
