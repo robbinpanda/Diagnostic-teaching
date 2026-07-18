@@ -1,7 +1,7 @@
 # 答疑状态机与 LLM 主导流程
 
-版本：v1.0
-日期：2026-07-15
+版本：v1.2
+日期：2026-07-18
 适用项目：诊断式数学答疑 MVP
 
 本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作；后端根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop。`EXPLAIN_PRINCIPLE` 必须产生 `knowledge_card`，`EXPLAIN_LOCAL` 可按知识复用价值选择产生 `knowledge_card`，`SUMMARIZE` 必须产生 `problem_card`。**
@@ -25,8 +25,16 @@ sequenceDiagram
   participant Log as JSONL + Markdown
   participant LLM as 语言模型
 
-  Student->>API: 创建会话或发送消息 / 答检查点
-  API->>DB: 写 student message / checkpoint answer
+  Student->>API: POST /api/sessions/intake 发送统一输入
+  alt 缺少题目或当前思路
+    API-->>Student: needs_problem / needs_thought + 定向追问
+  else 两项齐备
+    API->>DB: 创建 diagnosing session
+  end
+  Student->>API: 提交普通消息 / 答检查点 / 关闭知识卡继续
+  API->>DB: session_inputs + 业务结果原子落库
+  API-->>Student: accepted / duplicate / conflict
+  Student->>API: POST /api/chat/stream（不重复携带输入）
   loop 最多 3 个连续非阻塞 action
     API->>DB: 读取 session + 全部 messages
     API->>LLM: system + SESSION_START + 结构化 user/assistant 多轮消息
@@ -48,6 +56,9 @@ sequenceDiagram
 
 关键点：
 
+- 正式教学状态机开始前有一层 intake 门控。后端累计 `problem_text` 与 `student_initial_thought`；任一为空时只返回追问，不创建 session、不调用教学 LLM。
+- 正式 session 的输入接纳和模型生成是两个服务边界。`POST /api/sessions/{session_id}/inputs` 与 checkpoint answer 接口先把输入及其业务结果写入 SQLite；`POST /api/chat/stream` 再从权威历史生成。客户端断开 SSE 不会使已经接纳的输入消失。
+- 单条输入可用“题目：… / 思路：…”标签同时提供两项；若首轮只有未标注文本，默认先视为题目，下一轮未标注文本补为当前思路。“完全没思路”也是有效的当前思路。
 - LLM 每轮决定 `state_hint`、`action`、`message`、`breakpoint_description`、`checkpoint`、`knowledge_card`、`problem_card`。
 - 后端不信任模型给出的等待判断；`wait_for_student` 由后端根据 action 强制推导。
 - `ASK_OPEN_QUESTION` 和 `ASK_MULTIPLE_CHOICE` 是阻塞动作，会停下等待学生。
@@ -185,6 +196,7 @@ RESPOND_TO_CHECKPOINT
 学生答检查点仍有“保存答案”和“继续生成”两个请求，但学生结果只入库一次：
 
 1. `POST /api/checkpoints/{id}/answer`
+   - 以 checkpoint id 作为一次性幂等范围，在 `session_inputs` 写 `CHECKPOINT_ANSWER`
    - 写 `selected_option_id / is_correct / elapsed_ms`
    - `CHECKPOINT_CORRECT -> next_state_hint = scaffolding`
    - `CHECKPOINT_WRONG -> next_state_hint = recovering`
@@ -192,12 +204,15 @@ RESPOND_TO_CHECKPOINT
    - 同时直接写 role=`student`、action=`CHECKPOINT_RESPONSE` 的 message
    - metadata 保存结构化 `checkpoint_result`
    - `in_reply_to_action_id` 指向产生检查点的 `ASK_MULTIPLE_CHOICE`
+   - 首次回答成功后，同一选项重试返回第一次的 `input_id / action_id / student_message`；不同选项重试返回 `409 CHECKPOINT_ANSWER_CONFLICT`
 
 2. 前端立刻再调 `POST /api/chat/stream`
    - 不再重复提交 message
    - 后端从 SQLite 完整 history 中读取刚保存的 `checkpoint_result`
 
 checkpoint 类似一次需要结果的调用，但结果来自学生，而不是电脑工具。下一轮 LLM 同时看到可读的学生选择和结构化的正误、误区、耗时、event 与 next_state_hint。
+
+普通开放消息使用同一 durable input 边界：前端生成 `client_message_id` 后调用 `POST /api/sessions/{session_id}/inputs`。`(session_id, client_message_id)` 在 SQLite 唯一；同 ID 同内容是安全重试，同 ID 不同内容是 409 冲突。兼容入口 `/api/chat/stream` 仍接受 message，但内部同样先调用输入接纳服务，再尝试占用生成锁。
 
 ## 8. knowledge_card 与 problem_card
 
@@ -208,20 +223,21 @@ checkpoint 类似一次需要结果的调用，但结果来自学生，而不是
 
 `EXPLAIN_PRINCIPLE` 必须输出 knowledge card；`EXPLAIN_LOCAL` 由模型判断是否输出。局部讲解中易混且可迁移的辨析（例如韦达定理“和用 $-b/a$、积用 $c/a$”）适合出卡；一次性代入、算术计算、符号改写或纯本题过渡不出卡。可选卡仍必须结构化 message 中的同一个知识点，不得扩大讲解范围。
 
-生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null`，不会出现在右侧卡片库；前端点大叉后调用 `POST /api/cards/{id}/save`，后端写入 `saved_at`，卡片才进入跨 session 的全局已归档列表。未归档卡片存在时，`/api/chat/stream` 返回 409，避免绕过确认继续生成。
+生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null`，不会出现在右侧卡片库。知识卡片点大叉后，前端提交 `CARD_DISMISSED_CONTINUE`；后端在同一事务写 `saved_at` 与 `session_inputs` 控制命令，再由前端调用 `/api/chat/stream`。Problem card 仍只归档、不继续。未归档卡片存在时，`/api/chat/stream` 返回 409，避免绕过确认继续生成。
 
 卡片接口：
 
 ```text
 GET    /api/cards?card_type=knowledge_card|problem_card
 POST   /api/cards/{card_id}/save
+POST   /api/sessions/{session_id}/inputs  # CARD_DISMISSED_CONTINUE
 DELETE /api/cards
 DELETE /api/cards/{card_id}
 ```
 
 `DELETE /api/cards` 会清空全部已归档和待归档卡片，但不删除 session、message、checkpoint 或日志。`session_id` 仍保存在卡片记录中作为来源审计字段，但全局卡片库的查询与删除不依赖当前会话。新建、恢复或删除 session 都不会清空已归档卡片；只有 `saved_at=null` 的待归档卡片仍属于原会话的阻塞工作流。
 
-## 9. SSE 事件顺序
+## 9. SSE 事件顺序与 durable 边界
 
 一次 `/api/chat/stream` 可能包含多个 action。每个 action 都会有自己的事件段：
 
@@ -250,6 +266,21 @@ message_done
 ```
 
 前端收到 `message_done` 后会把下一个 action 开成新的 assistant 气泡，避免多个 LLM 调用的文本糊成一段。
+
+上面是 `POST /api/chat/stream` 的当前请求内事件，`message_delta/message_reset` 不保证断线重放。后端同时把稳定业务边界写入 SQLite `session_events`：
+
+```text
+run.started
+message.completed        # 完整 student/assistant message
+action.completed         # 后端归一化后的 action
+checkpoint.ready? / card.ready?
+run.completed
+session.idle
+```
+
+checkpoint answer 会在原子事务中依次追加 `checkpoint.completed` 和对应的 student `message.completed`；卡片归档追加 `card.saved`。run 失败时追加 `error.occurred -> run.completed(status=failed) -> session.idle`。
+
+`GET /api/sessions/{session_id}/events/stream` 用 `after_seq` 或 `Last-Event-ID` 先补齐遗漏事件再持续订阅。同一 session 的 `seq` 严格递增；客户端重复收到相同 `seq` 时只应用一次。这个 change feed 不改变六个教学 action，也不让模型控制 `wait_for_student`。完整合同见 `docs/session-events.md`。
 
 ## 10. 日志口径
 

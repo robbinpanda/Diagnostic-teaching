@@ -15,6 +15,7 @@ from app.core.schemas import (
 )
 from app.storage.database import Database
 from app.storage.security import SecretBox, mask_api_key
+from app.storage.session_events import SessionEventRepository
 
 
 def now_iso() -> str:
@@ -39,36 +40,44 @@ class ModelProfileRepository:
         self.secrets = secrets
 
     def create(self, payload: ModelProfileCreate) -> sqlite3.Row:
-        profile_id = new_id("prof")
-        api_key = payload.api_key.strip()
+        return self.create_many([payload])[0]
+
+    def create_many(self, payloads: list[ModelProfileCreate]) -> list[sqlite3.Row]:
+        if not payloads:
+            return []
         ts = now_iso()
+        profile_ids: list[str] = []
         with self.db.connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO model_profiles (
-                  id, display_name, provider, base_url, model, api_key_ciphertext,
-                  api_key_mask, tags_json, enabled, timeout_ms, temperature,
-                  max_output_tokens, is_multimodal, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    profile_id,
-                    payload.display_name.strip(),
-                    payload.provider,
-                    normalize_base_url(str(payload.base_url)),
-                    payload.model.strip(),
-                    self.secrets.encrypt(api_key),
-                    mask_api_key(api_key),
-                    json.dumps(payload.tags, ensure_ascii=False),
-                    payload.timeout_ms,
-                    payload.temperature,
-                    payload.max_output_tokens,
-                    int(payload.is_multimodal),
-                    ts,
-                    ts,
-                ),
-            )
-        return self.get(profile_id)
+            for payload in payloads:
+                profile_id = new_id("prof")
+                profile_ids.append(profile_id)
+                api_key = payload.api_key.strip()
+                conn.execute(
+                    """
+                    INSERT INTO model_profiles (
+                      id, display_name, provider, base_url, model, api_key_ciphertext,
+                      api_key_mask, tags_json, enabled, timeout_ms, temperature,
+                      max_output_tokens, is_multimodal, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        profile_id,
+                        payload.display_name.strip(),
+                        payload.provider,
+                        normalize_base_url(str(payload.base_url)),
+                        payload.model.strip(),
+                        self.secrets.encrypt(api_key),
+                        mask_api_key(api_key),
+                        json.dumps(payload.tags, ensure_ascii=False),
+                        payload.timeout_ms,
+                        payload.temperature,
+                        payload.max_output_tokens,
+                        int(payload.is_multimodal),
+                        ts,
+                        ts,
+                    ),
+                )
+        return [self.get(profile_id) for profile_id in profile_ids]
 
     def list_public(self) -> list[sqlite3.Row]:
         with self.db.connect() as conn:
@@ -180,6 +189,7 @@ class ModelProfileRepository:
 class SessionRepository:
     def __init__(self, db: Database):
         self.db = db
+        self.events = SessionEventRepository(db)
 
     def create(self, payload: SessionCreate) -> sqlite3.Row:
         session_id = new_id("sess")
@@ -204,6 +214,22 @@ class SessionRepository:
                     ts,
                 ),
             )
+            self.events.append_in_transaction(
+                conn,
+                session_id,
+                [
+                    (
+                        "session.created",
+                        {
+                            "model_profile_id": payload.model_profile_id,
+                            "grade_band": payload.grade_band,
+                            "subject": payload.subject,
+                            "state_hint": "diagnosing",
+                            "restored_from": None,
+                        },
+                    )
+                ],
+            )
         return self.get(session_id)
 
     def get(self, session_id: str) -> sqlite3.Row:
@@ -214,28 +240,15 @@ class SessionRepository:
         return row
 
     def delete(self, session_id: str) -> None:
-        """Delete a session while preserving cards already saved to the global library."""
+        """Delete a session using database-level child/card deletion semantics."""
         with self.db.connect() as conn:
-            exists = conn.execute(
-                "SELECT 1 FROM sessions WHERE id = ?",
-                (session_id,),
-            ).fetchone()
-            if exists is None:
+            cursor = conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            if cursor.rowcount == 0:
                 raise KeyError(session_id)
-            conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
-            conn.execute("DELETE FROM checkpoints WHERE session_id = ?", (session_id,))
-            conn.execute(
-                "DELETE FROM study_cards WHERE session_id = ? AND saved_at IS NULL",
-                (session_id,),
-            )
-            conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
     def delete_all_sessions(self) -> None:
-        """Delete all resumable session state while preserving saved global cards."""
+        """Delete sessions; database constraints preserve only archived global cards."""
         with self.db.connect() as conn:
-            conn.execute("DELETE FROM messages")
-            conn.execute("DELETE FROM checkpoints")
-            conn.execute("DELETE FROM study_cards WHERE saved_at IS NULL")
             conn.execute("DELETE FROM sessions")
 
     def update_phase(
@@ -255,52 +268,13 @@ class SessionRepository:
                 (phase, breakpoint_description, breakpoint_confidence, now_iso(), session_id),
             )
 
-    def add_message(
-        self,
-        session_id: str,
-        role: str,
-        content: str,
-        *,
-        action: str,
-        action_id: str | None = None,
-        in_reply_to_action_id: str | None = None,
-        metadata: dict | None = None,
-    ) -> sqlite3.Row:
-        message_id = new_id("msg")
-        action_id = action_id or new_id("act")
-        with self.db.connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO messages (
-                  id, session_id, role, content, action_id, action,
-                  in_reply_to_action_id, metadata_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    message_id,
-                    session_id,
-                    role,
-                    content,
-                    action_id,
-                    action,
-                    in_reply_to_action_id,
-                    json.dumps(metadata or {}, ensure_ascii=False),
-                    now_iso(),
-                ),
-            )
-            conn.execute(
-                "UPDATE sessions SET updated_at = ? WHERE id = ?",
-                (now_iso(), session_id),
-            )
-        with self.db.connect() as conn:
-            return conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
-
     def record_tutor_action(
         self,
         session_id: str,
         turn: TutorTurn,
         *,
         action_index: int,
+        run_id: str | None = None,
     ) -> tuple[sqlite3.Row, sqlite3.Row | None, sqlite3.Row | None]:
         """Atomically save session state, assistant action, checkpoint, and pending card."""
         message_id = new_id("msg")
@@ -390,12 +364,13 @@ class SessionRepository:
                 conn.execute(
                     """
                     INSERT INTO study_cards (
-                      id, session_id, card_type, title, content_json,
+                      id, session_id, live_session_id, card_type, title, content_json,
                       source_action_id, source_message_id, created_at, saved_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                     """,
                     (
                         card_id,
+                        session_id,
                         session_id,
                         card_content.type,
                         card_content.title,
@@ -414,6 +389,69 @@ class SessionRepository:
                 "SELECT * FROM messages WHERE id = ?",
                 (message_id,),
             ).fetchone()
+
+            durable_events: list[tuple[str, dict]] = [
+                (
+                    "message.completed",
+                    {
+                        "run_id": run_id,
+                        "message_id": message_id,
+                        "role": "assistant",
+                        "content": turn.message,
+                        "action_id": action_id,
+                        "action": turn.action,
+                        "in_reply_to_action_id": None,
+                    },
+                ),
+                (
+                    "action.completed",
+                    {
+                        "run_id": run_id,
+                        "action_index": action_index,
+                        "action_id": action_id,
+                        "message_id": message_id,
+                        "action": turn.action,
+                        "state_hint": turn.state_hint,
+                        "wait_for_student": turn.wait_for_student,
+                        "message": turn.message,
+                        "breakpoint": turn.breakpoint_description,
+                        "confidence": turn.breakpoint_confidence,
+                        "checkpoint_id": checkpoint_id,
+                        "card_id": card_id,
+                    },
+                ),
+            ]
+            if turn.checkpoint and checkpoint_id:
+                checkpoint_data = turn.checkpoint.model_dump()
+                for option in checkpoint_data["options"]:
+                    option.pop("is_correct", None)
+                    option.pop("misconception", None)
+                durable_events.append(
+                    (
+                        "checkpoint.ready",
+                        {
+                            "run_id": run_id,
+                            "checkpoint_id": checkpoint_id,
+                            "source_action_id": action_id,
+                            "checkpoint": checkpoint_data,
+                        },
+                    )
+                )
+            if card_content and card_id:
+                durable_events.append(
+                    (
+                        "card.ready",
+                        {
+                            "run_id": run_id,
+                            "card_id": card_id,
+                            "card_type": card_content.type,
+                            "source_action_id": action_id,
+                            "source_message_id": message_id,
+                            "content": card_content.model_dump(),
+                        },
+                    )
+                )
+            self.events.append_in_transaction(conn, session_id, durable_events)
 
         return assistant_row, checkpoint_row, card_row
 
@@ -436,7 +474,7 @@ class SessionRepository:
         clauses: list[str] = []
         params: list[str] = []
         if session_id is not None:
-            clauses.append("session_id = ?")
+            clauses.append("live_session_id = ?")
             params.append(session_id)
         if not include_pending:
             clauses.append("saved_at IS NOT NULL")
@@ -472,7 +510,7 @@ class SessionRepository:
             ).fetchone()
             if row is None:
                 raise KeyError(card_id)
-            if row["session_id"] != session_id:
+            if row["live_session_id"] != session_id:
                 raise PermissionError(card_id)
             if row["saved_at"] is None:
                 conn.execute(
@@ -482,6 +520,22 @@ class SessionRepository:
                 conn.execute(
                     "UPDATE sessions SET updated_at = ? WHERE id = ?",
                     (ts, session_id),
+                )
+                self.events.append_in_transaction(
+                    conn,
+                    session_id,
+                    [
+                        (
+                            "card.saved",
+                            {
+                                "card_id": card_id,
+                                "card_type": row["card_type"],
+                                "source_action_id": row["source_action_id"],
+                                "source_message_id": row["source_message_id"],
+                                "saved_at": ts,
+                            },
+                        )
+                    ],
                 )
             return conn.execute(
                 "SELECT * FROM study_cards WHERE id = ?",
@@ -510,22 +564,39 @@ class SessionRepository:
             if limit is None:
                 return conn.execute(
                     """
-                    SELECT * FROM messages
-                    WHERE session_id = ?
-                    ORDER BY created_at ASC, rowid ASC
+                    SELECT m.*, si.idempotency_key AS client_message_id
+                    FROM messages m
+                    LEFT JOIN session_inputs si
+                      ON si.message_id = m.id AND si.kind = 'STUDENT_MESSAGE'
+                    WHERE m.session_id = ?
+                    ORDER BY m.created_at ASC, m.rowid ASC
                     """,
                     (session_id,),
                 ).fetchall()
             rows = conn.execute(
                 """
-                SELECT * FROM messages
-                WHERE session_id = ?
-                ORDER BY created_at DESC, rowid DESC
+                SELECT m.*, si.idempotency_key AS client_message_id
+                FROM messages m
+                LEFT JOIN session_inputs si
+                  ON si.message_id = m.id AND si.kind = 'STUDENT_MESSAGE'
+                WHERE m.session_id = ?
+                ORDER BY m.created_at DESC, m.rowid DESC
                 LIMIT ?
                 """,
                 (session_id, limit),
             ).fetchall()
         return list(reversed(rows))
+
+    def list_inputs(self, session_id: str) -> list[sqlite3.Row]:
+        with self.db.connect() as conn:
+            return conn.execute(
+                """
+                SELECT * FROM session_inputs
+                WHERE session_id = ?
+                ORDER BY created_at ASC, rowid ASC
+                """,
+                (session_id,),
+            ).fetchall()
 
     def latest_blocking_action_id(self, session_id: str) -> str | None:
         with self.db.connect() as conn:
@@ -603,84 +674,15 @@ class SessionRepository:
                 (session_id,),
             ).fetchall()
 
-    def record_checkpoint_response(
-        self,
-        checkpoint_id: str,
-        selected_option_id: str,
-        elapsed_ms: int,
-        *,
-        session_id: str,
-        student_message: str,
-        checkpoint_result: dict,
-        next_state_hint: str,
-    ) -> tuple[sqlite3.Row, bool, sqlite3.Row]:
-        """Atomically save the student's checkpoint result and conversation message."""
-        message_id = new_id("msg")
-        action_id = new_id("act")
-        ts = now_iso()
-        with self.db.connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM checkpoints WHERE id = ?",
-                (checkpoint_id,),
-            ).fetchone()
-            if row is None:
-                raise KeyError(checkpoint_id)
-            if row["session_id"] != session_id:
-                raise PermissionError(checkpoint_id)
-            if row["answered_at"] is not None:
-                raise FileExistsError(checkpoint_id)
-
-            is_correct = selected_option_id == row["correct_option_id"]
-            conn.execute(
-                """
-                UPDATE checkpoints
-                SET selected_option_id = ?, is_correct = ?, elapsed_ms = ?, answered_at = ?
-                WHERE id = ?
-                """,
-                (selected_option_id, int(is_correct), elapsed_ms, ts, checkpoint_id),
-            )
-            conn.execute(
-                """
-                INSERT INTO messages (
-                  id, session_id, role, content, action_id, action,
-                  in_reply_to_action_id, metadata_json, created_at
-                ) VALUES (?, ?, 'student', ?, ?, 'CHECKPOINT_RESPONSE', ?, ?, ?)
-                """,
-                (
-                    message_id,
-                    session_id,
-                    student_message,
-                    action_id,
-                    row["source_action_id"],
-                    json.dumps({"checkpoint_result": checkpoint_result}, ensure_ascii=False),
-                    ts,
-                ),
-            )
-            conn.execute(
-                """
-                UPDATE sessions
-                SET phase = ?, breakpoint_description = NULL,
-                    breakpoint_confidence = NULL, updated_at = ?
-                WHERE id = ?
-                """,
-                (next_state_hint, ts, session_id),
-            )
-            updated = conn.execute(
-                "SELECT * FROM checkpoints WHERE id = ?",
-                (checkpoint_id,),
-            ).fetchone()
-            student_row = conn.execute(
-                "SELECT * FROM messages WHERE id = ?",
-                (message_id,),
-            ).fetchone()
-        return updated, is_correct, student_row
-
     def list_history(self) -> list[sqlite3.Row]:
         with self.db.connect() as conn:
             return conn.execute(
                 """
                 SELECT s.*,
-                       COALESCE(mp.display_name, '已删除的模型') AS model_display_name,
+                       CASE
+                         WHEN mp.id IS NULL THEN '已删除的模型'
+                         ELSE mp.display_name || ' · ' || mp.model
+                       END AS model_display_name,
                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count,
                        (SELECT COUNT(*) FROM checkpoints c WHERE c.session_id = s.id) AS checkpoint_count
                 FROM sessions s
@@ -693,6 +695,7 @@ class SessionRepository:
         """Copy one SQLite session into a new resumable session."""
         source = self.get(source_session_id)
         messages = self.list_messages(source_session_id)
+        inputs = self.list_inputs(source_session_id)
         checkpoints = self.list_checkpoints(source_session_id)
         cards = [
             card
@@ -800,16 +803,54 @@ class SessionRepository:
                     ),
                 )
 
+            # Preserve ordinary-message idempotency in the explicit restored
+            # branch. Checkpoint inputs are lazily backfilled from their copied
+            # CHECKPOINT_RESPONSE message if an old answer is retried.
+            for input_row in inputs:
+                if input_row["kind"] != "STUDENT_MESSAGE":
+                    continue
+                if input_row["message_id"] not in message_map:
+                    continue
+                try:
+                    result = json.loads(input_row["result_json"] or "{}")
+                except json.JSONDecodeError:
+                    result = {}
+                if result.get("message_id") in message_map:
+                    result["message_id"] = message_map[result["message_id"]]
+                if result.get("action_id") in action_map:
+                    result["action_id"] = action_map[result["action_id"]]
+                if result.get("in_reply_to_action_id") in action_map:
+                    result["in_reply_to_action_id"] = action_map[result["in_reply_to_action_id"]]
+                conn.execute(
+                    """
+                    INSERT INTO session_inputs (
+                      id, session_id, kind, idempotency_key, payload_json,
+                      result_json, message_id, checkpoint_id, card_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)
+                    """,
+                    (
+                        new_id("inp"),
+                        new_session_id,
+                        input_row["kind"],
+                        input_row["idempotency_key"],
+                        input_row["payload_json"],
+                        json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                        message_map[input_row["message_id"]],
+                        input_row["created_at"],
+                    ),
+                )
+
             for card in cards:
                 conn.execute(
                     """
                     INSERT INTO study_cards (
-                      id, session_id, card_type, title, content_json,
+                      id, session_id, live_session_id, card_type, title, content_json,
                       source_action_id, source_message_id, created_at, saved_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         card_map[card["id"]],
+                        new_session_id,
                         new_session_id,
                         card["card_type"],
                         card["title"],
@@ -820,5 +861,25 @@ class SessionRepository:
                         card["saved_at"],
                     ),
                 )
+
+            self.events.append_in_transaction(
+                conn,
+                new_session_id,
+                [
+                    (
+                        "session.created",
+                        {
+                            "model_profile_id": model_profile_id,
+                            "grade_band": source["grade_band"],
+                            "subject": source["subject"],
+                            "state_hint": source["phase"],
+                            "restored_from": source["id"],
+                            "baseline_message_count": len(messages),
+                            "baseline_checkpoint_count": len(checkpoints),
+                            "baseline_pending_card_count": len(cards),
+                        },
+                    )
+                ],
+            )
 
         return self.get(new_session_id)

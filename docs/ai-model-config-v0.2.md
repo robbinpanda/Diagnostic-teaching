@@ -2,12 +2,12 @@
 
 方案版本：v0.2
 文档状态：现行实现说明
-最后核对：2026-07-15
+最后核对：2026-07-17
 适用项目：诊断式数学答疑 MVP
 
 ## 1. 结论
 
-前端已提供“添加模型配置”按钮，用户可以把 `base_url`、`api_key`、`model_name` 复制进去并保存。
+前端已提供“添加模型配置”按钮。用户填写一套供应商名称、`base_url` 和 `api_key` 后，可以通过 Model name 旁的加号一次加入多个模型；保存后每个 model name 仍是独立 profile，session 继续绑定到具体 profile。
 
 但不建议把这些内容写进 `.env`。更合适的 MVP 方案是：
 
@@ -53,26 +53,28 @@ SESSION_LOG_DIR=./logs/sessions
 2. 如果只有一个可用模型，前端自动选中；如果有多个，用户必须明确选择一个。
 3. 如果没有可用模型，显示“添加模型配置”。
 4. 创建答疑 session 前必须有 `model_profile_id`。
+5. 下拉选择、当前模型和删除确认统一显示为“供应商名称 · model name”，例如“火山方舟 · doubao-seed-1-6”。
 
 “添加模型配置”弹窗字段：
 
-1. 显示名称：例如“我的豆包模型”。
+1. 供应商名称：例如“火山方舟”。
 2. 供应商类型：OpenAI-compatible / OpenAI / Local demo。
 3. Base URL。
 4. API key。
-5. Model name。
+5. Model name 列表；点加号最多可加入 20 个，每项必须唯一。
 6. Max output tokens，默认 8000。
 7. Timeout，默认 30000 ms。
 8. Temperature，默认 0.2。
-9. 是否支持图片识别；勾选后可用于题图识别和必须看图的正式答疑。
+9. 每个 model name 独立的“是否支持图片识别”，默认关闭；勾选后可用于题图识别和含原图的正式答疑。
 
 当前 UI 不开放标签编辑，保存时固定写入 `math` 标签；后端 API 仍支持 `tags` 字段。
 
 按钮：
 
-1. “测试连接”：不保存，只验证 URL、key、model 是否能调用。
-2. 新增时“保存并选择”：保存后作为本次答疑模型。
-3. 编辑时“保存修改”：更新当前配置并保持选中。
+1. “逐个测试”：不保存；每个 model name 先发短文本验证连通性，再发送 `apps/api/app/assets/multimodal-probe.png` 探测图片请求。每行显示绿色勾或红色叉。
+2. 未勾选多模态时，图片探测成功会自动勾选；图片探测失败但文本连接成功时仍作为文本模型通过。若用户已手动勾选多模态，图片探测失败则该模型测试失败。
+3. 新增时“保存 N 个模型”：后端以一个事务创建所有 profile，并默认选中第一项。
+4. 编辑时“保存修改”：更新当前具体 profile 并保持选中。
 
 安全要求：
 
@@ -132,7 +134,9 @@ POST /api/model-profiles/test
   "provider": "openai_compatible",
   "base_url": "https://example-provider.com/v1",
   "api_key": "user-pasted-api-key",
-  "model": "provider-model-name"
+  "model": "provider-model-name",
+  "probe_multimodal": true,
+  "require_multimodal": false
 }
 ```
 
@@ -142,17 +146,47 @@ POST /api/model-profiles/test
 {
   "ok": true,
   "latency_ms": 1280,
-  "message": "连接成功"
+  "message": "连接成功；图片探测通过",
+  "multimodal_ok": true,
+  "multimodal_latency_ms": 1520,
+  "multimodal_message": "图片请求成功"
 }
 ```
 
-`latency_ms` 记录从发起请求到收到第一个非空可见文本 chunk 的首字延迟（TTFT），不等待完整回复结束。
+`latency_ms` 记录文本测试从发起请求到收到第一个非空可见文本 chunk 的首字延迟（TTFT），不等待完整回复结束。前端传 `probe_multimodal=true` 时，后端会把内置 PNG 作为 `image_url` 再请求一次；`require_multimodal=true` 表示图片探测失败应让整项测试失败。
 
-测试连接应使用极短 prompt，避免明显成本。
+文本和图片探测都使用极短 prompt，避免明显成本。内置图片不含用户数据、API key 或业务题目。
 
 编辑已有配置时可同时提交 `profile_id` 并省略 `api_key`，后端会使用已加密保存的 key 完成测试。
 
-### 5.3 新增模型配置
+### 5.3 批量新增同一供应商的模型
+
+```http
+POST /api/model-profiles/batch
+```
+
+请求中的供应商字段只写一次，每个 model name 独立携带多模态标记：
+
+```json
+{
+  "display_name": "火山方舟",
+  "provider": "openai_compatible",
+  "base_url": "https://example-provider.com/v1",
+  "api_key": "user-pasted-api-key",
+  "models": [
+    {"model": "text-model", "is_multimodal": false},
+    {"model": "vision-model", "is_multimodal": true}
+  ],
+  "tags": ["math"],
+  "timeout_ms": 30000,
+  "temperature": 0.2,
+  "max_output_tokens": 8000
+}
+```
+
+后端在同一 SQLite 事务里创建多个 `model_profiles` 行；任一写入失败时整批回滚。各行共享供应商名称、URL、运行参数和同一 API key 的加密值，但拥有独立 ID、model name、多模态标记和测试状态。
+
+### 5.4 单个新增模型配置（兼容接口）
 
 ```http
 POST /api/model-profiles
@@ -186,7 +220,7 @@ POST /api/model-profiles
 }
 ```
 
-### 5.4 更新模型配置
+### 5.5 更新模型配置
 
 ```http
 PATCH /api/model-profiles/{profile_id}
@@ -205,7 +239,7 @@ PATCH /api/model-profiles/{profile_id}
 9. `is_multimodal`，是否支持图片识别
 10. `api_key`，仅在用户重新输入时替换
 
-### 5.5 删除模型配置
+### 5.6 删除模型配置
 
 ```http
 DELETE /api/model-profiles/{profile_id}
@@ -219,6 +253,8 @@ DELETE /api/model-profiles/{profile_id}
 
 ## 6. SQLite 表设计
 
+下面是字段概览；可执行 schema 以 `apps/api/migrations/versions/` 的 Alembic revision 为准。`sessions.model_profile_id` 外键使用 `ON DELETE RESTRICT`，而配置删除接口只做软删除，因此历史 session 仍能稳定引用原 profile。迁移与 Windows SQLite 运行说明见 `docs/database.md`。
+
 ```sql
 CREATE TABLE model_profiles (
   id TEXT PRIMARY KEY,
@@ -229,14 +265,14 @@ CREATE TABLE model_profiles (
   api_key_ciphertext TEXT NOT NULL,
   api_key_mask TEXT NOT NULL,
   tags_json TEXT NOT NULL DEFAULT '[]',
-  enabled INTEGER NOT NULL DEFAULT 1,
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
   deleted_at TEXT,
   last_test_status TEXT,
   last_test_latency_ms INTEGER,
-  timeout_ms INTEGER NOT NULL DEFAULT 30000,
+  timeout_ms INTEGER NOT NULL DEFAULT 30000 CHECK (timeout_ms > 0),
   temperature REAL NOT NULL DEFAULT 0.2,
-  max_output_tokens INTEGER NOT NULL DEFAULT 8000,
-  is_multimodal INTEGER NOT NULL DEFAULT 0,
+  max_output_tokens INTEGER NOT NULL DEFAULT 8000 CHECK (max_output_tokens > 0),
+  is_multimodal INTEGER NOT NULL DEFAULT 0 CHECK (is_multimodal IN (0, 1)),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

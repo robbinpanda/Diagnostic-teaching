@@ -2,7 +2,46 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
-## v1.6 — 2026-07-17
+## v1.9 — 2026-07-18
+
+### Alembic 与 SQLite 可靠性基线
+
+- 引入 Alembic，后端启动自动执行 `upgrade head`；当前五张业务表建立统一迁移基线，旧版无迁移标记的 SQLite 会补齐历史列并保留全部有效业务数据。
+- 移除 `database.py` 的内联建表和 `_ensure_column` 演进方式；后续 schema 只通过新的 revision 扩展。
+- 每条 SQLite 连接启用 `foreign_keys=ON`、WAL、`synchronous=NORMAL` 和 5 秒 busy timeout，补充 Windows WAL 文件、单写者限制和停机备份说明。
+- sessions 到 model_profiles 使用 `RESTRICT`；messages/checkpoints 到 sessions 使用 `CASCADE`。study_cards 新增活动会话外键，数据库触发器删除待归档卡，已归档卡在 session 删除后保留不可变来源审计并继续存在于全局卡片库。
+- 新增迁移重复执行、旧库升级、外键拒绝孤儿、索引、级联删除和已归档卡保留测试。
+
+### Durable 输入接纳与幂等提交
+
+- 新增 SQLite `session_inputs` 权威表，区分 `STUDENT_MESSAGE`、`CHECKPOINT_ANSWER` 与 `CARD_DISMISSED_CONTINUE`，并保存幂等键、规范化 payload、首次结果及 message/checkpoint/card 关联。
+- 新增 `POST /api/sessions/{session_id}/inputs`：普通消息使用前端生成的 `client_message_id`，第一次返回 `201 accepted`，同值重试返回 `200 duplicate`，同 ID 不同输入返回 `409 IDEMPOTENCY_KEY_CONFLICT`。
+- 前端会话消息改成先调用输入接纳接口、成功后再启动 `/api/chat/stream`；同步增加双击锁和失败重试时复用原 `client_message_id`。流接口继续兼容携带 message 的旧调用，但也先经过相同接纳服务。
+- Checkpoint answer 改由接纳服务在一个 `BEGIN IMMEDIATE` 事务中写 `session_inputs`、checkpoint 状态、`CHECKPOINT_RESPONSE` message 和 session state；同选项重试返回第一次结果，不同选项重试返回 `409 CHECKPOINT_ANSWER_CONFLICT`。
+- 知识卡关闭后的继续改为 durable 控制命令，卡片 `saved_at` 与 `CARD_DISMISSED_CONTINUE` 同事务提交；problem card 仍只归档、不继续。
+- 会话详情回传普通消息的 `client_message_id`，显式恢复分支复制并重映射普通消息输入记录；会话删除同时删除所属 `session_inputs`。
+- 新增幂等、ID 冲突、并发双击、请求重试、checkpoint 重复提交及强制失败事务回滚测试。
+
+### Session durable events、有限历史与 SSE 续传
+
+- 新增 Alembic `0003_session_events` 迁移：SQLite 保存 append-only `session_events`，以 `(session_id, seq)` 唯一约束和 writer lock 保证并发下严格递增。
+- message/action/checkpoint/card 的完成事件与对应业务写入同事务提交；chat run 增加 `run.started/run.completed/error.occurred/session.idle` 边界。高频 `message_delta` 继续只实时发送，完整 message/action 可重放。
+- 新增有限历史 `GET /api/sessions/{session_id}/events`，单页最多 200；新增 `GET /api/sessions/{session_id}/events/stream`，支持 `after_seq`、`Last-Event-ID`、先补发后跟随和 keep-alive。
+- 固定 `schema_version=1` 信封与类型版本策略；客户端以 `seq` 去重，重复消费不会重复应用状态。
+- 旧 SQLite 不伪造过去事件，首次打开仍以 session detail 为基线；JSONL/Markdown 继续仅用于诊断，不能作为 durable event 或恢复来源。
+- 新增迁移、并发 seq、事务回滚、分页隔离、顺序、断线续传、重复消费以及 checkpoint/card/error/idle 测试。
+
+## v1.8 — 2026-07-17
+
+### 同一供应商批量添加模型与多模态自动探测
+
+- 模型配置弹窗支持在一套 Base URL/API key 下通过加号添加多个 model name，后端以事务一次创建多个独立 profile，现有 session 仍绑定具体 profile。
+- 每个 model name 独立设置 `is_multimodal`，默认关闭；逐模型测试先验证文本连接，再发送仓库内置视觉样例图。图片请求成功时自动勾选多模态。
+- 每行显示测试中的状态、绿色成功勾或红色失败叉；手动声明为多模态但图片探测失败时，整项测试判定失败。
+- 前端模型选择和当前模型显示统一为“供应商名称 · model name”，历史会话的模型名称也使用相同格式。
+- 移除左侧栏底部与 composer 重复的模型设置入口，避免长模型名挤压侧栏；会话列表和顶部对话标题改用 KaTeX 渲染，并保留完整题目文本以免截断数学定界符。
+
+## v1.7 — 2026-07-17
 
 ### 学习卡片混合选择与有序导出
 
@@ -11,7 +50,7 @@
 - 题目卡片打印稿新增题目摘要、解题路线、完整步骤、思考提示、坑点和最终答案版式，并以暖色标记和知识卡片区分。
 - 保留单列、双列、三列排版及从上到下、再向右续排的多列阅读方式；导出仍然只使用浏览器本地数据和系统打印面板。
 
-## v1.5 — 2026-07-17
+## v1.6 — 2026-07-17
 
 ### 知识卡片 PDF 多排版导出
 
@@ -20,6 +59,16 @@
 - 打印稿采用报纸式多列流，先从上到下填满左列再向右流动；普通卡片尽量整张保留，超长单卡只在结构化内容分区之间续排。
 - PDF 打印稿复用 `MathText` 与 KaTeX，保留公式、中文内容和卡片层次；导出只读取前端已有数据，不新增 API、不修改 SQLite、不上传外部服务。
 - 导出时临时使用“我的数学知识卡片”作为文档标题，并打开系统打印面板供用户选择“另存为 PDF”。
+
+## v1.5 — 2026-07-17
+
+### Codex 风格对话工作台与 session intake
+
+- 页面重构为左侧会话、中央对话、右侧知识卡片的三栏工作台；题目、已有思路、图片和会话内回复统一从底部 composer 发送。
+- 新增 `POST /api/sessions/intake`：后端累计并识别题目与学生当前思路，缺哪项就定向追问，两项齐备后才创建正式 session 并进入教学状态机。
+- 图片上传下沉为 composer 的小按钮；识别结果进入同一 intake，正式 session 保留用户原图并绑定多模态模型。
+- 新增 `GET /api/sessions/{session_id}`，左侧选择会话时直接打开 SQLite 原记录并恢复 pending checkpoint/card；`POST /api/sessions/restore` 继续保留为显式复制分支能力。
+- 中小屏默认收起右侧卡片抽屉，手机同时收起左侧会话抽屉；宽屏保持三栏常驻。
 
 ## v1.4 — 2026-07-15
 

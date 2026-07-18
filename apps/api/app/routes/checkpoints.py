@@ -5,6 +5,12 @@ import json
 from fastapi import APIRouter, HTTPException, Request
 
 from app.core.schemas import CheckpointAnswerRequest, CheckpointAnswerResponse
+from app.services.input_acceptance import (
+    IdempotencyConflictError,
+    InputAcceptanceService,
+    InputStateConflictError,
+    InputValidationError,
+)
 
 router = APIRouter(prefix="/api/checkpoints", tags=["checkpoints"])
 
@@ -15,75 +21,37 @@ def answer_checkpoint(
     payload: CheckpointAnswerRequest,
     request: Request,
 ) -> CheckpointAnswerResponse:
+    service = InputAcceptanceService(request.app.state.sessions)
     try:
-        existing = request.app.state.sessions.get_checkpoint(checkpoint_id)
-        if existing["session_id"] != payload.session_id:
-            raise PermissionError(checkpoint_id)
-        if existing["answered_at"] is not None:
-            raise FileExistsError(checkpoint_id)
-        checkpoint_payload = json.loads(existing["options_json"])
-        allowed = {
-            option["id"] for option in checkpoint_payload.get("options", [])
-        } | {checkpoint_payload.get("unknown_option", {}).get("id", "UNKNOWN")}
-        if payload.selected_option_id not in allowed:
-            raise ValueError(payload.selected_option_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="检查点不存在") from exc
-    except PermissionError as exc:
-        raise HTTPException(status_code=400, detail="检查点不属于当前会话")
-    except FileExistsError as exc:
-        raise HTTPException(status_code=409, detail="该检查点已经回答，不能重复覆盖") from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="选择项不存在") from exc
-
-    checkpoint_payload = json.loads(existing["options_json"])
-    options = checkpoint_payload["options"]
-    selected = next((option for option in options if option["id"] == payload.selected_option_id), None)
-    unknown = checkpoint_payload.get("unknown_option", {"id": "UNKNOWN", "text": "我不知道"})
-    selected_text = selected["text"] if selected else unknown["text"]
-    misconception = selected.get("misconception") if selected else None
-    is_correct = payload.selected_option_id == existing["correct_option_id"]
-    if payload.selected_option_id == unknown["id"]:
-        event = "CHECKPOINT_UNKNOWN"
-        next_state_hint = "recovering"
-    elif is_correct:
-        event = "CHECKPOINT_CORRECT"
-        next_state_hint = "scaffolding"
-    else:
-        event = "CHECKPOINT_WRONG"
-        next_state_hint = "recovering"
-
-    student_message = f"我在检查点「{existing['question']}」选了：{payload.selected_option_id} {selected_text}"
-    checkpoint_result = {
-        "checkpoint_id": checkpoint_id,
-        "question": existing["question"],
-        "selected_option_id": payload.selected_option_id,
-        "selected_text": selected_text,
-        "is_correct": bool(is_correct),
-        "misconception": misconception,
-        "elapsed_ms": payload.elapsed_ms,
-        "event": event,
-        "next_state_hint": next_state_hint,
-    }
-    try:
-        row, is_correct, student_row = request.app.state.sessions.record_checkpoint_response(
+        accepted = service.accept_checkpoint_answer(
             checkpoint_id,
-            payload.selected_option_id,
-            payload.elapsed_ms,
             session_id=payload.session_id,
-            student_message=student_message,
-            checkpoint_result=checkpoint_result,
-            next_state_hint=next_state_hint,
+            selected_option_id=payload.selected_option_id,
+            elapsed_ms=payload.elapsed_ms,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="检查点不存在") from exc
     except PermissionError as exc:
-        raise HTTPException(status_code=400, detail="检查点不属于当前会话") from exc
-    except FileExistsError as exc:
-        raise HTTPException(status_code=409, detail="该检查点已经回答，不能重复覆盖") from exc
+        raise HTTPException(status_code=400, detail="检查点不属于当前会话")
+    except InputValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (IdempotencyConflictError, InputStateConflictError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "CHECKPOINT_ANSWER_CONFLICT",
+                "message": "该检查点已用不同答案提交",
+            },
+        ) from exc
+
+    result = accepted.result
+    student_row = accepted.message_row
+    row = accepted.checkpoint_row
 
     logger = getattr(request.app.state, "session_logger", None)
-    if logger is not None:
+    if accepted.accepted and logger is not None and student_row is not None and row is not None:
+        metadata = json.loads(student_row["metadata_json"] or "{}")
+        checkpoint_result = metadata.get("checkpoint_result", {})
         logger.log_message(
             session_id=payload.session_id,
             message_id=student_row["id"],
@@ -98,18 +66,21 @@ def answer_checkpoint(
             checkpoint_id=checkpoint_id,
             question=row["question"],
             selected_option_id=payload.selected_option_id,
-            selected_text=selected_text,
-            is_correct=bool(is_correct),
-            misconception=misconception,
-            elapsed_ms=payload.elapsed_ms,
-            event=event,
-            next_state_hint=next_state_hint,
+            selected_text=checkpoint_result.get("selected_text", ""),
+            is_correct=bool(result["is_correct"]),
+            misconception=checkpoint_result.get("misconception"),
+            elapsed_ms=checkpoint_result.get("elapsed_ms", payload.elapsed_ms),
+            event=result["event"],
+            next_state_hint=result["next_state_hint"],
         )
 
     return CheckpointAnswerResponse(
-        is_correct=is_correct,
-        event=event,
-        next_state_hint=next_state_hint,
-        student_message=student_message,
-        action_id=student_row["action_id"],
+        input_id=accepted.input_row["id"],
+        status="accepted" if accepted.accepted else "duplicate",
+        is_correct=bool(result["is_correct"]),
+        elapsed_ms=result["elapsed_ms"],
+        event=result["event"],
+        next_state_hint=result["next_state_hint"],
+        student_message=result["student_message"],
+        action_id=result["action_id"],
     )

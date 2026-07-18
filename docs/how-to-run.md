@@ -26,6 +26,27 @@ copy .env.example .env
 
 进程环境变量优先于 `.env`；真实 `.env`、`data/` 和 `logs/` 都已被 Git 忽略。
 
+## 数据库迁移与 Windows 本地行为
+
+后端每次启动都会先执行 Alembic `upgrade head`。新库会直接创建当前 schema；旧版无 `alembic_version` 的数据库会自动建立兼容基线并保留现有 profile、session、message、checkpoint 和 card。首次升级旧库前建议先关闭所有 API 窗口并备份 `data/app.db`，只启动一个后端进程完成迁移。
+
+需要手工检查或升级时，在 `apps/api` 目录运行：
+
+```bat
+python -m alembic -c alembic.ini current
+python -m alembic -c alembic.ini upgrade head
+```
+
+CLI 与应用使用同一套 `DATABASE_URL` / `.env` 路径解析。schema 后续演进只新增 `apps/api/migrations/versions/` revision，不再修改 `database.py` 临时补列。当前迁移链已在可靠性基线之后依次加入 `session_inputs` 与 `session_events`；持久化 run 状态仍应通过新的后续 revision 添加。
+
+每条应用数据库连接都会设置：
+
+- `foreign_keys=ON`：外键在每条连接上真正生效。
+- `journal_mode=WAL` 与 `synchronous=NORMAL`：读请求通常不再阻塞短写入，同时保持适合本地应用的持久性/性能平衡。
+- `busy_timeout=5000`：遇到另一个短事务占用写锁时最多等待 5 秒；超过后仍会明确报 `database is locked`，SQLite 依旧只有一个写者。
+
+Windows 上运行期间看到 `app.db-wal` 和 `app.db-shm` 是正常现象，不要单独删除或只复制 `app.db` 做在线备份。需要可靠备份时先关闭 API，让 WAL 正常 checkpoint，再复制数据库文件。数据库应放在本机磁盘，不建议放到网络共享盘或正在同步的云盘目录；WAL 不适合这类文件系统。
+
 ## 启动
 
 双击：
@@ -97,18 +118,20 @@ scripts\inspect-session.cmd sess_c4052d2538a6
 
 该脚本会自动定位 `ai4edu-tutor` Conda 环境，并读取 `.env` 中自定义的 `DATABASE_URL` 与 `SESSION_LOG_DIR`。
 
-你重点看四张表：
+你重点看六张表：
 
 1. `sessions`：当前阶段、题目、模型。
-2. `messages`：学生消息、AI 回复，以及每条消息的 `action_id / action / in_reply_to_action_id`。
-3. `checkpoints`：每个检查点的问题、选项、正确答案、学生选择，以及产生它的 `source_action_id`。
-4. `study_cards`：全局知识/题目卡片内容、来源 session/action/message，以及是否已由学生关闭归档的 `saved_at`。
+2. `session_inputs`：已可靠接纳的普通消息、checkpoint answer、卡片关闭继续命令，以及幂等键和首次结果。
+3. `messages`：学生消息、AI 回复，以及每条消息的 `action_id / action / in_reply_to_action_id`。
+4. `checkpoints`：每个检查点的问题、选项、正确答案、学生选择，以及产生它的 `source_action_id`。
+5. `study_cards`：全局知识/题目卡片内容、来源 session/action/message，以及是否已由学生关闭归档的 `saved_at`。
+6. `session_events`：按 session 严格递增的 durable change feed，用于有限历史、SSE 断线补发和事件顺序排查；它与 JSONL 诊断日志无关。
 
-页面顶部的“历史会话”也直接读取 SQLite。选择一条历史后，后端会复制出一个新 session 并重建 action/checkpoint 引用；原历史不会被修改。
+页面左侧会话栏直接读取 SQLite。点击一条会话会打开原 session，并恢复其 messages、待答 checkpoint 和待归档 card，不会因为查看而复制记录；需要显式创建实验分支时仍可调用 `POST /api/sessions/restore`。
 
 需要重置测试数据时：
 
-1. 在“历史会话”弹窗点击“清空全部会话”，会删除 SQLite 中的全部会话业务态和全部 session 日志，但保留已归档学习卡片和模型配置。
+1. 在左侧会话栏标题旁点击清空按钮，会删除 SQLite 中的全部会话业务态和全部 session 日志，但保留已归档学习卡片和模型配置。
 2. 在右侧学习卡片库点击“清空全部卡片”，会删除全部知识卡片和题目卡片，但保留会话与日志。
 3. 两个按钮都要求二次确认；答疑正在生成时不能执行。
 
