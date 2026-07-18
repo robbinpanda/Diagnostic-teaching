@@ -62,6 +62,13 @@ def chat_completions_url(base_url: str) -> str:
     return f"{clean}/chat/completions"
 
 
+def anthropic_messages_url(base_url: str) -> str:
+    clean = base_url.rstrip("/")
+    if clean.endswith("/messages"):
+        return clean
+    return f"{clean}/messages"
+
+
 async def test_connection(profile: LlmProfile) -> tuple[bool, int | None, str]:
     if profile.provider == "local_demo":
         return True, 1, "本地演示模型可用"
@@ -198,15 +205,42 @@ async def chat_stream_completion(
     max_tokens: int | None = None,
     temperature: float | None = None,
 ):
-    """流式 chat completions，逐 chunk yield {delta, finish_reason}。
+    """按 profile 协议流式调用模型，逐 chunk yield {delta, finish_reason}。
 
-    用 stream=true 让模型一边生成一边吐 token，httpx 的 read 超时按"两次 chunk
-    之间"计算而非整体 30s，避免长思考被静默截断成空响应。
+    OpenAI-compatible 使用 chat completions，Anthropic 使用 Messages API。
+    httpx 的 read 超时按两次 chunk 之间计算，避免长思考被静默截断成空响应。
     """
     if profile.provider == "local_demo":
         for event in local_demo_stream(messages):
             yield event
         return
+
+    if profile.provider == "anthropic":
+        async for event in _anthropic_stream_completion(
+            profile,
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        ):
+            yield event
+        return
+
+    async for event in _openai_chat_stream_completion(
+        profile,
+        messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    ):
+        yield event
+
+
+async def _openai_chat_stream_completion(
+    profile: LlmProfile,
+    messages: list[dict[str, Any]],
+    *,
+    max_tokens: int | None,
+    temperature: float | None,
+):
 
     headers = {
         "Authorization": f"Bearer {profile.api_key}",
@@ -269,6 +303,166 @@ async def chat_stream_completion(
         raise LlmProviderError("模型流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置") from exc
     except httpx.HTTPError as exc:
         raise LlmProviderError(f"模型请求异常：{str(exc) or exc.__class__.__name__}") from exc
+
+
+async def _anthropic_stream_completion(
+    profile: LlmProfile,
+    messages: list[dict[str, Any]],
+    *,
+    max_tokens: int | None,
+    temperature: float | None,
+):
+    headers = {
+        "x-api-key": profile.api_key,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+    }
+    requested_max_tokens = max_tokens or profile.max_output_tokens
+    payload = anthropic_request_payload(
+        profile,
+        messages,
+        max_tokens=requested_max_tokens,
+        temperature=profile.temperature if temperature is None else temperature,
+    )
+    connect_timeout = min(profile.timeout_ms / 1000, 10.0)
+    read_timeout = max(profile.timeout_ms / 1000, 60.0)
+    timeout = httpx.Timeout(connect_timeout, read=read_timeout, write=10.0, pool=10.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST",
+                anthropic_messages_url(profile.base_url),
+                headers=headers,
+                json=payload,
+            ) as response:
+                if response.status_code >= 400:
+                    body = await response.aread()
+                    raise LlmProviderError(
+                        f"Anthropic 模型请求失败 {response.status_code}: "
+                        f"{body.decode('utf-8', 'ignore')[:300]}"
+                    )
+                async for event in _anthropic_response_events(response, requested_max_tokens):
+                    yield event
+    except httpx.TimeoutException as exc:
+        raise LlmProviderError("Anthropic 流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置") from exc
+    except httpx.HTTPError as exc:
+        raise LlmProviderError(f"Anthropic 模型请求异常：{str(exc) or exc.__class__.__name__}") from exc
+
+
+def anthropic_request_payload(
+    profile: LlmProfile,
+    messages: list[dict[str, Any]],
+    *,
+    max_tokens: int,
+    temperature: float,
+) -> dict[str, Any]:
+    system_parts: list[str] = []
+    converted: list[dict[str, Any]] = []
+    for message in messages:
+        if message.get("role") == "system":
+            text = message_text(message.get("content"))
+            if text:
+                system_parts.append(text)
+            continue
+        role = "assistant" if message.get("role") == "assistant" else "user"
+        blocks = _anthropic_content_blocks(message.get("content"))
+        if converted and converted[-1]["role"] == role:
+            converted[-1]["content"].extend(blocks)
+            continue
+        converted.append({"role": role, "content": blocks})
+
+    payload: dict[str, Any] = {
+        "model": profile.model,
+        "messages": converted,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": True,
+    }
+    if system_parts:
+        payload["system"] = "\n\n".join(system_parts)
+    return payload
+
+
+def _anthropic_content_blocks(content: Any) -> list[dict[str, Any]]:
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    if not isinstance(content, list):
+        return [{"type": "text", "text": str(content or "")}]
+
+    blocks: list[dict[str, Any]] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "text":
+            blocks.append({"type": "text", "text": str(item.get("text") or "")})
+            continue
+        if item.get("type") != "image_url":
+            continue
+        image_url = item.get("image_url")
+        url = image_url.get("url") if isinstance(image_url, dict) else None
+        if not isinstance(url, str) or not url:
+            continue
+        if url.startswith("data:") and ";base64," in url:
+            metadata, data = url.split(",", 1)
+            media_type = metadata.removeprefix("data:").removesuffix(";base64")
+            blocks.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": data,
+                    },
+                }
+            )
+            continue
+        blocks.append({"type": "image", "source": {"type": "url", "url": url}})
+    return blocks
+
+
+async def _anthropic_response_events(response: Any, requested_max_tokens: int):
+    saw_any_data = False
+    saw_content = False
+    finish_reason: str | None = None
+    async for raw_line in response.aiter_lines():
+        line = raw_line.strip()
+        if not line or not line.startswith("data:"):
+            continue
+        saw_any_data = True
+        data_str = line[len("data:") :].strip()
+        try:
+            event = json.loads(data_str)
+        except json.JSONDecodeError:
+            continue
+        event_type = event.get("type")
+        if event_type == "error":
+            error = event.get("error")
+            message = error.get("message") if isinstance(error, dict) else str(error or "unknown error")
+            raise LlmProviderError(f"Anthropic 流式响应错误：{message}")
+        text = ""
+        if event_type == "content_block_start":
+            block = event.get("content_block")
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = str(block.get("text") or "")
+        elif event_type == "content_block_delta":
+            delta = event.get("delta")
+            if isinstance(delta, dict) and delta.get("type") == "text_delta":
+                text = str(delta.get("text") or "")
+        elif event_type == "message_delta":
+            delta = event.get("delta")
+            if isinstance(delta, dict) and delta.get("stop_reason"):
+                finish_reason = str(delta["stop_reason"])
+        elif event_type == "message_stop":
+            finish_reason = finish_reason or "end_turn"
+        if text:
+            saw_content = True
+            yield {"delta": text, "finish_reason": None}
+
+    if not saw_any_data:
+        raise LlmProviderError("Anthropic 流式响应中没有任何 data 事件，请确认 base_url/模型配置")
+    if not saw_content:
+        _assert_nonempty("", "length" if finish_reason == "max_tokens" else finish_reason, requested_max_tokens)
+    yield {"delta": "", "finish_reason": finish_reason}
 
 
 def message_text(content: Any) -> str:

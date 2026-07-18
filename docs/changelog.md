@@ -2,6 +2,18 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v2.0 — 2026-07-19
+
+### OpenCode 免费模型与双协议模型调用
+
+- 参考 OpenCode 本地源码的 `models.dev/api.json` 目录和无密钥筛选逻辑，加入 OpenCode 免费模型目录服务：启动后立即刷新、每 60 分钟更新，并在网络失败时使用 `data/opencode-models.json` 或内置快照。
+- 当前内置 `big-pickle`、`deepseek-v4-flash-free`、`mimo-v2.5-free`、`north-mini-code-free`、`nemotron-3-ultra-free`；统一显示为 `opencodefree-<model-id>`，以加密的公共凭据 `public` 调用 Zen。
+- 免费模型以只读托管 profile 同步到 SQLite，稳定复用 profile ID；目录移除的项仅从可选列表隐藏，历史引用继续保留。PATCH/DELETE 托管项返回 409。
+- 目录中的 `modalities.input` 决定 `is_multimodal`。当前只有 `mimo-v2.5-free` 在模型设置里自动勾选“支持图片识别”；下拉和聊天页不增加额外多模态徽标。
+- 模型调用层新增 Anthropic Messages 协议：system 顶层转换、data URL 图片块转换、`/messages` 请求头和 SSE 文本/停止事件解析；原 OpenAI-compatible chat completions 流保持兼容。
+- 设置弹窗新增 Anthropic Messages 供应商类型；托管免费模型可查看协议和多模态复选框但不能修改，并提示免费端点可能记录输入、不要提交个人或敏感信息。
+- 新增目录筛选、协议识别、多模态元数据、托管同步/防修改、Anthropic payload 和 SSE 解析测试。
+
 ## v1.9 — 2026-07-18
 
 ### Alembic 与 SQLite 可靠性基线

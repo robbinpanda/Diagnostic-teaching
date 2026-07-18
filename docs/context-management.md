@@ -1,8 +1,8 @@
 # 上下文、Session 恢复与诊断日志
 
-版本：v1.1
+版本：v1.2
 
-日期：2026-07-18
+日期：2026-07-19
 
 适用项目：诊断式数学答疑 MVP
 
@@ -96,7 +96,7 @@ apps/api/app/core/teaching_controller.py
 build_messages(session, history)
 ```
 
-发送给 OpenAI-compatible chat completions 的是一个真实多轮数组：
+`build_messages()` 先产生统一的真实多轮数组：
 
 ```text
 system
@@ -110,6 +110,8 @@ assistant 带 knowledge_card / problem_card 的教学 action
 ```
 
 历史中的每条 SQLite message 都单独映射成一条 `user` 或 `assistant` 消息，不再把整段历史拼进最后一个大 user prompt。
+
+`app/llm/provider.py` 再按 profile 分发协议：OpenAI-compatible 原样发送到 chat completions；Anthropic 会把 system 从 messages 中提到顶层、合并相邻同角色消息，并把统一 `image_url` data URL 转成 Anthropic base64 image source。协议转换不改变 SQLite 历史结构，也不会把 API key 写入消息或日志。
 
 应用层不再设置“固定保留 20 条”之类的截断，也不做摘要或压缩。`SessionRepository.list_messages(session_id)` 默认读取该 session 的全部消息并按时间正序发送。
 

@@ -13,6 +13,11 @@ from app.core.schemas import (
     TutorCheckpoint,
     TutorTurn,
 )
+from app.llm.opencode_free_models import (
+    OPENCODE_FREE_TAG,
+    OPENCODE_PUBLIC_API_KEY,
+    OpenCodeFreeModel,
+)
 from app.storage.database import Database
 from app.storage.security import SecretBox, mask_api_key
 from app.storage.session_events import SessionEventRepository
@@ -94,9 +99,86 @@ class ModelProfileRepository:
                 """
                 SELECT * FROM model_profiles
                 WHERE deleted_at IS NULL AND enabled = 1
-                ORDER BY created_at DESC
+                ORDER BY
+                  CASE WHEN tags_json LIKE '%"opencodefree"%' THEN 1 ELSE 0 END ASC,
+                  CASE WHEN tags_json LIKE '%"opencodefree"%' THEN display_name END ASC,
+                  created_at DESC
                 """
             ).fetchall()
+
+    def sync_opencode_free_models(self, models: tuple[OpenCodeFreeModel, ...]) -> list[sqlite3.Row]:
+        ts = now_iso()
+        desired_models = {model.model for model in models}
+        synced_ids: list[str] = []
+        encrypted_public_key = self.secrets.encrypt(OPENCODE_PUBLIC_API_KEY)
+        public_key_mask = mask_api_key(OPENCODE_PUBLIC_API_KEY)
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            managed_rows = conn.execute(
+                "SELECT * FROM model_profiles WHERE tags_json LIKE ?",
+                (f'%"{OPENCODE_FREE_TAG}"%',),
+            ).fetchall()
+            by_model = {row["model"]: row for row in managed_rows}
+            for model in models:
+                existing = by_model.get(model.model)
+                tags_json = json.dumps(["math", OPENCODE_FREE_TAG], ensure_ascii=False)
+                if existing is None:
+                    profile_id = new_id("prof")
+                    conn.execute(
+                        """
+                        INSERT INTO model_profiles (
+                          id, display_name, provider, base_url, model, api_key_ciphertext,
+                          api_key_mask, tags_json, enabled, deleted_at, timeout_ms,
+                          temperature, max_output_tokens, is_multimodal, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, 30000, 0.2, 8000, ?, ?, ?)
+                        """,
+                        (
+                            profile_id,
+                            model.display_name,
+                            model.provider,
+                            normalize_base_url(model.base_url),
+                            model.model,
+                            encrypted_public_key,
+                            public_key_mask,
+                            tags_json,
+                            int(model.is_multimodal),
+                            ts,
+                            ts,
+                        ),
+                    )
+                    synced_ids.append(profile_id)
+                    continue
+                profile_id = existing["id"]
+                conn.execute(
+                    """
+                    UPDATE model_profiles
+                    SET display_name = ?, provider = ?, base_url = ?, api_key_ciphertext = ?,
+                        api_key_mask = ?, tags_json = ?, enabled = 1, deleted_at = NULL,
+                        is_multimodal = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        model.display_name,
+                        model.provider,
+                        normalize_base_url(model.base_url),
+                        encrypted_public_key,
+                        public_key_mask,
+                        tags_json,
+                        int(model.is_multimodal),
+                        ts,
+                        profile_id,
+                    ),
+                )
+                synced_ids.append(profile_id)
+
+            for row in managed_rows:
+                if row["model"] in desired_models:
+                    continue
+                conn.execute(
+                    "UPDATE model_profiles SET enabled = 0, updated_at = ? WHERE id = ?",
+                    (ts, row["id"]),
+                )
+        return [self.get(profile_id) for profile_id in synced_ids]
 
     def get(self, profile_id: str) -> sqlite3.Row:
         with self.db.connect() as conn:
@@ -112,6 +194,8 @@ class ModelProfileRepository:
         return self.secrets.decrypt(row["api_key_ciphertext"])
 
     def update(self, profile_id: str, payload: ModelProfileUpdate) -> sqlite3.Row:
+        if self.is_managed(self.get(profile_id)):
+            raise PermissionError(profile_id)
         changes = payload.model_dump(exclude_unset=True)
         assignments: list[str] = []
         values: list[object] = []
@@ -181,6 +265,8 @@ class ModelProfileRepository:
             )
 
     def soft_delete(self, profile_id: str) -> None:
+        if self.is_managed(self.get(profile_id)):
+            raise PermissionError(profile_id)
         ts = now_iso()
         with self.db.connect() as conn:
             cursor = conn.execute(
@@ -193,6 +279,14 @@ class ModelProfileRepository:
             )
         if cursor.rowcount == 0:
             raise KeyError(profile_id)
+
+    @staticmethod
+    def is_managed(row: sqlite3.Row) -> bool:
+        try:
+            tags = json.loads(row["tags_json"])
+        except (TypeError, json.JSONDecodeError):
+            return False
+        return isinstance(tags, list) and OPENCODE_FREE_TAG in tags
 
 
 class SessionRepository:

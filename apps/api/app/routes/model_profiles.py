@@ -34,6 +34,7 @@ def multimodal_probe_data_url() -> str:
 
 def to_public(row) -> ModelProfilePublic:
     status = "available" if row["enabled"] else "disabled"
+    tags = json.loads(row["tags_json"])
     return ModelProfilePublic(
         id=row["id"],
         display_name=row["display_name"],
@@ -41,7 +42,7 @@ def to_public(row) -> ModelProfilePublic:
         base_url=row["base_url"],
         base_url_host=host_from_url(row["base_url"]),
         model=row["model"],
-        tags=json.loads(row["tags_json"]),
+        tags=tags,
         status=status,
         key_state="saved",
         masked_api_key=row["api_key_mask"],
@@ -49,6 +50,7 @@ def to_public(row) -> ModelProfilePublic:
         temperature=row["temperature"],
         max_output_tokens=row["max_output_tokens"],
         is_multimodal=bool(row["is_multimodal"]),
+        managed=is_managed_tags(tags),
         last_test_status=row["last_test_status"],
         last_test_latency_ms=row["last_test_latency_ms"],
     )
@@ -105,6 +107,8 @@ def update_profile(profile_id: str, payload: ModelProfileUpdate, request: Reques
         row = request.app.state.model_profiles.update(profile_id, payload)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="模型配置不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail="OpenCode 免费模型由目录自动同步，不能手动修改") from exc
     return to_public(row)
 
 
@@ -114,6 +118,8 @@ def delete_profile(profile_id: str, request: Request) -> Response:
         request.app.state.model_profiles.soft_delete(profile_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="模型配置不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail="OpenCode 免费模型由目录自动同步，不能手动删除") from exc
     return Response(status_code=204)
 
 
@@ -180,3 +186,7 @@ def get_profile_or_404(request: Request, profile_id: str):
         return request.app.state.model_profiles.get(profile_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="模型配置不存在") from exc
+
+
+def is_managed_tags(tags: list[str]) -> bool:
+    return "opencodefree" in tags

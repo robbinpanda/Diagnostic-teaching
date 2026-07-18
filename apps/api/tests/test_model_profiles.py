@@ -7,6 +7,12 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from app.core.schemas import ModelProfileCreate
+from app.llm.opencode_free_models import (
+    BUILTIN_FREE_MODELS,
+    OPENCODE_PUBLIC_API_KEY,
+    OpenCodeFreeModel,
+    parse_opencode_free_models,
+)
 from app.llm.provider import IMAGE_ANALYSIS_PROMPT
 from app.main import create_app
 from app.routes import model_profiles, problem_images
@@ -35,6 +41,99 @@ def test_model_profile_encrypts_api_key(tmp_path: Path):
     assert row["api_key_mask"].endswith("cret")
     assert repo.decrypt_api_key(row) == "sk-test-secret"
     assert host_from_url(row["base_url"]) == "example.com"
+
+
+def test_opencode_catalog_keeps_free_supported_models_and_image_metadata():
+    models = parse_opencode_free_models(
+        {
+            "opencode": {
+                "id": "opencode",
+                "npm": "@ai-sdk/openai-compatible",
+                "api": "https://opencode.ai/zen/v1",
+                "models": {
+                    "vision-free": {
+                        "id": "vision-free",
+                        "name": "Vision Free",
+                        "cost": {"input": 0, "output": 0},
+                        "modalities": {"input": ["text", "image"], "output": ["text"]},
+                    },
+                    "anthropic-free": {
+                        "id": "anthropic-free",
+                        "name": "Anthropic Free",
+                        "cost": {"input": 0, "output": 0},
+                        "provider": {
+                            "npm": "@ai-sdk/anthropic",
+                            "api": "https://opencode.ai/zen/v1/messages",
+                        },
+                        "modalities": {"input": ["text"], "output": ["text"]},
+                    },
+                    "paid": {"id": "paid", "cost": {"input": 1, "output": 1}},
+                    "old-free": {
+                        "id": "old-free",
+                        "status": "deprecated",
+                        "cost": {"input": 0, "output": 0},
+                    },
+                    "unsupported-free": {
+                        "id": "unsupported-free",
+                        "cost": {"input": 0, "output": 0},
+                        "provider": {"npm": "@ai-sdk/google"},
+                    },
+                },
+            }
+        }
+    )
+
+    assert [(model.model, model.provider, model.is_multimodal) for model in models] == [
+        ("anthropic-free", "anthropic", False),
+        ("vision-free", "openai_compatible", True),
+    ]
+    assert models[0].base_url.endswith("/messages")
+
+
+def test_builtin_opencode_models_have_expected_multimodal_checkbox():
+    capabilities = {model.model: model.is_multimodal for model in BUILTIN_FREE_MODELS}
+
+    assert capabilities == {
+        "big-pickle": False,
+        "deepseek-v4-flash-free": False,
+        "mimo-v2.5-free": True,
+        "north-mini-code-free": False,
+        "nemotron-3-ultra-free": False,
+    }
+
+
+def test_managed_opencode_profiles_sync_into_sqlite_and_cannot_be_changed(tmp_path: Path):
+    app = create_app()
+    app.state.db = Database(tmp_path / "app.db")
+    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    managed = (
+        OpenCodeFreeModel(
+            model="vision-free",
+            name="Vision Free",
+            provider="anthropic",
+            base_url="https://opencode.ai/zen/v1/messages",
+            is_multimodal=True,
+        ),
+    )
+    first = app.state.model_profiles.sync_opencode_free_models(managed)
+    second = app.state.model_profiles.sync_opencode_free_models(managed)
+    client = TestClient(app)
+
+    assert first[0]["id"] == second[0]["id"]
+    assert app.state.model_profiles.decrypt_api_key(first[0]) == OPENCODE_PUBLIC_API_KEY
+    listed = client.get("/api/model-profiles").json()["profiles"]
+    assert len(listed) == 1
+    assert listed[0]["display_name"] == "opencodefree-vision-free"
+    assert listed[0]["provider"] == "anthropic"
+    assert listed[0]["is_multimodal"] is True
+    assert listed[0]["managed"] is True
+
+    profile_id = listed[0]["id"]
+    updated = client.patch(f"/api/model-profiles/{profile_id}", json={"is_multimodal": False})
+    deleted = client.delete(f"/api/model-profiles/{profile_id}")
+
+    assert updated.status_code == 409
+    assert deleted.status_code == 409
 
 
 def test_delete_model_profile_endpoint_hides_profile(tmp_path: Path):

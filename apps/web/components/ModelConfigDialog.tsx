@@ -27,7 +27,7 @@ function emptyModelEntry(id: string): ModelEntry {
 
 export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
   const [displayName, setDisplayName] = useState("我的供应商");
-  const [provider, setProvider] = useState<"openai" | "openai_compatible" | "local_demo">("openai_compatible");
+  const [provider, setProvider] = useState<"openai" | "openai_compatible" | "anthropic" | "local_demo">("openai_compatible");
   const [baseUrl, setBaseUrl] = useState("https://example-provider.com/v1");
   const [apiKey, setApiKey] = useState("");
   const [models, setModels] = useState<ModelEntry[]>([emptyModelEntry("model-0")]);
@@ -38,6 +38,7 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const isEdit = Boolean(profile);
+  const isManaged = profile?.managed === true;
   const busy = testing || saving;
   const invalid = (
     !displayName.trim()
@@ -178,8 +179,8 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
       <div className="modelDialog">
         <div className="dialogHeader">
           <div>
-            <h2>{isEdit ? "修改模型配置" : "添加供应商模型"}</h2>
-            <p>{isEdit ? "API key 留空则沿用当前密钥。" : "一套供应商 URL/API key 可以一次添加多个 model name。"}</p>
+            <h2>{isManaged ? "查看模型配置" : isEdit ? "修改模型配置" : "添加供应商模型"}</h2>
+            <p>{isManaged ? "OpenCode 免费模型由在线目录自动同步；免费端点可能记录输入，请勿提交个人或敏感信息。" : isEdit ? "API key 留空则沿用当前密钥。" : "一套供应商 URL/API key 可以一次添加多个 model name。"}</p>
           </div>
           <button className="iconButton" type="button" onClick={onClose} aria-label="关闭">
             <X size={18} />
@@ -188,23 +189,24 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
 
         <label>
           供应商名称
-          <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="例如：OpenAI、火山方舟" />
+          <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="例如：OpenAI、火山方舟" disabled={isManaged} />
         </label>
         <label>
           供应商类型
-          <select value={provider} onChange={(event) => setProvider(event.target.value as typeof provider)}>
+          <select value={provider} onChange={(event) => setProvider(event.target.value as typeof provider)} disabled={isManaged}>
             <option value="openai_compatible">OpenAI-compatible</option>
             <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic Messages</option>
             <option value="local_demo">Local demo</option>
           </select>
         </label>
         <label>
           Base URL
-          <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://example.com/v1" />
+          <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://example.com/v1" disabled={isManaged} />
         </label>
         <label>
-          API key{isEdit ? "（留空不修改）" : ""}
-          <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} type="password" />
+          API key{isManaged ? "（内置公共凭据）" : isEdit ? "（留空不修改）" : ""}
+          <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} type="password" disabled={isManaged} placeholder={isManaged ? profile?.masked_api_key : undefined} />
         </label>
 
         <section className="modelEntriesSection">
@@ -229,6 +231,7 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
                     onChange={(event) => updateModelEntry(entry.id, { model: event.target.value }, true)}
                     placeholder="provider-model-name"
                     aria-label="Model name"
+                    disabled={isManaged}
                   />
                   <span className={`modelTestIcon ${entry.testState}`} title={entry.testMessage || "尚未测试"}>
                     {entry.testState === "testing" && <Loader2 size={18} className="spin" />}
@@ -247,8 +250,9 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
                     checked={entry.isMultimodal}
                     onChange={(event) => updateModelEntry(entry.id, { isMultimodal: event.target.checked }, true)}
                     type="checkbox"
+                    disabled={isManaged}
                   />
-                  支持图片识别（默认关闭；测试图片成功后自动开启）
+                  {isManaged ? "支持图片识别（由 OpenCode 目录元数据同步）" : "支持图片识别（默认关闭；测试图片成功后自动开启）"}
                 </label>
                 {entry.testMessage && <p className={`modelTestMessage ${entry.testState}`}>{entry.testMessage}</p>}
               </div>
@@ -265,6 +269,7 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
             min={100}
             max={64000}
             step={100}
+            disabled={isManaged}
           />
         </label>
         <div className="twoColumnFields">
@@ -277,6 +282,7 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
               min={1000}
               max={120000}
               step={1000}
+              disabled={isManaged}
             />
           </label>
           <label>
@@ -288,19 +294,26 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
               min={0}
               max={2}
               step={0.1}
+              disabled={isManaged}
             />
           </label>
         </div>
 
         <div className="dialogActions">
-          <button className="secondaryButton" type="button" onClick={handleTest} disabled={busy || invalid}>
-            {testing ? <Loader2 size={16} className="spin" /> : <PlugZap size={16} />}
-            {models.length > 1 ? "逐个测试" : "测试连接"}
-          </button>
-          <button className="primaryButton" type="button" onClick={handleSave} disabled={busy || invalid}>
-            {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
-            {isEdit ? "保存修改" : `保存 ${models.length} 个模型`}
-          </button>
+          {isManaged ? (
+            <button className="primaryButton" type="button" onClick={onClose}>关闭</button>
+          ) : (
+            <>
+              <button className="secondaryButton" type="button" onClick={handleTest} disabled={busy || invalid}>
+                {testing ? <Loader2 size={16} className="spin" /> : <PlugZap size={16} />}
+                {models.length > 1 ? "逐个测试" : "测试连接"}
+              </button>
+              <button className="primaryButton" type="button" onClick={handleSave} disabled={busy || invalid}>
+                {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+                {isEdit ? "保存修改" : `保存 ${models.length} 个模型`}
+              </button>
+            </>
+          )}
         </div>
         {status && <p className="dialogStatus">{status}</p>}
       </div>

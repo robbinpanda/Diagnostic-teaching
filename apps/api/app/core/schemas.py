@@ -5,7 +5,7 @@ from typing import Annotated, Any, Literal
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl
 
 
-Provider = Literal["openai", "openai_compatible", "local_demo"]
+Provider = Literal["openai", "openai_compatible", "anthropic", "local_demo"]
 
 
 class ModelProfileCreate(BaseModel):
@@ -78,6 +78,7 @@ class ModelProfilePublic(BaseModel):
     temperature: float
     max_output_tokens: int
     is_multimodal: bool
+    managed: bool = False
     last_test_status: str | None = None
     last_test_latency_ms: int | None = None
 

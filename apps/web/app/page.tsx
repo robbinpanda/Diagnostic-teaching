@@ -472,7 +472,7 @@ export default function Home() {
   }
 
   async function handleDeleteProfile() {
-    if (!selectedProfile || sessionId) return;
+    if (!selectedProfile || selectedProfile.managed || sessionId) return;
     if (!window.confirm(`删除模型配置“${modelProfileLabel(selectedProfile)}”？`)) return;
     setDeleteBusyId(selectedProfile.id);
     runtime.clearError();
@@ -649,11 +649,11 @@ export default function Home() {
                   className="toolButton"
                   type="button"
                   onClick={() => { setEditingProfile(selectedProfile ?? null); setDialogOpen(true); }}
-                  title={selectedProfile ? "修改模型配置" : "添加模型配置"}
+                  title={selectedProfile?.managed ? "查看模型配置" : selectedProfile ? "修改模型配置" : "添加模型配置"}
                 >
                   {selectedProfile ? <Pencil size={16} /> : <Plus size={16} />}
                 </button>
-                {selectedProfile && !sessionId && (
+                {selectedProfile && !selectedProfile.managed && !sessionId && (
                   <button className="toolButton danger" type="button" onClick={handleDeleteProfile} disabled={Boolean(deleteBusyId)} title="删除模型配置">
                     {deleteBusyId ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
                   </button>

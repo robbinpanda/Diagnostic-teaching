@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager, suppress
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import load_settings
+from app.llm.opencode_free_models import CATALOG_REFRESH_SECONDS, OpenCodeFreeModelCatalog
 from app.routes import (
     cards,
     chat,
@@ -20,17 +24,37 @@ from app.storage.security import SecretBox
 from app.storage.session_logger import SessionLogger
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async def refresh_opencode_free_models() -> None:
+        while True:
+            models = await app.state.opencode_free_models.refresh()
+            app.state.model_profiles.sync_opencode_free_models(models)
+            await asyncio.sleep(CATALOG_REFRESH_SECONDS)
+
+    refresh_task = asyncio.create_task(refresh_opencode_free_models())
+    try:
+        yield
+    finally:
+        refresh_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await refresh_task
+
+
 def create_app() -> FastAPI:
     settings = load_settings()
     settings.session_log_dir.mkdir(parents=True, exist_ok=True)
     db = Database(settings.database_path)
     secrets = SecretBox(settings.secret_path)
     session_logger = SessionLogger(settings.session_log_dir)
+    opencode_free_models = OpenCodeFreeModelCatalog(settings.root / "data" / "opencode-models.json")
 
-    app = FastAPI(title="Diagnostic Math Tutor API", version="0.2.0")
+    app = FastAPI(title="Diagnostic Math Tutor API", version="0.3.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.db = db
     app.state.model_profiles = ModelProfileRepository(db, secrets)
+    app.state.opencode_free_models = opencode_free_models
+    app.state.model_profiles.sync_opencode_free_models(opencode_free_models.current())
     app.state.sessions = SessionRepository(db)
     # A new process cannot know whether an old provider request completed. Never
     # resume durable queued/running rows silently: make the retry decision explicit.

@@ -1,13 +1,15 @@
 # AI 模型配置说明
 
-方案版本：v0.2
+方案版本：v0.3
 文档状态：现行实现说明
-最后核对：2026-07-17
+最后核对：2026-07-19
 适用项目：诊断式数学答疑 MVP
 
 ## 1. 结论
 
 前端已提供“添加模型配置”按钮。用户填写一套供应商名称、`base_url` 和 `api_key` 后，可以通过 Model name 旁的加号一次加入多个模型；保存后每个 model name 仍是独立 profile，session 继续绑定到具体 profile。
+
+应用还会像 OpenCode 一样读取 `https://models.dev/api.json`：在 `opencode` provider 中保留未废弃、输入价格为 0 且协议受本项目支持的模型。它们会自动成为 SQLite 中的只读托管 profile，名称统一为 `opencodefree-<model-id>`，无需用户填写 API key。
 
 但不建议把这些内容写进 `.env`。更合适的 MVP 方案是：
 
@@ -42,6 +44,7 @@ SESSION_LOG_DIR=./logs/sessions
 | 加密主密钥 | `data/app-secret.key` | 是 | 首次启动生成，`data/` 加入 `.gitignore` |
 | 模型预设 | `config/model-profiles.example.json` | 否 | 只放可选模板，不放真实 key |
 | 应用配置 | `.env` | 尽量否 | 只放运行参数 |
+| OpenCode 免费模型目录缓存 | `data/opencode-models.json` | 否 | 在线刷新成功后保存；离线时使用最近缓存或内置快照 |
 
 本地 MVP 的目标是避免 key 进入浏览器存储、日志和 git。它不是企业级密钥管理方案；后续正式部署应接入云厂商 Secret Manager、KMS 或平台环境变量。
 
@@ -53,12 +56,12 @@ SESSION_LOG_DIR=./logs/sessions
 2. 如果只有一个可用模型，前端自动选中；如果有多个，用户必须明确选择一个。
 3. 如果没有可用模型，显示“添加模型配置”。
 4. 创建答疑 session 前必须有 `model_profile_id`。
-5. 下拉选择、当前模型和删除确认统一显示为“供应商名称 · model name”，例如“火山方舟 · doubao-seed-1-6”。
+5. 用户添加的模型显示为“供应商名称 · model name”，例如“火山方舟 · doubao-seed-1-6”；托管免费模型直接显示为 `opencodefree-<model-id>`。
 
 “添加模型配置”弹窗字段：
 
 1. 供应商名称：例如“火山方舟”。
-2. 供应商类型：OpenAI-compatible / OpenAI / Local demo。
+2. 供应商类型：OpenAI-compatible / OpenAI / Anthropic Messages / Local demo。
 3. Base URL。
 4. API key。
 5. Model name 列表；点加号最多可加入 20 个，每项必须唯一。
@@ -68,6 +71,32 @@ SESSION_LOG_DIR=./logs/sessions
 9. 每个 model name 独立的“是否支持图片识别”，默认关闭；勾选后可用于题图识别和含原图的正式答疑。
 
 当前 UI 不开放标签编辑，保存时固定写入 `math` 标签；后端 API 仍支持 `tags` 字段。
+
+OpenCode 托管免费模型可从同一个设置入口查看，但供应商、Base URL、model name、公共凭据、运行参数和多模态复选框均为只读。多模态复选框读取目录中的 `modalities.input`；存在 `image` 才勾选，不在模型下拉或聊天页额外显示能力徽标。
+
+### 4.1 双协议调用
+
+- `openai_compatible` / `openai`：请求 `<base_url>/chat/completions`，使用 Bearer API key，解析 OpenAI chat completions SSE。
+- `anthropic`：请求 `<base_url>/messages`，使用 `x-api-key` 和 `anthropic-version: 2023-06-01`，把 system message 移到顶层 `system`，并解析 Anthropic Messages SSE。
+- 图片在应用内部仍使用统一的 OpenAI 风格 `image_url`；Anthropic 请求前会把 data URL 转成 `type=image + source.type=base64`，因此图片分析和含原图答疑共用同一业务链路。
+
+### 4.2 OpenCode 免费模型同步
+
+实现与 OpenCode 源码的无密钥路径一致：目录来自 `models.dev/api.json`，无账户时使用公共值 `public`，只保留 `cost.input == 0` 的模型；本项目再排除 `alpha/deprecated` 和当前不支持的协议。应用启动时先使用最近磁盘缓存或内置快照，随后立即在线刷新，并每 60 分钟刷新一次。
+
+2026-07-19 内置快照如下；在线目录变化后会自动增删托管项：
+
+| 显示名 | 协议 | 设置中的“支持图片识别” |
+|---|---|---:|
+| `opencodefree-big-pickle` | OpenAI-compatible | 否 |
+| `opencodefree-deepseek-v4-flash-free` | OpenAI-compatible | 否 |
+| `opencodefree-mimo-v2.5-free` | OpenAI-compatible | 是 |
+| `opencodefree-north-mini-code-free` | OpenAI-compatible | 否 |
+| `opencodefree-nemotron-3-ultra-free` | OpenAI-compatible | 否 |
+
+同步会复用已有托管 profile ID，避免 session 外键漂移；退出免费目录的 profile 只会从新建会话列表隐藏，历史 SQLite 行仍保留。公共值 `public` 也按普通 API key 加密保存，前端只能看到掩码。
+
+OpenCode 官方说明这些免费端点中的部分请求可能被记录并用于改进模型；North Mini Code 与 Nemotron 还明确不应接收个人或机密数据。模型设置弹窗会提示不要向免费模型提交个人或敏感信息。
 
 按钮：
 
@@ -111,6 +140,7 @@ GET /api/model-profiles
       "temperature": 0.2,
       "max_output_tokens": 8000,
       "is_multimodal": false,
+      "managed": false,
       "last_test_status": null,
       "last_test_latency_ms": 1280
     }
@@ -120,6 +150,8 @@ GET /api/model-profiles
 ```
 
 当前实现会返回完整 `base_url` 供编辑，并额外返回 `base_url_host` 供简洁展示；永远不返回明文 API key。不要把密钥放进 URL 查询参数。
+
+`managed=true` 表示该 profile 由 OpenCode 免费目录维护；对它调用 PATCH 或 DELETE 会返回 `409`。
 
 ### 5.2 测试模型连接
 

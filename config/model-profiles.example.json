@@ -19,6 +19,14 @@
       "tags": ["high_quality", "math_reasoning"]
     },
     {
+      "id": "anthropic_custom",
+      "display_name": "Anthropic",
+      "provider": "anthropic",
+      "base_url_placeholder": "https://api.anthropic.com/v1",
+      "model_placeholder": "replace-with-anthropic-model",
+      "tags": ["high_quality", "math_reasoning"]
+    },
+    {
       "id": "doubao_custom",
       "display_name": "Doubao / Volcano Engine",
       "provider": "openai_compatible",

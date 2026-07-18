@@ -10,13 +10,13 @@ state_hint + action + message + breakpoint_description + checkpoint + knowledge_
 
 后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、标注每条 AI 消息对应的教学 action、弹出检查点并把学生选择回传给模型。
 
-当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、可切换的加密模型配置、检查点选择题、跨 session 的全局知识卡片/题目卡片库、学习卡片 PDF 多排版导出、SQLite 历史会话与删除、按 session 严格递增的 durable events 与断线重放 SSE，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
+当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、OpenAI-compatible / Anthropic 双协议加密模型配置、自动同步的 OpenCode 免费模型、检查点选择题、跨 session 的全局知识卡片/题目卡片库、学习卡片 PDF 多排版导出、SQLite 历史会话与删除、按 session 严格递增的 durable events 与断线重放 SSE，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
 
 SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 revision；旧版无 Alembic 标记的数据库会在保留业务数据的前提下建立迁移基线。每条应用连接启用 foreign keys、WAL 与 5 秒 busy timeout，具体约束、备份和 Windows 本地运行行为见 `docs/database.md`。
 
 前端会话运行态由 timeline reducer、互斥 workflow 状态机和可取消 stream controller 管理。切换会话、新建答疑或页面卸载会中止当前 HTTP 流；点击停止会先调用服务端 interrupt，再收束本地 fetch。每个 chat 事件同时绑定 session id 与本地 run id，旧流不能写入后来打开的 session。高频 `message_delta/message_reset` 没有 durable seq；稳定业务边界由独立的 session-events SSE 提供严格递增的 `seq` 和断线重放。
 
-模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name。每个模型独立设置是否多模态；连接测试会逐模型显示成功或失败，并用内置样例图自动探测未勾选模型的图片能力。模型选择器统一显示为“供应商名称 · model name”。
+模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name，并可选择 OpenAI-compatible chat completions 或 Anthropic Messages 协议。每个模型独立设置是否多模态；连接测试会逐模型显示成功或失败，并用内置样例图自动探测未勾选模型的图片能力。用户配置显示为“供应商名称 · model name”；OpenCode 托管免费模型显示为 `opencodefree-<model-id>`，由 `models.dev` 目录同步协议与图片能力，设置弹窗中的多模态复选框只读展示真实元数据。
 
 `POST /api/sessions/intake` 会累计统一输入中的题目和学生已有思路：缺题目就追问题目，只有题目就追问“想到哪一步”，两项齐备后才创建正式 session。图片识别结果也进入同一 intake；上传图片创建的 session 会保留用户原图并绑定多模态模型。
 
@@ -98,7 +98,7 @@ docs/how-to-run.md
 - Database: SQLite + Alembic（session、durable session_inputs、结构化消息、checkpoint、全局 study_cards、session_runs 和可重放 session_events 的权威存储，也是历史恢复来源；启用 foreign keys、WAL 和 busy timeout）
 - Run lifecycle: SQLite `session_runs`（run_id、attempt、queued/running/terminal 状态、时间戳和结构化错误）
 - Diagnostic Log: JSONL（机器审计）+ Markdown（留白充足的人类阅读版）
-- Model API: OpenAI-compatible chat completions（**已支持流式 stream=true**）
+- Model API: OpenAI-compatible chat completions + Anthropic Messages（两种协议均支持流式输出与图片输入转换）
 
 ## 目录
 
@@ -106,7 +106,8 @@ docs/how-to-run.md
 apps/api   FastAPI 后端
   app/core/teaching_controller.py    LLM 决策合同 + prompt + 流式生成器 + fallback
   app/core/streaming.py              增量 JSON message 解析器（打字机）
-  app/llm/provider.py                流式 chat completions
+  app/llm/provider.py                OpenAI-compatible / Anthropic 双协议流式调用
+  app/llm/opencode_free_models.py    OpenCode 免费模型目录、缓存与能力解析
   app/routes/problem_images.py       题图识别与必要题图裁剪
   app/storage/session_logger.py      SessionLogger（JSONL + Markdown 诊断记录）
   migrations/                        Alembic schema revision（数据库演进唯一入口）

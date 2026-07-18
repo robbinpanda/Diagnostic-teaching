@@ -3,7 +3,7 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.
 export type ModelProfile = {
   id: string;
   display_name: string;
-  provider: "openai" | "openai_compatible" | "local_demo";
+  provider: "openai" | "openai_compatible" | "anthropic" | "local_demo";
   base_url: string;
   base_url_host: string;
   model: string;
@@ -15,12 +15,13 @@ export type ModelProfile = {
   temperature: number;
   max_output_tokens: number;
   is_multimodal: boolean;
+  managed: boolean;
   last_test_status?: string | null;
   last_test_latency_ms?: number | null;
 };
 
-export function modelProfileLabel(profile: Pick<ModelProfile, "display_name" | "model">) {
-  return `${profile.display_name} · ${profile.model}`;
+export function modelProfileLabel(profile: Pick<ModelProfile, "display_name" | "model"> & Partial<Pick<ModelProfile, "managed">>) {
+  return profile.managed ? profile.display_name : `${profile.display_name} · ${profile.model}`;
 }
 
 export type Checkpoint = {
@@ -134,7 +135,7 @@ export async function fetchProfiles(): Promise<ModelProfile[]> {
 
 export async function createModelProfile(input: {
   display_name: string;
-  provider: "openai" | "openai_compatible" | "local_demo";
+  provider: "openai" | "openai_compatible" | "anthropic" | "local_demo";
   base_url: string;
   api_key: string;
   model: string;
@@ -157,7 +158,7 @@ export async function updateModelProfile(
   profileId: string,
   input: {
     display_name: string;
-    provider: "openai" | "openai_compatible" | "local_demo";
+    provider: "openai" | "openai_compatible" | "anthropic" | "local_demo";
     base_url: string;
     api_key?: string;
     model: string;
@@ -179,7 +180,7 @@ export async function updateModelProfile(
 
 export async function testModelProfile(input: {
   profile_id?: string;
-  provider: "openai" | "openai_compatible" | "local_demo";
+  provider: "openai" | "openai_compatible" | "anthropic" | "local_demo";
   base_url: string;
   api_key?: string;
   model: string;
@@ -272,7 +273,7 @@ export async function intakeSession(input: {
 
 export async function createModelProfiles(input: {
   display_name: string;
-  provider: "openai" | "openai_compatible" | "local_demo";
+  provider: "openai" | "openai_compatible" | "anthropic" | "local_demo";
   base_url: string;
   api_key: string;
   models: Array<{ model: string; is_multimodal: boolean }>;

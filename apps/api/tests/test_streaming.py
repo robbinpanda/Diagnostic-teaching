@@ -4,7 +4,14 @@ import pytest
 
 from app.llm import provider
 from app.core.streaming import MessageStreamExtractor
-from app.llm.provider import LlmProfile, LlmProviderError, chat_stream_completion
+from app.llm.provider import (
+    LlmProfile,
+    LlmProviderError,
+    _anthropic_response_events,
+    anthropic_messages_url,
+    anthropic_request_payload,
+    chat_stream_completion,
+)
 
 
 def _profile(provider="local_demo"):
@@ -120,3 +127,62 @@ def test_connection_probe_uses_nihao_and_profile_token_budget(monkeypatch):
     assert captured["max_tokens"] == 1200
     assert captured["temperature"] == 0
     assert consumed_after_first_chunk is False
+
+
+def test_anthropic_payload_moves_system_and_converts_image_data_url():
+    profile = _profile("anthropic")
+    payload = anthropic_request_payload(
+        profile,
+        [
+            {"role": "system", "content": "系统规则"},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "看图"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,aW1hZ2U="}},
+                ],
+            },
+            {"role": "user", "content": "补充说明"},
+            {"role": "assistant", "content": "收到"},
+        ],
+        max_tokens=8000,
+        temperature=0.2,
+    )
+
+    assert anthropic_messages_url("https://api.anthropic.com/v1") == "https://api.anthropic.com/v1/messages"
+    assert payload["system"] == "系统规则"
+    assert payload["model"] == "local-demo"
+    assert [message["role"] for message in payload["messages"]] == ["user", "assistant"]
+    user_blocks = payload["messages"][0]["content"]
+    assert user_blocks[0] == {"type": "text", "text": "看图"}
+    assert user_blocks[1] == {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "aW1hZ2U="},
+    }
+    assert user_blocks[2] == {"type": "text", "text": "补充说明"}
+
+
+def test_anthropic_sse_yields_text_deltas_and_stop_reason():
+    class FakeResponse:
+        async def aiter_lines(self):
+            for line in [
+                'event: message_start',
+                'data: {"type":"message_start","message":{"stop_reason":null}}',
+                'event: content_block_delta',
+                'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"你"}}',
+                'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"好"}}',
+                'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}',
+                'data: {"type":"message_stop"}',
+            ]:
+                yield line
+
+    async def run():
+        return [event async for event in _anthropic_response_events(FakeResponse(), 8000)]
+
+    events = asyncio.run(run())
+
+    assert events == [
+        {"delta": "你", "finish_reason": None},
+        {"delta": "好", "finish_reason": None},
+        {"delta": "", "finish_reason": "end_turn"},
+    ]
