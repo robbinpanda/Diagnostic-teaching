@@ -281,6 +281,7 @@ session.idle
 checkpoint answer 会在原子事务中依次追加 `checkpoint.completed` 和对应的 student `message.completed`；卡片归档追加 `card.saved`。run 失败时追加 `error.occurred -> run.completed(status=failed) -> session.idle`。
 
 `GET /api/sessions/{session_id}/events/stream` 用 `after_seq` 或 `Last-Event-ID` 先补齐遗漏事件再持续订阅。同一 session 的 `seq` 严格递增；客户端重复收到相同 `seq` 时只应用一次。这个 change feed 不改变六个教学 action，也不让模型控制 `wait_for_student`。完整合同见 `docs/session-events.md`。
+
 前端不再直接在页面组件里拼接这些事件。原始 SSE 先被适配为绑定 `sessionId + runId` 的事件，再进入 timeline reducer；composer、run、checkpoint、card 则由一个判别联合状态机保证互斥。当前确定性规则为：
 
 - 事件的 session 或 run 与当前运行不匹配时忽略；切换 session、新建答疑和页面卸载会 abort 当前 fetch，显式停止则先请求服务端 interrupt，再收束本地 fetch。

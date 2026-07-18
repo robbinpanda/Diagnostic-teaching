@@ -61,7 +61,7 @@ message/action/checkpoint/card 的业务行和对应事件在同一个 SQLite �
 | type | durable data 的关键字段 | 语义 |
 |---|---|---|
 | `session.created` | `model_profile_id/state_hint/restored_from` | 新 session 或显式恢复分支已经创建；恢复分支另带 baseline 数量 |
-| `run.started` | `run_id/has_student_message` | 一次教学生成请求已经取得 session 单写者资格 |
+| `run.started` | `run_id/attempt/status/queued_at/started_at` | 一次教学生成请求已经取得 session 单写者资格并进入 running |
 | `message.completed` | 完整 `content/role/message_id/action_id/action` | 一条完整 student/assistant message 已提交；高频 delta 不落此表 |
 | `action.completed` | 完整 `message/action/state_hint/wait_for_student` 及引用 ID | 一个后端归一化后的教学 action 已提交 |
 | `checkpoint.ready` | 脱敏后的完整 checkpoint 和来源 action | checkpoint 已创建并等待学生作答；不暴露正确项和误区标签 |
@@ -153,7 +153,7 @@ source.addEventListener("session_event", (event) => {
 });
 ```
 
-本任务不实现前端整体 reducer；示例只固定 cursor 和去重规则。
+当前前端已有按 session/run 隔离的 timeline reducer，但它主要消费本轮 chat SSE；上面的示例用于独立消费 durable change feed。页面恢复仍先读取 session 快照，不能把同一完成事件同时从快照和 change feed 重复应用。
 
 ## 5. 版本策略
 

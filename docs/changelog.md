@@ -40,11 +40,12 @@
 - 区分客户端断流与显式中断：前者为 `failed/client_disconnected`，后者为 `interrupted/explicit_interrupt`。应用启动把遗留 queued/running 标为 `failed/process_restarted`，不静默续跑 provider。
 - run 生命周期变更与 `run.started/run.completed/error.occurred/session.idle` 事件同事务提交，并复用统一的 `session_events` 顺序和续传协议。
 - 新增 run attempt、同/跨 session 并发、重复/空闲中断、生成中中断、完整 action 保留、半截 action 丢弃、异常释放、客户端断流和重启遗留状态测试。
+
 ### 前端状态边界、流取消与 session 隔离
 
 - 把 `page.tsx` 中的消息拼接和会话运行态迁到 `useSessionRuntime`、timeline reducer、互斥 workflow reducer 与 stream controller；composer、run、checkpoint、card 不再由多组布尔值自由组合。
 - `streamChat` 支持 `AbortSignal`。切换会话、新建答疑和页面卸载会取消旧 fetch；显式停止先请求服务端 interrupt，再收束本地 fetch。所有规范流事件绑定 session id 与本地 run id，迟到的旧流回调无法写入新会话。
-- timeline reducer 为 `decision/message_delta/message_reset/checkpoint_ready/card_ready/message_done/error` 定义重复、reset、终止和迟到规则；已完成 action 不接受后续改写，checkpoint/card first-wins，错误后可启动新 run 恢复。
+- timeline reducer 为 `decision/message_delta/message_reset/checkpoint_ready/card_ready/message_done/run_interrupted/error` 定义重复、reset、终止和迟到规则；已完成 action 不接受后续改写，checkpoint/card first-wins，错误后可启动新 run 恢复。
 - 新增可选 SSE `id` / `data.seq` / `after_seq` 适配层。chat 流中的瞬时 delta 目前没有 durable seq，默认请求体保持不变；稳定业务边界通过独立的 session-events SSE 按 seq 续传，无身份 delta 仍按到达顺序处理。
 - 新增前端 Node 测试脚本，覆盖 reducer 拼接、重复与迟到事件、session/run 隔离、取消、错误恢复、AbortSignal 透传，以及 legacy/after_seq 请求兼容。
 

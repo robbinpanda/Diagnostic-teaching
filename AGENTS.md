@@ -16,7 +16,10 @@
 - 当前教学 action 只有 `ASK_OPEN_QUESTION`、`ASK_MULTIPLE_CHOICE`、`EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT`、`SUMMARIZE`。
 - `wait_for_student` 由后端按 action 推导，不能交给模型自由决定。
 - SQLite 是 session 恢复的唯一权威来源；`logs/sessions/` 下的 JSONL 和 Markdown 都是只追加诊断日志。
+- 普通消息与卡片继续命令必须先通过 `session_inputs` 幂等接纳，再启动生成；重试必须复用原客户端幂等键。
 - Checkpoint 答案由 answer 接口原子写入结构化 `CHECKPOINT_RESPONSE`，前端随后只触发继续生成，不能重复提交同一答案文本。
+- `session_runs` 是生成生命周期的权威记录；同一 session 的 run 串行，显式停止必须调用 interrupt 接口，不能只把浏览器断流当成中断成功。
+- `session_events` 只记录与业务写入同事务提交的稳定边界；`message_delta/message_reset` 是不可重放的瞬时 chat 事件。
 - 含题图的 session 必须绑定多模态模型，并保留原始 `problem_image_data_url` 供每轮模型调用。
 - API key 只能在后端加密存储；不得进入日志、前端持久化或 Git。
 

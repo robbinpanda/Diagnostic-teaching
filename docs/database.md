@@ -41,8 +41,11 @@ python -m alembic -c alembic.ini upgrade head
 | 子表/列 | 父表 | 删除语义 |
 |---|---|---|
 | `sessions.model_profile_id` | `model_profiles.id` | `RESTRICT`；profile 的正常删除仍是软删除，历史 session 可继续引用 |
+| `session_inputs.session_id` | `sessions.id` | `CASCADE`；输入接纳记录随 session 删除 |
 | `messages.session_id` | `sessions.id` | `CASCADE` |
 | `checkpoints.session_id` | `sessions.id` | `CASCADE` |
+| `session_events.session_id` | `sessions.id` | `CASCADE`；durable change feed 随业务聚合删除 |
+| `session_runs.session_id` | `sessions.id` | `CASCADE`；run 生命周期记录随业务聚合删除 |
 | `study_cards.live_session_id` | `sessions.id` | `SET NULL` |
 
 `study_cards` 有两个不同职责的 session 字段：

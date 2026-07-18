@@ -14,7 +14,7 @@
 
 | 数据 | 职责 | 是否用于恢复 |
 |---|---|---|
-| SQLite 业务表 | 保存 session、durable `session_inputs`、结构化 messages、checkpoints、study_cards 和 action 关联 | 是，唯一快照来源 |
+| SQLite 业务表 | 保存 session、durable `session_inputs`、结构化 messages、checkpoints、study_cards、`session_runs` 和 action 关联 | 是，唯一快照来源 |
 | SQLite `session_events` | 保存稳定业务边界的有序 change feed，供客户端断线补发 | 是，仅用于增量重放 |
 | `<session_id>.jsonl` | 严格的一行一事件机器日志，便于脚本分析和审计 | 否 |
 | `<session_id>.log.md` | 与 JSONL 同步写入、留白充足的人类可读时间线 | 否 |
@@ -80,7 +80,7 @@ Content-Type: application/json
 }
 ```
 
-该边界只保证输入接纳、一次性业务写入和重试结果稳定；当前版本不实现通用事件重放、SSE 续传、生成中断或 assistant turn 的全局幂等执行。
+输入接纳服务本身只负责一次性业务写入和重试结果稳定；稳定事件重放/SSE 续传由 `session_events` 提供，生成生命周期与显式中断由 `session_runs` 和 coordinator 提供。assistant action 仍以 run 状态门闩保护的完整事务为提交边界，不把半截 token 当成可恢复结果。
 
 ## 2. 每轮真正发给模型的消息
 
@@ -332,7 +332,7 @@ DELETE /api/sessions/{session_id}
 
 SQLite `session_runs` 是每次生成请求的权威生命周期记录。`run_id` 由后端生成，`attempt` 在同一 session 内事务递增；`queued_at / started_at / finished_at / updated_at` 记录阶段时间，`error_json` 保存结构化终态原因，`last_committed_action_index` 记录本 run 最后一个原子提交的完整教学 action。
 
-coordinator 只保存当前进程的执行对象、每 session 锁和 provider 子任务引用，用于串行、查询和取消；它不是恢复来源。`GET /api/sessions/{session_id}/run` 同时核对 coordinator 的 active/running 状态与 SQLite 当前/最近 run。进程启动时，SQLite 中仍为 `queued/running` 的旧记录统一转为 `failed/process_restarted`，不会根据 JSONL 或内存状态续跑。
+coordinator 只保存当前进程的执行对象、每 session 锁和 provider 子任务引用，用于串行、查询和取消；它不是恢复来源。`GET /api/sessions/{session_id}/run` 同时核对 coordinator 的 active/running 状态与 SQLite 活动或最新 run。进程启动时，SQLite 中仍为 `queued/running` 的旧记录统一转为 `failed/process_restarted`，不会根据 JSONL 或内存状态续跑。
 
 显式中断调用 `POST /api/sessions/{session_id}/interrupt`。后端先提交 `interrupted/explicit_interrupt`，随后取消 provider 子任务并终止 bounded loop；重复调用或 session 当前空闲时是 no-op。客户端自行关闭 fetch/页面只会触发响应清理，run 记为 `failed/client_disconnected`，不等同于显式中断。
 
@@ -386,7 +386,7 @@ provider.chat_stream_completion()
   -> MessageStreamExtractor.feed(delta)
   -> generate_tutor_turn_stream()
   -> chat.py SSE
-  -> page.tsx runStream()
+  -> useSessionRuntime.runStream()
 ```
 
 常见事件顺序：
