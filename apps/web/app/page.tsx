@@ -28,6 +28,7 @@ import {
 } from "../components/LearningCardExportDialog";
 import { LearningCardPrintView } from "../components/LearningCardPrintView";
 import {
+  acceptStudentMessage,
   analyzeProblemImage,
   answerCheckpoint,
   Checkpoint,
@@ -36,6 +37,7 @@ import {
   deleteCard,
   deleteModelProfile,
   deleteSession,
+  dismissKnowledgeCardAndContinue,
   fetchCards,
   fetchProfiles,
   fetchSession,
@@ -116,6 +118,14 @@ export default function Home() {
   const [learningCardPrintJob, setLearningCardPrintJob] = useState<LearningCardPrintJob | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const sendInFlightRef = useRef(false);
+  const checkpointSubmitRef = useRef(false);
+  const cardCloseRef = useRef(false);
+  const pendingStudentMessageRef = useRef<{
+    sessionId: string;
+    text: string;
+    clientMessageId: string;
+  } | null>(null);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId),
@@ -308,7 +318,7 @@ export default function Home() {
     });
   }
 
-  async function runStream(nextSessionId: string, message?: string) {
+  async function runStream(nextSessionId: string) {
     setStreamBusy(true);
     setError("");
     let assistantId = "";
@@ -368,7 +378,7 @@ export default function Home() {
     }
 
     try {
-      await streamChat({ session_id: nextSessionId, message }, (event) => {
+      await streamChat({ session_id: nextSessionId }, (event) => {
         if (event.event === "decision") {
           const data = event.data as { action?: string; message?: string };
           reconcileAssistantMessage(data.message);
@@ -443,7 +453,7 @@ export default function Home() {
 
   async function handleSend() {
     const text = input.trim();
-    if (!text || startBusy || streamBusy) return;
+    if (!text || startBusy || streamBusy || sendInFlightRef.current) return;
     if (!selectedProfileId) {
       setError("请先在输入框下方选择一个模型；如果还没有模型，请打开设置添加。");
       return;
@@ -452,13 +462,34 @@ export default function Home() {
       setError("这道题带有原图，请选择支持图片识别的多模态模型。");
       return;
     }
+    sendInFlightRef.current = true;
     setInput("");
-    appendMessage("student", text, sessionId ? "STUDENT_RESPONSE" : undefined);
     if (sessionId) {
-      await runStream(sessionId, text);
+      const previous = pendingStudentMessageRef.current;
+      const isRetry = previous?.sessionId === sessionId && previous.text === text;
+      const pending = isRetry
+        ? previous
+        : { sessionId, text, clientMessageId: crypto.randomUUID() };
+      pendingStudentMessageRef.current = pending;
+      if (!isRetry) appendMessage("student", text, "STUDENT_RESPONSE");
+      try {
+        await acceptStudentMessage({
+          session_id: sessionId,
+          client_message_id: pending.clientMessageId,
+          message: text
+        });
+        pendingStudentMessageRef.current = null;
+        await runStream(sessionId);
+      } catch (nextError) {
+        setInput((current) => current || text);
+        setError(nextError instanceof Error ? nextError.message : "提交消息失败");
+      } finally {
+        sendInFlightRef.current = false;
+      }
       return;
     }
 
+    appendMessage("student", text);
     setStartBusy(true);
     setError("");
     try {
@@ -476,6 +507,7 @@ export default function Home() {
       setError(nextError instanceof Error ? nextError.message : "创建答疑会话失败");
     } finally {
       setStartBusy(false);
+      sendInFlightRef.current = false;
     }
   }
 
@@ -518,7 +550,8 @@ export default function Home() {
   }
 
   async function handleCheckpoint(optionId: string) {
-    if (!checkpoint || !sessionId) return;
+    if (!checkpoint || !sessionId || checkpointSubmitRef.current) return;
+    checkpointSubmitRef.current = true;
     const activeCheckpoint = checkpoint;
     const startedAt = checkpointStartedAt;
     const elapsed = startedAt ? Date.now() - startedAt : 0;
@@ -537,16 +570,32 @@ export default function Home() {
       setCheckpoint(activeCheckpoint);
       setCheckpointStartedAt(startedAt);
       setError(nextError instanceof Error ? nextError.message : "提交检查点失败");
+    } finally {
+      checkpointSubmitRef.current = false;
     }
   }
 
   async function handleActiveCardClose() {
-    if (!activeCard || !sessionId || cardBusyId || streamBusy) return;
+    if (!activeCard || !sessionId || cardBusyId || streamBusy || cardCloseRef.current) return;
+    cardCloseRef.current = true;
     const cardToSave = activeCard;
     setCardBusyId(cardToSave.id);
     setError("");
     try {
-      const saved = await saveCard(cardToSave.id, sessionId);
+      let saved: StudyCard;
+      if (cardToSave.card_type === "knowledge_card") {
+        const accepted = await dismissKnowledgeCardAndContinue({
+          session_id: sessionId,
+          client_command_id: `card:${cardToSave.id}`,
+          card_id: cardToSave.id
+        });
+        saved = {
+          ...cardToSave,
+          saved_at: accepted.card_saved_at ?? accepted.created_at
+        };
+      } else {
+        saved = await saveCard(cardToSave.id, sessionId);
+      }
       setCards((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
       setActiveCard(null);
       if (cardToSave.card_type === "knowledge_card") await runStream(sessionId);
@@ -554,6 +603,7 @@ export default function Home() {
       setError(nextError instanceof Error ? nextError.message : "保存学习卡片失败");
     } finally {
       setCardBusyId("");
+      cardCloseRef.current = false;
     }
   }
 

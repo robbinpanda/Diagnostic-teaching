@@ -232,6 +232,7 @@ def session_detail_response(request: Request, session) -> SessionRestoreResponse
                 text=row["content"],
                 action_id=row["action_id"],
                 action=row["action"],
+                client_message_id=row["client_message_id"],
             )
             for row in messages
             if row["role"] in {"student", "assistant"}
@@ -344,6 +345,7 @@ def restore_session(payload: SessionRestoreRequest, request: Request) -> Session
                 text=row["content"],
                 action_id=row["action_id"],
                 action=row["action"],
+                client_message_id=row["client_message_id"],
             )
             for row in messages
             if row["role"] in {"student", "assistant"}

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl
 
@@ -196,6 +196,7 @@ class SessionRestoredMessage(BaseModel):
     text: str
     action_id: str | None = None
     action: str
+    client_message_id: str | None = None
 
 
 class SessionRestoreResponse(BaseModel):
@@ -216,8 +217,44 @@ class SessionRestoreResponse(BaseModel):
 class ChatStreamRequest(BaseModel):
     session_id: str
     message: str | None = None
+    client_message_id: str | None = Field(default=None, min_length=1, max_length=128)
     # 仅兼容旧前端；新流程由 checkpoint answer 接口原子写入 CHECKPOINT_RESPONSE。
     checkpoint_answer: dict[str, Any] | None = None
+
+
+class StudentMessageInputRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["STUDENT_MESSAGE"]
+    client_message_id: str = Field(min_length=1, max_length=128)
+    message: str = Field(min_length=1, max_length=20_000)
+
+
+class CardDismissedContinueInputRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["CARD_DISMISSED_CONTINUE"]
+    client_command_id: str = Field(min_length=1, max_length=128)
+    card_id: str = Field(min_length=1, max_length=128)
+
+
+SessionInputAcceptRequest = Annotated[
+    StudentMessageInputRequest | CardDismissedContinueInputRequest,
+    Field(discriminator="kind"),
+]
+
+
+class SessionInputAcceptResponse(BaseModel):
+    input_id: str
+    kind: Literal["STUDENT_MESSAGE", "CARD_DISMISSED_CONTINUE"]
+    status: Literal["accepted", "duplicate"]
+    idempotency_key: str
+    created_at: str
+    message_id: str | None = None
+    action_id: str | None = None
+    in_reply_to_action_id: str | None = None
+    card_id: str | None = None
+    card_saved_at: str | None = None
 
 
 class CheckpointAnswerRequest(BaseModel):
@@ -227,7 +264,10 @@ class CheckpointAnswerRequest(BaseModel):
 
 
 class CheckpointAnswerResponse(BaseModel):
+    input_id: str
+    status: Literal["accepted", "duplicate"]
     is_correct: bool
+    elapsed_ms: int
     event: Literal["CHECKPOINT_CORRECT", "CHECKPOINT_WRONG", "CHECKPOINT_UNKNOWN"]
     next_state_hint: str
     student_message: str

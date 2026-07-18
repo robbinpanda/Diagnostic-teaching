@@ -1,8 +1,8 @@
 # 上下文、Session 恢复与诊断日志
 
-版本：v1.0
+版本：v1.1
 
-日期：2026-07-15
+日期：2026-07-18
 
 适用项目：诊断式数学答疑 MVP
 
@@ -14,11 +14,70 @@
 
 | 数据 | 职责 | 是否用于恢复 |
 |---|---|---|
-| SQLite | 保存 session、结构化 messages、checkpoints、study_cards 和 action 关联 | 是，唯一来源 |
+| SQLite | 保存 session、durable `session_inputs`、结构化 messages、checkpoints、study_cards 和 action 关联 | 是，唯一来源 |
 | `<session_id>.jsonl` | 严格的一行一事件机器日志，便于脚本分析和审计 | 否 |
 | `<session_id>.log.md` | 与 JSONL 同步写入、留白充足的人类可读时间线 | 否 |
 
 JSONL 不是数据库，也不承担断点续聊。它可能因为日志目录被清理、写盘失败或版本变化而不完整；SQLite 才保存可继续运行所需的关系数据。
+
+### 1.1 Durable input 接纳边界
+
+正式 session 不再要求“HTTP 流连接活着”才能拥有学生输入。输入接纳服务位于：
+
+```text
+apps/api/app/services/input_acceptance.py
+```
+
+它与生成服务的边界是：
+
+```text
+接纳：HTTP input/answer -> BEGIN IMMEDIATE -> session_inputs + 对应业务状态 -> COMMIT
+生成：POST /api/chat/stream -> 读取 SQLite session/messages -> 调 LLM -> 保存 assistant action
+```
+
+`session_inputs` 保存：
+
+```text
+id / session_id / kind / idempotency_key / payload_json / result_json
+message_id / checkpoint_id / card_id / created_at
+```
+
+允许的 `kind`：
+
+- `STUDENT_MESSAGE`：普通开放消息；`idempotency_key` 来自前端 `client_message_id`。
+- `CHECKPOINT_ANSWER`：checkpoint answer；每个 `checkpoint_id` 在数据库唯一。
+- `CARD_DISMISSED_CONTINUE`：知识卡片关闭后的继续命令；每个 `card_id` 在数据库唯一，并与 `study_cards.saved_at` 同事务写入。
+
+普通消息 API：
+
+```http
+POST /api/sessions/{session_id}/inputs
+Content-Type: application/json
+
+{
+  "kind": "STUDENT_MESSAGE",
+  "client_message_id": "浏览器生成且重试时复用的 UUID",
+  "message": "学生输入"
+}
+```
+
+稳定结果：
+
+- 第一次：`201`，`status=accepted`，返回 `input_id / message_id / action_id`。
+- 同一个 `client_message_id`、规范化后相同 message：`200`，`status=duplicate`，返回第一次结果，不再新增 message。
+- 同一个 `client_message_id`、不同 message 或不同 kind：`409`，`code=IDEMPOTENCY_KEY_CONFLICT`。
+
+知识卡片继续命令使用同一路径，payload 为：
+
+```json
+{
+  "kind": "CARD_DISMISSED_CONTINUE",
+  "client_command_id": "card:<card_id>",
+  "card_id": "card_..."
+}
+```
+
+该边界只保证输入接纳、一次性业务写入和重试结果稳定；当前版本不实现通用事件重放、SSE 续传、生成中断或 assistant turn 的全局幂等执行。
 
 ## 2. 每轮真正发给模型的消息
 
@@ -113,6 +172,8 @@ system 消息由四部分组成：
 }
 ```
 
+`client_message_id` 不进入模型 prompt；它只保存在 `session_inputs.idempotency_key`，并通过 session 详情 API 的 message 字段回传，供客户端对账。模型仍只看到结构化教学语义与学生正文。
+
 assistant 教学动作类似：
 
 ```json
@@ -163,7 +224,7 @@ assistant 教学动作类似：
 
 学生选择后，`POST /api/checkpoints/{checkpoint_id}/answer` 会在一个后端事务链中完成：
 
-1. 校验 checkpoint 属于当前 session、未重复作答、选项存在。
+1. 校验 checkpoint 属于当前 session、选项存在，并写 `kind=CHECKPOINT_ANSWER` 的 durable input。
 
 2. 把选择、正误、耗时和答题时间写入 `checkpoints`。
 
@@ -174,6 +235,8 @@ assistant 教学动作类似：
 5. 用 `in_reply_to_action_id` 指向产生该 checkpoint 的 `ASK_MULTIPLE_CHOICE` action。
 
 6. 在 message metadata 中保存完整 `checkpoint_result`。
+
+`session_inputs.checkpoint_id` 有数据库唯一索引。同一选项重试（即使重试请求重新计算了 elapsed）返回第一次保存的结果和耗时，不新增 message、不重写 checkpoint；不同选项重试返回 `409 CHECKPOINT_ANSWER_CONFLICT`。对升级前已回答但尚无 `session_inputs` 的记录，首次同值重试会从已有 `CHECKPOINT_RESPONSE` message 兼容回填输入记录。
 
 下一次 `/api/chat/stream` 不再让前端重新提交同一段学生文字，只读取 SQLite 中已经写好的 result。发给模型的 user 消息类似：
 
@@ -211,7 +274,7 @@ id / session_id / card_type / title / content_json
 source_action_id / source_message_id / created_at / saved_at
 ```
 
-`saved_at=null` 表示卡片正在弹窗中等待学生关闭。此时卡片不进入右侧已归档列表，后端也拒绝该 session 的新生成请求。学生点大叉后，前端调用 `POST /api/cards/{id}/save` 写入 `saved_at`：
+`saved_at=null` 表示卡片正在弹窗中等待学生关闭。此时卡片不进入右侧已归档列表，后端也拒绝该 session 的新生成请求。知识卡片点大叉后，前端调用 `POST /api/sessions/{session_id}/inputs` 提交 `CARD_DISMISSED_CONTINUE`，在同一事务写 `saved_at` 和 durable control input；problem card 使用 `POST /api/cards/{id}/save` 只归档、不继续：
 
 - knowledge card：保存后立即以无新增 student message 的 `/api/chat/stream` 继续答疑。
 - problem card：保存后结束，因为来源 action 是终止动作 `SUMMARIZE`。
@@ -242,7 +305,7 @@ DELETE /api/sessions/{session_id}
 
 1. 复制 session 题目、原图、初始思路、状态和卡点。
 
-2. 复制全部 messages、checkpoints，以及仍需继续原工作流的待归档 study_cards；已归档卡片属于全局库，不重复复制。
+2. 复制全部 messages、checkpoints，以及仍需继续原工作流的待归档 study_cards；已归档卡片属于全局库，不重复复制。普通消息对应的 `STUDENT_MESSAGE` 输入记录会随 message 重映射，保持 `client_message_id` 幂等；checkpoint 输入可由复制后的结构化结果按需兼容回填。
 
 3. 为新副本重新生成 message ID、action ID、checkpoint ID 和 card ID。
 
@@ -254,9 +317,9 @@ DELETE /api/sessions/{session_id}
 
 这样原始实验记录保持不变，恢复后的新分支也有独立、完整的数据关系。
 
-删除历史会话会删除该 session 的 SQLite 主记录、messages、checkpoints、尚未关闭的待归档卡片，以及对应的 JSONL/Markdown 诊断日志；已归档学习卡片继续保留在全局卡片库，模型配置也不受影响。
+删除历史会话会删除该 session 的 SQLite 主记录、session_inputs、messages、checkpoints、尚未关闭的待归档卡片，以及对应的 JSONL/Markdown 诊断日志；已归档学习卡片继续保留在全局卡片库，模型配置也不受影响。
 
-`DELETE /api/sessions` 是批量版本：删除全部 session、messages、checkpoints、待归档卡片，以及日志目录中的所有 `.jsonl` / `.log.md` session 日志；已归档全局卡片和模型配置保留。若仍有答疑流正在生成，接口返回 409，避免清空后被并发写回。
+`DELETE /api/sessions` 是批量版本：删除全部 session、session_inputs、messages、checkpoints、待归档卡片，以及日志目录中的所有 `.jsonl` / `.log.md` session 日志；已归档全局卡片和模型配置保留。若仍有答疑流正在生成，接口返回 409，避免清空后被并发写回。
 
 ## 7. 诊断日志
 
@@ -297,7 +360,7 @@ logs/sessions/<session_id>.log.md
 
 ## 8. 流式输出
 
-链路：
+生成链路（学生输入已在这之前提交并落库）：
 
 ```text
 provider.chat_stream_completion()

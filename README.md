@@ -16,6 +16,10 @@ state_hint + action + message + breakpoint_description + checkpoint + knowledge_
 
 `POST /api/sessions/intake` 会累计统一输入中的题目和学生已有思路：缺题目就追问题目，只有题目就追问“想到哪一步”，两项齐备后才创建正式 session。图片识别结果也进入同一 intake；上传图片创建的 session 会保留用户原图并绑定多模态模型。
 
+正式 session 的学生输入采用“先接纳、后生成”：普通消息先调用 `POST /api/sessions/{session_id}/inputs`，携带稳定的 `client_message_id`，服务端在一个 SQLite 事务中写入 `session_inputs` 和 `STUDENT_RESPONSE` message；随后 `/api/chat/stream` 只负责读取已落库上下文并生成。首次接纳返回 `201 + accepted`，同 ID 同内容重试返回 `200 + duplicate` 和原始结果，同 ID 不同内容返回 `409 IDEMPOTENCY_KEY_CONFLICT`。旧客户端仍可在 `/api/chat/stream` 中携带 message，后端会先走同一接纳服务。
+
+Checkpoint answer 也进入 `session_inputs`，并由数据库唯一约束保证每个 checkpoint 只成功回答一次：相同选项重试返回第一次的结果，不同选项重试返回 `409 CHECKPOINT_ANSWER_CONFLICT`。知识卡片关闭后的继续命令使用 `CARD_DISMISSED_CONTINUE`，卡片归档与控制命令在同一事务落库后才触发生成。这里不实现通用事件重放或中断系统。
+
 左侧会话栏直接从 SQLite 读取并通过 `GET /api/sessions/{session_id}` 打开原 session，不会仅因查看而复制记录；原有 `POST /api/sessions/restore` 仍保留给需要显式创建实验分支的调用方。左侧可清空全部会话和 session 日志，右侧可清空全部卡片；两项操作都需要二次确认，且互不删除对方保留的数据。
 
 知识卡片策略为：`EXPLAIN_PRINCIPLE` 必须输出，`EXPLAIN_LOCAL` 仅在讲解包含值得独立记忆、可迁移复用的公式、定理、性质或方法辨析时由模型选择输出；任一 knowledge card 都会在消息结束后弹窗，关闭归档后继续答疑。
@@ -64,7 +68,10 @@ docs/how-to-run.md
 一句话理解当前架构：
 
 ```txt
-统一输入 intake（题目 + 当前思路）/ 会话消息 / 检查点选择
+统一输入 intake（题目 + 当前思路）
+  -> session_inputs 接纳普通消息 / checkpoint answer / 卡片关闭后继续
+  -> SQLite 原子写输入记录与对应 message/checkpoint/card 状态
+  -> /api/chat/stream 读取已落库输入并启动生成
   -> SQLite 取完整结构化历史
   -> build_messages 按 system / user / assistant 多轮消息拼 prompt
   -> LLM 产出 TutorTurn JSON
@@ -78,7 +85,7 @@ docs/how-to-run.md
 - Frontend: Next.js + React + TypeScript
 - Math Rendering: KaTeX（聊天气泡和检查点题干/选项支持 `$...$`、`$$...$$`、`\(...\)`、`\[...\]`）
 - Backend: FastAPI
-- Database: SQLite（session、结构化消息、checkpoint 和全局 study_cards 的权威存储，也是历史恢复来源）
+- Database: SQLite（session、durable session_inputs、结构化消息、checkpoint 和全局 study_cards 的权威存储，也是历史恢复来源）
 - Diagnostic Log: JSONL（机器审计）+ Markdown（留白充足的人类阅读版）
 - Model API: OpenAI-compatible chat completions（**已支持流式 stream=true**）
 

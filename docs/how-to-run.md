@@ -97,12 +97,13 @@ scripts\inspect-session.cmd sess_c4052d2538a6
 
 该脚本会自动定位 `ai4edu-tutor` Conda 环境，并读取 `.env` 中自定义的 `DATABASE_URL` 与 `SESSION_LOG_DIR`。
 
-你重点看四张表：
+你重点看五张表：
 
 1. `sessions`：当前阶段、题目、模型。
-2. `messages`：学生消息、AI 回复，以及每条消息的 `action_id / action / in_reply_to_action_id`。
-3. `checkpoints`：每个检查点的问题、选项、正确答案、学生选择，以及产生它的 `source_action_id`。
-4. `study_cards`：全局知识/题目卡片内容、来源 session/action/message，以及是否已由学生关闭归档的 `saved_at`。
+2. `session_inputs`：已可靠接纳的普通消息、checkpoint answer、卡片关闭继续命令，以及幂等键和首次结果。
+3. `messages`：学生消息、AI 回复，以及每条消息的 `action_id / action / in_reply_to_action_id`。
+4. `checkpoints`：每个检查点的问题、选项、正确答案、学生选择，以及产生它的 `source_action_id`。
+5. `study_cards`：全局知识/题目卡片内容、来源 session/action/message，以及是否已由学生关闭归档的 `saved_at`。
 
 页面左侧会话栏直接读取 SQLite。点击一条会话会打开原 session，并恢复其 messages、待答 checkpoint 和待归档 card，不会因为查看而复制记录；需要显式创建实验分支时仍可调用 `POST /api/sessions/restore`。
 

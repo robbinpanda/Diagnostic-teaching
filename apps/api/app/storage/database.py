@@ -95,6 +95,39 @@ class Database:
                   saved_at TEXT
                 );
 
+                CREATE TABLE IF NOT EXISTS session_inputs (
+                  id TEXT PRIMARY KEY,
+                  session_id TEXT NOT NULL,
+                  kind TEXT NOT NULL CHECK (
+                    kind IN ('STUDENT_MESSAGE', 'CHECKPOINT_ANSWER', 'CARD_DISMISSED_CONTINUE')
+                  ),
+                  idempotency_key TEXT NOT NULL,
+                  payload_json TEXT NOT NULL,
+                  result_json TEXT NOT NULL DEFAULT '{}',
+                  message_id TEXT,
+                  checkpoint_id TEXT,
+                  card_id TEXT,
+                  created_at TEXT NOT NULL
+                );
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_session_inputs_session_key
+                ON session_inputs(session_id, idempotency_key);
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_session_inputs_checkpoint
+                ON session_inputs(checkpoint_id)
+                WHERE checkpoint_id IS NOT NULL;
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_session_inputs_message
+                ON session_inputs(message_id)
+                WHERE message_id IS NOT NULL;
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_session_inputs_card
+                ON session_inputs(card_id)
+                WHERE card_id IS NOT NULL;
+
+                CREATE INDEX IF NOT EXISTS idx_session_inputs_session_created
+                ON session_inputs(session_id, created_at);
+
                 CREATE INDEX IF NOT EXISTS idx_study_cards_session_saved
                 ON study_cards(session_id, saved_at, created_at);
 

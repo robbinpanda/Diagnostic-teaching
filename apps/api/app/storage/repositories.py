@@ -230,6 +230,7 @@ class SessionRepository:
             ).fetchone()
             if exists is None:
                 raise KeyError(session_id)
+            conn.execute("DELETE FROM session_inputs WHERE session_id = ?", (session_id,))
             conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
             conn.execute("DELETE FROM checkpoints WHERE session_id = ?", (session_id,))
             conn.execute(
@@ -241,6 +242,7 @@ class SessionRepository:
     def delete_all_sessions(self) -> None:
         """Delete all resumable session state while preserving saved global cards."""
         with self.db.connect() as conn:
+            conn.execute("DELETE FROM session_inputs")
             conn.execute("DELETE FROM messages")
             conn.execute("DELETE FROM checkpoints")
             conn.execute("DELETE FROM study_cards WHERE saved_at IS NULL")
@@ -262,46 +264,6 @@ class SessionRepository:
                 """,
                 (phase, breakpoint_description, breakpoint_confidence, now_iso(), session_id),
             )
-
-    def add_message(
-        self,
-        session_id: str,
-        role: str,
-        content: str,
-        *,
-        action: str,
-        action_id: str | None = None,
-        in_reply_to_action_id: str | None = None,
-        metadata: dict | None = None,
-    ) -> sqlite3.Row:
-        message_id = new_id("msg")
-        action_id = action_id or new_id("act")
-        with self.db.connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO messages (
-                  id, session_id, role, content, action_id, action,
-                  in_reply_to_action_id, metadata_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    message_id,
-                    session_id,
-                    role,
-                    content,
-                    action_id,
-                    action,
-                    in_reply_to_action_id,
-                    json.dumps(metadata or {}, ensure_ascii=False),
-                    now_iso(),
-                ),
-            )
-            conn.execute(
-                "UPDATE sessions SET updated_at = ? WHERE id = ?",
-                (now_iso(), session_id),
-            )
-        with self.db.connect() as conn:
-            return conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
 
     def record_tutor_action(
         self,
@@ -518,22 +480,39 @@ class SessionRepository:
             if limit is None:
                 return conn.execute(
                     """
-                    SELECT * FROM messages
-                    WHERE session_id = ?
-                    ORDER BY created_at ASC, rowid ASC
+                    SELECT m.*, si.idempotency_key AS client_message_id
+                    FROM messages m
+                    LEFT JOIN session_inputs si
+                      ON si.message_id = m.id AND si.kind = 'STUDENT_MESSAGE'
+                    WHERE m.session_id = ?
+                    ORDER BY m.created_at ASC, m.rowid ASC
                     """,
                     (session_id,),
                 ).fetchall()
             rows = conn.execute(
                 """
-                SELECT * FROM messages
-                WHERE session_id = ?
-                ORDER BY created_at DESC, rowid DESC
+                SELECT m.*, si.idempotency_key AS client_message_id
+                FROM messages m
+                LEFT JOIN session_inputs si
+                  ON si.message_id = m.id AND si.kind = 'STUDENT_MESSAGE'
+                WHERE m.session_id = ?
+                ORDER BY m.created_at DESC, m.rowid DESC
                 LIMIT ?
                 """,
                 (session_id, limit),
             ).fetchall()
         return list(reversed(rows))
+
+    def list_inputs(self, session_id: str) -> list[sqlite3.Row]:
+        with self.db.connect() as conn:
+            return conn.execute(
+                """
+                SELECT * FROM session_inputs
+                WHERE session_id = ?
+                ORDER BY created_at ASC, rowid ASC
+                """,
+                (session_id,),
+            ).fetchall()
 
     def latest_blocking_action_id(self, session_id: str) -> str | None:
         with self.db.connect() as conn:
@@ -611,78 +590,6 @@ class SessionRepository:
                 (session_id,),
             ).fetchall()
 
-    def record_checkpoint_response(
-        self,
-        checkpoint_id: str,
-        selected_option_id: str,
-        elapsed_ms: int,
-        *,
-        session_id: str,
-        student_message: str,
-        checkpoint_result: dict,
-        next_state_hint: str,
-    ) -> tuple[sqlite3.Row, bool, sqlite3.Row]:
-        """Atomically save the student's checkpoint result and conversation message."""
-        message_id = new_id("msg")
-        action_id = new_id("act")
-        ts = now_iso()
-        with self.db.connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM checkpoints WHERE id = ?",
-                (checkpoint_id,),
-            ).fetchone()
-            if row is None:
-                raise KeyError(checkpoint_id)
-            if row["session_id"] != session_id:
-                raise PermissionError(checkpoint_id)
-            if row["answered_at"] is not None:
-                raise FileExistsError(checkpoint_id)
-
-            is_correct = selected_option_id == row["correct_option_id"]
-            conn.execute(
-                """
-                UPDATE checkpoints
-                SET selected_option_id = ?, is_correct = ?, elapsed_ms = ?, answered_at = ?
-                WHERE id = ?
-                """,
-                (selected_option_id, int(is_correct), elapsed_ms, ts, checkpoint_id),
-            )
-            conn.execute(
-                """
-                INSERT INTO messages (
-                  id, session_id, role, content, action_id, action,
-                  in_reply_to_action_id, metadata_json, created_at
-                ) VALUES (?, ?, 'student', ?, ?, 'CHECKPOINT_RESPONSE', ?, ?, ?)
-                """,
-                (
-                    message_id,
-                    session_id,
-                    student_message,
-                    action_id,
-                    row["source_action_id"],
-                    json.dumps({"checkpoint_result": checkpoint_result}, ensure_ascii=False),
-                    ts,
-                ),
-            )
-            conn.execute(
-                """
-                UPDATE sessions
-                SET phase = ?, breakpoint_description = NULL,
-                    breakpoint_confidence = NULL, updated_at = ?
-                WHERE id = ?
-                """,
-                (next_state_hint, ts, session_id),
-            )
-            updated = conn.execute(
-                "SELECT * FROM checkpoints WHERE id = ?",
-                (checkpoint_id,),
-            ).fetchone()
-            student_row = conn.execute(
-                "SELECT * FROM messages WHERE id = ?",
-                (message_id,),
-            ).fetchone()
-        return updated, is_correct, student_row
-
     def list_history(self) -> list[sqlite3.Row]:
         with self.db.connect() as conn:
             return conn.execute(
@@ -704,6 +611,7 @@ class SessionRepository:
         """Copy one SQLite session into a new resumable session."""
         source = self.get(source_session_id)
         messages = self.list_messages(source_session_id)
+        inputs = self.list_inputs(source_session_id)
         checkpoints = self.list_checkpoints(source_session_id)
         cards = [
             card
@@ -808,6 +716,43 @@ class SessionRepository:
                         action_map.get(message["in_reply_to_action_id"], message["in_reply_to_action_id"]),
                         json.dumps(metadata, ensure_ascii=False),
                         message["created_at"],
+                    ),
+                )
+
+            # Preserve ordinary-message idempotency in the explicit restored
+            # branch. Checkpoint inputs are lazily backfilled from their copied
+            # CHECKPOINT_RESPONSE message if an old answer is retried.
+            for input_row in inputs:
+                if input_row["kind"] != "STUDENT_MESSAGE":
+                    continue
+                if input_row["message_id"] not in message_map:
+                    continue
+                try:
+                    result = json.loads(input_row["result_json"] or "{}")
+                except json.JSONDecodeError:
+                    result = {}
+                if result.get("message_id") in message_map:
+                    result["message_id"] = message_map[result["message_id"]]
+                if result.get("action_id") in action_map:
+                    result["action_id"] = action_map[result["action_id"]]
+                if result.get("in_reply_to_action_id") in action_map:
+                    result["in_reply_to_action_id"] = action_map[result["in_reply_to_action_id"]]
+                conn.execute(
+                    """
+                    INSERT INTO session_inputs (
+                      id, session_id, kind, idempotency_key, payload_json,
+                      result_json, message_id, checkpoint_id, card_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)
+                    """,
+                    (
+                        new_id("inp"),
+                        new_session_id,
+                        input_row["kind"],
+                        input_row["idempotency_key"],
+                        input_row["payload_json"],
+                        json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                        message_map[input_row["message_id"]],
+                        input_row["created_at"],
                     ),
                 )
 
