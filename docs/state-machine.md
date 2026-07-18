@@ -1,7 +1,7 @@
 # 答疑状态机与 LLM 主导流程
 
-版本：v1.1
-日期：2026-07-17
+版本：v1.2
+日期：2026-07-18
 适用项目：诊断式数学答疑 MVP
 
 本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作；后端根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop。`EXPLAIN_PRINCIPLE` 必须产生 `knowledge_card`，`EXPLAIN_LOCAL` 可按知识复用价值选择产生 `knowledge_card`，`SUMMARIZE` 必须产生 `problem_card`。**
@@ -295,6 +295,44 @@ message_done
 
 需要注意：fallback 后可能丢失原本 raw 中的 checkpoint，所以分析时不能只看 raw，也要看最终 `parsed_turn.checkpoint`。
 
-## 12. 一句话结论
+## 12. 会话 run 生命周期、中断与重启恢复
+
+一次 `POST /api/chat/stream` 是一个 run；一个 run 内仍可由 bounded loop 连续提交多个完整教学 action。SQLite `session_runs` 保存：
+
+```text
+id(run_id) / session_id / attempt / status
+queued_at / started_at / finished_at / updated_at
+error_json / last_committed_action_index
+```
+
+状态只能是 `queued / running / completed / failed / interrupted`：
+
+- API 接到合法请求后先原子分配同 session 递增的 `attempt` 并写 `queued`。
+- coordinator 给每个 session 独立的 FIFO 执行锁：同 session 串行，不同 session 不共享锁、可并行；取得锁后转 `running`。
+- run 到达开放问题、选择题、待归档卡片或总结等正常停止点时转 `completed`。
+- provider/解析/存储异常转 `failed`，`error_json` 至少包含 `code / message / type / retryable`。
+- `POST /api/sessions/{session_id}/interrupt` 先把该 session 当前 queued/running run 原子标为 `interrupted`，再取消 provider 子任务；这会阻止当前 action 提交并停止后续 bounded loop。空闲中断和重复中断返回成功但 `interrupted=false`。
+
+完整 action 的提交与显式中断争用同一个 SQLite 写事务。若 action 事务先完成，它作为完整 assistant message 保留；若 interrupt 先完成，run 状态门闩拒绝该 step 入库。因此 SSE 已显示的半截 `message_delta` 从不等于完整业务 action，前端收到 `run_interrupted` 或 error 时会移除当前未提交气泡。
+
+客户端停止读取响应与显式中断是两条不同语义：ASGI 响应任务被客户端断开取消时，服务端同样清理 provider 子任务和 coordinator，但 run 记为 `failed`，错误码为 `client_disconnected`；只有 interrupt API 才产生 `interrupted / explicit_interrupt`。
+
+应用启动不会续跑旧进程的 provider 调用。启动初始化会扫描遗留 `queued/running` run，并标为 `failed / process_restarted`，保留原先 status 到结构化错误的 `previous_status` 中。用户可在确认 SQLite 已提交 action 后显式发起新 attempt。
+
+相关接口与流事件：
+
+```text
+GET  /api/sessions/{session_id}/run
+POST /api/sessions/{session_id}/interrupt
+
+X-Run-Id: run_...
+run_started -> message_delta... -> decision... -> message_done
+run_interrupted  # 仅显式中断
+error            # failed run
+```
+
+`session_runs` 由 `apps/api/app/storage/migrations/session_runs.py` 的幂等独立迁移创建，当前在 `Database.init_schema()` 末尾注册。若合并统一 SQLite migration runner 分支，应保留该 DDL，只把函数注册移动到统一 runner；不要重复建立第二套 run 表。
+
+## 13. 一句话结论
 
 当前流程已经从“LLM 自选 phase/action/checkpoint 的软状态机”升级为“LLM 产出教学原子动作，后端强制 action 工作流”的结构：`state_hint` 只负责提示，`action` 决定控制流，`wait_for_student` 由后端推导，bounded loop 负责把多个非阻塞讲解动作串起来，直到真正需要学生参与。

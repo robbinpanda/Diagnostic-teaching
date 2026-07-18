@@ -1,8 +1,8 @@
 # 上下文、Session 恢复与诊断日志
 
-版本：v1.0
+版本：v1.1
 
-日期：2026-07-15
+日期：2026-07-18
 
 适用项目：诊断式数学答疑 MVP
 
@@ -258,7 +258,17 @@ DELETE /api/sessions/{session_id}
 
 `DELETE /api/sessions` 是批量版本：删除全部 session、messages、checkpoints、待归档卡片，以及日志目录中的所有 `.jsonl` / `.log.md` session 日志；已归档全局卡片和模型配置保留。若仍有答疑流正在生成，接口返回 409，避免清空后被并发写回。
 
-## 7. 诊断日志
+## 7. Run 是可恢复业务态，不是诊断事件流
+
+SQLite `session_runs` 是每次生成请求的权威生命周期记录。`run_id` 由后端生成，`attempt` 在同一 session 内事务递增；`queued_at / started_at / finished_at / updated_at` 记录阶段时间，`error_json` 保存结构化终态原因，`last_committed_action_index` 记录本 run 最后一个原子提交的完整教学 action。
+
+coordinator 只保存当前进程的执行对象、每 session 锁和 provider 子任务引用，用于串行、查询和取消；它不是恢复来源。`GET /api/sessions/{session_id}/run` 同时核对 coordinator 的 active/running 状态与 SQLite 当前/最近 run。进程启动时，SQLite 中仍为 `queued/running` 的旧记录统一转为 `failed/process_restarted`，不会根据 JSONL 或内存状态续跑。
+
+显式中断调用 `POST /api/sessions/{session_id}/interrupt`。后端先提交 `interrupted/explicit_interrupt`，随后取消 provider 子任务并终止 bounded loop；重复调用或 session 当前空闲时是 no-op。客户端自行关闭 fetch/页面只会触发响应清理，run 记为 `failed/client_disconnected`，不等同于显式中断。
+
+assistant message、checkpoint、pending card 和 `last_committed_action_index` 在受 run 状态保护的 SQLite 事务中提交。未完整解析的 provider 输出、仅发送过 `message_delta` 的半成品和中断后才到达的结果都不会写入 messages。JSONL/Markdown 仍可记录取消前的诊断片段，但不能据此恢复 action。
+
+## 8. 诊断日志
 
 日志目录：
 
@@ -266,7 +276,7 @@ DELETE /api/sessions/{session_id}
 logs/sessions/
 ```
 
-### 7.1 JSONL：给机器
+### 8.1 JSONL：给机器
 
 ```text
 logs/sessions/<session_id>.jsonl
@@ -283,7 +293,7 @@ logs/sessions/<session_id>.jsonl
 
 JSONL 保持紧凑，不为了人眼阅读插入跨行格式，否则会破坏“一行一事件”的可靠性。
 
-### 7.2 Markdown：给人
+### 8.2 Markdown：给人
 
 ```text
 logs/sessions/<session_id>.log.md
@@ -295,7 +305,7 @@ logs/sessions/<session_id>.log.md
 
 日志写入失败不会中断教学主流程。也正因如此，日志只能用于诊断，不能作为恢复依据。
 
-## 8. 流式输出
+## 9. 流式输出
 
 链路：
 
@@ -310,17 +320,19 @@ provider.chat_stream_completion()
 常见事件顺序：
 
 ```text
+run_started
 message_delta ...
 message_reset（仅格式重试时可能出现）
 decision
 checkpoint_ready（可选）
 card_ready（可选，仅 knowledge_card / problem_card）
 message_done
+run_interrupted（仅显式中断，且没有当前 step 的完整 action 落库）
 ```
 
 只有学生可见的 `message` 字段会增量展示。若首个模型输出格式不合法并触发重试，`message_reset` 会让前端丢弃该 action 已展示的残片。`state_hint`、`action`、`checkpoint` 和 card 必须等完整 JSON 到达、校验和后端策略归一化后才发出。`card_ready` 后当前 HTTP stream 停止，等待前端保存卡片。
 
-## 9. 排查建议
+## 10. 排查建议
 
 优先直接打开：
 

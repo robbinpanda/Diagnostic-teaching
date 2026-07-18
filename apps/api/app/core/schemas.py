@@ -213,6 +213,34 @@ class SessionRestoreResponse(BaseModel):
     pending_card: dict[str, Any] | None = None
 
 
+RunStatus = Literal["queued", "running", "completed", "failed", "interrupted"]
+
+
+class SessionRunPublic(BaseModel):
+    run_id: str
+    session_id: str
+    attempt: int
+    status: RunStatus
+    queued_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    updated_at: str
+    last_committed_action_index: int = -1
+    error: dict[str, Any] | None = None
+
+
+class SessionRunStatusResponse(BaseModel):
+    active: bool
+    running: bool
+    run: SessionRunPublic | None = None
+
+
+class SessionInterruptResponse(BaseModel):
+    interrupted: bool
+    active: bool
+    run_ids: list[str] = Field(default_factory=list)
+
+
 class ChatStreamRequest(BaseModel):
     session_id: str
     message: str | None = None

@@ -14,6 +14,7 @@ import {
   Paperclip,
   Pencil,
   Plus,
+  Square,
   Trash2,
   X
 } from "lucide-react";
@@ -41,6 +42,7 @@ import {
   fetchSession,
   fetchSessionHistory,
   intakeSession,
+  interruptSession,
   modelProfileLabel,
   ModelProfile,
   saveCard,
@@ -106,6 +108,7 @@ export default function Home() {
   const [cardBusyId, setCardBusyId] = useState("");
   const [startBusy, setStartBusy] = useState(false);
   const [streamBusy, setStreamBusy] = useState(false);
+  const [interruptBusy, setInterruptBusy] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
   const [error, setError] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -321,6 +324,7 @@ export default function Home() {
     let receivedCard = false;
     let cardWaitingForMessageDone: StudyCard | null = null;
     let receivedError = false;
+    let currentActionCommitted = false;
 
     function setAssistantMessage(nextText: string) {
       if (!nextText.trim()) return;
@@ -370,6 +374,7 @@ export default function Home() {
     try {
       await streamChat({ session_id: nextSessionId, message }, (event) => {
         if (event.event === "decision") {
+          currentActionCommitted = true;
           const data = event.data as { action?: string; message?: string };
           reconcileAssistantMessage(data.message);
           if (assistantId && data.action) {
@@ -392,7 +397,7 @@ export default function Home() {
         }
         if (event.event === "error") {
           receivedError = true;
-          if (retryingAssistant && assistantId) {
+          if (assistantId && (!currentActionCommitted || retryingAssistant)) {
             const id = assistantId;
             assistantId = "";
             assistantText = "";
@@ -403,12 +408,22 @@ export default function Home() {
           }
           setError((event.data as { message: string }).message);
         }
+        if (event.event === "run_interrupted") {
+          receivedError = true;
+          if (assistantId && !currentActionCommitted) {
+            const id = assistantId;
+            assistantId = "";
+            assistantText = "";
+            setMessages((current) => current.filter((item) => item.id !== id));
+          }
+        }
         if (event.event === "message_done") {
           assistantId = "";
           assistantText = "";
           retryBaseline = "";
           retryText = "";
           retryingAssistant = false;
+          currentActionCommitted = false;
           if (cardWaitingForMessageDone) {
             setViewingCard(null);
             setActiveCard(cardWaitingForMessageDone);
@@ -424,6 +439,20 @@ export default function Home() {
     } finally {
       setStreamBusy(false);
       void refreshHistory();
+    }
+  }
+
+  async function handleInterrupt() {
+    if (!sessionId || !streamBusy || interruptBusy) return;
+    setInterruptBusy(true);
+    setError("");
+    try {
+      const result = await interruptSession(sessionId);
+      if (result.interrupted) appendMessage("system", "已停止本轮生成；此前已完成并保存的教学步骤会保留。");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "中断生成失败");
+    } finally {
+      setInterruptBusy(false);
     }
   }
 
@@ -783,8 +812,15 @@ export default function Home() {
                   </button>
                 )}
               </div>
-              <button className="sendButton" type="button" onClick={handleSend} disabled={composerBlocked || !input.trim()} aria-label="发送">
-                {startBusy || streamBusy ? <Loader2 size={18} className="spin" /> : <ArrowUp size={19} />}
+              <button
+                className="sendButton"
+                type="button"
+                onClick={streamBusy ? handleInterrupt : handleSend}
+                disabled={streamBusy ? !sessionId || interruptBusy : composerBlocked || !input.trim()}
+                aria-label={streamBusy ? "停止生成" : "发送"}
+                title={streamBusy ? "停止生成" : "发送"}
+              >
+                {streamBusy ? (interruptBusy ? <Loader2 size={18} className="spin" /> : <Square size={16} fill="currentColor" />) : startBusy ? <Loader2 size={18} className="spin" /> : <ArrowUp size={19} />}
               </button>
             </div>
           </div>

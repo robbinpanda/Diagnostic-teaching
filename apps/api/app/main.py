@@ -23,6 +23,9 @@ def create_app() -> FastAPI:
     app.state.db = db
     app.state.model_profiles = ModelProfileRepository(db, secrets)
     app.state.sessions = SessionRepository(db)
+    # A new process cannot know whether an old provider request completed. Never
+    # resume durable queued/running rows silently: make the retry decision explicit.
+    app.state.recovered_session_runs = app.state.sessions.recover_orphaned_runs()
     app.state.session_logger = session_logger
     app.state.chat_streams = chat.SessionStreamCoordinator()
 

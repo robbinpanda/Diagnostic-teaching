@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from app.storage.migrations import apply_session_runs_migration
+
 
 class Database:
     def __init__(self, path: Path):
@@ -132,6 +134,8 @@ class Database:
             )
             self._ensure_column(conn, "messages", "in_reply_to_action_id", "TEXT")
             self._ensure_column(conn, "checkpoints", "source_action_id", "TEXT")
+            # Compatibility integration point for the standalone run-lifecycle migration.
+            apply_session_runs_migration(conn)
 
     def _ensure_column(
         self,

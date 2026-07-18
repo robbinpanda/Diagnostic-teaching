@@ -66,12 +66,14 @@ export type StudyCard = {
 };
 
 export type SseEvent =
+  | { event: "run_started"; data: { run_id: string; attempt: number; status: "running" } }
   | { event: "decision"; data: { state_hint?: string; action?: string; action_id?: string; wait_for_student?: boolean; message?: string; breakpoint?: string; confidence?: number; action_index?: number } }
   | { event: "message_delta"; data: { text: string; action_index?: number } }
   | { event: "message_reset"; data: { action_index?: number } }
   | { event: "checkpoint_ready"; data: Checkpoint }
   | { event: "card_ready"; data: StudyCard }
   | { event: "message_done"; data: { ok: boolean; action_index?: number; wait_for_student?: boolean; will_continue?: boolean; awaiting_card_dismissal?: boolean; continue_after_card?: boolean } }
+  | { event: "run_interrupted"; data: { run_id: string; status: "interrupted" } }
   | { event: "error"; data: { message: string } }
   | { event: string; data: Record<string, unknown> };
 
@@ -424,4 +426,16 @@ export async function streamChat(
       onEvent({ event, data } as SseEvent);
     }
   }
+}
+
+export async function interruptSession(sessionId: string): Promise<{
+  interrupted: boolean;
+  active: boolean;
+  run_ids: string[];
+}> {
+  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}/interrupt`, {
+    method: "POST"
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
 }

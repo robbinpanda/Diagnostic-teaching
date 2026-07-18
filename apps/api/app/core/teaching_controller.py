@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -676,6 +677,9 @@ async def generate_tutor_turn(
             parse_ok = True
             return turn
         raise LlmProviderError("模型未生成有效的教学结果")
+    except asyncio.CancelledError:
+        error = "generation_cancelled"
+        raise
     except Exception as exc:
         # 不吞 LLM/网络错误：交给 chat 路由的 try/except 转成 SSE error 事件
         error = str(exc)
@@ -779,6 +783,9 @@ async def generate_tutor_turn_stream(
             yield ("turn", turn_final)
             return
         raise LlmProviderError("模型未生成有效的教学结果")
+    except asyncio.CancelledError:
+        error = "generation_cancelled"
+        raise
     except Exception as exc:
         error = str(exc)
         # 不吞错误：交给 chat 路由的 try/except 转成 SSE error 事件。
