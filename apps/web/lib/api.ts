@@ -105,6 +105,7 @@ export type RestoredSession = {
     text: string;
     action_id?: string | null;
     action: string;
+    client_message_id?: string | null;
   }>;
   pending_checkpoint?: Checkpoint | null;
   pending_card?: StudyCard | null;
@@ -339,12 +340,64 @@ export async function answerCheckpoint(input: {
   });
   if (!response.ok) throw new Error(await response.text());
   return response.json() as Promise<{
+    input_id: string;
+    status: "accepted" | "duplicate";
     is_correct: boolean;
+    elapsed_ms: number;
     event: "CHECKPOINT_CORRECT" | "CHECKPOINT_WRONG" | "CHECKPOINT_UNKNOWN";
     next_state_hint: string;
     student_message: string;
     action_id: string;
   }>;
+}
+
+export type SessionInputAcceptance = {
+  input_id: string;
+  kind: "STUDENT_MESSAGE" | "CARD_DISMISSED_CONTINUE";
+  status: "accepted" | "duplicate";
+  idempotency_key: string;
+  created_at: string;
+  message_id?: string | null;
+  action_id?: string | null;
+  in_reply_to_action_id?: string | null;
+  card_id?: string | null;
+  card_saved_at?: string | null;
+};
+
+export async function acceptStudentMessage(input: {
+  session_id: string;
+  client_message_id: string;
+  message: string;
+}): Promise<SessionInputAcceptance> {
+  const response = await fetch(`${API_BASE}/api/sessions/${input.session_id}/inputs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      kind: "STUDENT_MESSAGE",
+      client_message_id: input.client_message_id,
+      message: input.message
+    })
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function dismissKnowledgeCardAndContinue(input: {
+  session_id: string;
+  client_command_id: string;
+  card_id: string;
+}): Promise<SessionInputAcceptance> {
+  const response = await fetch(`${API_BASE}/api/sessions/${input.session_id}/inputs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      kind: "CARD_DISMISSED_CONTINUE",
+      client_command_id: input.client_command_id,
+      card_id: input.card_id
+    })
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
 }
 
 export async function fetchCards(
@@ -387,6 +440,7 @@ export async function streamChat(
   input: {
     session_id: string;
     message?: string;
+    client_message_id?: string;
     checkpoint_answer?: {
       checkpoint_id: string;
       selected_option_id: string;

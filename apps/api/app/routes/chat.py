@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -10,6 +11,12 @@ from app.core.schemas import ChatStreamRequest
 from app.core.teaching_controller import NONBLOCKING_ACTIONS, generate_tutor_turn_stream
 from app.llm.provider import LlmProfile
 from app.routes.cards import card_from_row
+from app.services.input_acceptance import (
+    IdempotencyConflictError,
+    InputAcceptanceService,
+    InputStateConflictError,
+    InputValidationError,
+)
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -68,21 +75,28 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
     if request.app.state.sessions.latest_pending_card(payload.session_id) is not None:
         raise HTTPException(status_code=409, detail="请先关闭并保存当前学习卡片，再继续答疑")
 
-    coordinator: SessionStreamCoordinator = request.app.state.chat_streams
-    if not await coordinator.try_start(payload.session_id):
-        raise HTTPException(status_code=409, detail="该会话已有一个答疑请求正在生成，请等待完成后再试")
-
     try:
-        if payload.message and payload.message.strip():
-            is_checkpoint_result = bool(payload.checkpoint_answer)
-            student_row = request.app.state.sessions.add_message(
-                payload.session_id,
-                "student",
-                payload.message.strip(),
-                action="CHECKPOINT_RESPONSE" if is_checkpoint_result else "STUDENT_RESPONSE",
-                in_reply_to_action_id=request.app.state.sessions.latest_blocking_action_id(payload.session_id),
-                metadata={"checkpoint_result": payload.checkpoint_answer} if is_checkpoint_result else None,
+        accepted_input = None
+        input_service = InputAcceptanceService(request.app.state.sessions)
+        if payload.checkpoint_answer:
+            checkpoint_id = str(payload.checkpoint_answer.get("checkpoint_id", ""))
+            selected_option_id = str(payload.checkpoint_answer.get("selected_option_id", ""))
+            if not checkpoint_id or not selected_option_id:
+                raise InputValidationError("旧版 checkpoint_answer 缺少检查点或选项 ID")
+            accepted_input = input_service.accept_checkpoint_answer(
+                checkpoint_id,
+                session_id=payload.session_id,
+                selected_option_id=selected_option_id,
+                elapsed_ms=max(0, int(payload.checkpoint_answer.get("elapsed_ms", 0))),
             )
+        elif payload.message and payload.message.strip():
+            accepted_input = input_service.accept_student_message(
+                payload.session_id,
+                client_message_id=payload.client_message_id or f"legacy:{uuid.uuid4().hex}",
+                message=payload.message,
+            )
+        if accepted_input is not None and accepted_input.accepted and accepted_input.message_row is not None:
+            student_row = accepted_input.message_row
             logger = getattr(request.app.state, "session_logger", None)
             if logger is not None:
                 logger.log_message(
@@ -94,9 +108,29 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                     in_reply_to_action_id=student_row["in_reply_to_action_id"],
                     content=student_row["content"],
                 )
-    except Exception:
-        await coordinator.finish(payload.session_id)
-        raise
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="会话或检查点不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail="检查点不属于当前会话") from exc
+    except InputValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except IdempotencyConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "IDEMPOTENCY_KEY_CONFLICT", "message": "同一客户端 ID 已用于不同输入"},
+        ) from exc
+    except InputStateConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "CHECKPOINT_ANSWER_CONFLICT", "message": "检查点答案冲突"},
+        ) from exc
+
+    coordinator: SessionStreamCoordinator = request.app.state.chat_streams
+    if not await coordinator.try_start(payload.session_id):
+        raise HTTPException(
+            status_code=409,
+            detail="输入已可靠接纳；该会话已有一个答疑请求正在生成，请稍后仅重试生成",
+        )
 
     async def event_stream():
         try:

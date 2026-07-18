@@ -12,6 +12,16 @@
 - sessions 到 model_profiles 使用 `RESTRICT`；messages/checkpoints 到 sessions 使用 `CASCADE`。study_cards 新增活动会话外键，数据库触发器删除待归档卡，已归档卡在 session 删除后保留不可变来源审计并继续存在于全局卡片库。
 - 新增迁移重复执行、旧库升级、外键拒绝孤儿、索引、级联删除和已归档卡保留测试。
 
+### Durable 输入接纳与幂等提交
+
+- 新增 SQLite `session_inputs` 权威表，区分 `STUDENT_MESSAGE`、`CHECKPOINT_ANSWER` 与 `CARD_DISMISSED_CONTINUE`，并保存幂等键、规范化 payload、首次结果及 message/checkpoint/card 关联。
+- 新增 `POST /api/sessions/{session_id}/inputs`：普通消息使用前端生成的 `client_message_id`，第一次返回 `201 accepted`，同值重试返回 `200 duplicate`，同 ID 不同输入返回 `409 IDEMPOTENCY_KEY_CONFLICT`。
+- 前端会话消息改成先调用输入接纳接口、成功后再启动 `/api/chat/stream`；同步增加双击锁和失败重试时复用原 `client_message_id`。流接口继续兼容携带 message 的旧调用，但也先经过相同接纳服务。
+- Checkpoint answer 改由接纳服务在一个 `BEGIN IMMEDIATE` 事务中写 `session_inputs`、checkpoint 状态、`CHECKPOINT_RESPONSE` message 和 session state；同选项重试返回第一次结果，不同选项重试返回 `409 CHECKPOINT_ANSWER_CONFLICT`。
+- 知识卡关闭后的继续改为 durable 控制命令，卡片 `saved_at` 与 `CARD_DISMISSED_CONTINUE` 同事务提交；problem card 仍只归档、不继续。
+- 会话详情回传普通消息的 `client_message_id`，显式恢复分支复制并重映射普通消息输入记录；会话删除同时删除所属 `session_inputs`。
+- 新增幂等、ID 冲突、并发双击、请求重试、checkpoint 重复提交及强制失败事务回滚测试。本版本不包含通用事件重放、SSE 续传或生成中断系统。
+
 ## v1.8 — 2026-07-17
 
 ### 同一供应商批量添加模型与多模态自动探测

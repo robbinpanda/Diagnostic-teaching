@@ -35,6 +35,24 @@ def short(text: str, limit: int = 260) -> str:
 
 def timeline(conn: sqlite3.Connection, session_id: str) -> None:
     print("\n===== TIMELINE =====")
+    input_rows = conn.execute(
+        """
+        SELECT created_at AS ts, 'input:' || kind AS kind,
+               idempotency_key AS body,
+               json_object(
+                 'id', id,
+                 'payload_json', payload_json,
+                 'result_json', result_json,
+                 'message_id', message_id,
+                 'checkpoint_id', checkpoint_id,
+                 'card_id', card_id
+               ) AS extra
+        FROM session_inputs
+        WHERE session_id = ?
+        ORDER BY created_at
+        """,
+        (session_id,),
+    ).fetchall()
     message_rows = conn.execute(
         """
         SELECT created_at AS ts, role AS kind, content AS body,
@@ -83,7 +101,7 @@ def timeline(conn: sqlite3.Connection, session_id: str) -> None:
         """,
         (session_id,),
     ).fetchall()
-    rows = sorted([*message_rows, *checkpoint_rows, *card_rows], key=lambda row: row["ts"])
+    rows = sorted([*input_rows, *message_rows, *checkpoint_rows, *card_rows], key=lambda row: row["ts"])
     if not rows:
         print("(empty)")
         return
@@ -126,6 +144,17 @@ def main() -> int:
     print(f"Human-readable: {readable_log}{'' if readable_log.exists() else ' (not found)'}")
     print(f"Machine JSONL:  {jsonl_log}{'' if jsonl_log.exists() else ' (not found)'}")
     timeline(conn, session_id)
+    inputs = conn.execute(
+        """
+        SELECT id, kind, idempotency_key, payload_json, result_json,
+               message_id, checkpoint_id, card_id, created_at
+        FROM session_inputs
+        WHERE session_id = ?
+        ORDER BY created_at
+        """,
+        (session_id,),
+    ).fetchall()
+    print_json("SESSION INPUTS RAW", inputs)
     messages = conn.execute(
         """
         SELECT id, role, action_id, action, in_reply_to_action_id,
