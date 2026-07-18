@@ -2,6 +2,17 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v1.9 — 2026-07-18
+
+### Session durable events、有限历史与 SSE 续传
+
+- 新增独立兼容迁移 `0001_session_events.sql` 和 `schema_migrations`：SQLite 保存 append-only `session_events`，以 `(session_id, seq)` 唯一约束和 writer lock 保证并发下严格递增。
+- message/action/checkpoint/card 的完成事件与对应业务写入同事务提交；chat run 增加 `run.started/run.completed/error.occurred/session.idle` 边界。高频 `message_delta` 继续只实时发送，完整 message/action 可重放。
+- 新增有限历史 `GET /api/sessions/{session_id}/events`，单页最多 200；新增 `GET /api/sessions/{session_id}/events/stream`，支持 `after_seq`、`Last-Event-ID`、先补发后跟随和 keep-alive。
+- 固定 `schema_version=1` 信封与类型版本策略；客户端以 `seq` 去重，重复消费不会重复应用状态。
+- 旧 SQLite 不伪造过去事件，首次打开仍以 session detail 为基线；JSONL/Markdown 继续仅用于诊断，不能作为 durable event 或恢复来源。
+- 新增迁移、并发 seq、事务回滚、分页隔离、顺序、断线续传、重复消费以及 checkpoint/card/error/idle 测试。
+
 ## v1.8 — 2026-07-17
 
 ### 同一供应商批量添加模型与多模态自动探测

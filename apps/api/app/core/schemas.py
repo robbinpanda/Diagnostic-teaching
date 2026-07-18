@@ -185,6 +185,26 @@ class SessionHistoryListResponse(BaseModel):
     sessions: list[SessionHistoryItem]
 
 
+class SessionEventPublic(BaseModel):
+    schema_version: Literal[1] = 1
+    id: str
+    session_id: str
+    seq: int = Field(ge=1)
+    type: str
+    data: dict[str, Any]
+    created_at: str
+
+
+class SessionEventHistoryResponse(BaseModel):
+    schema_version: Literal[1] = 1
+    session_id: str
+    after_seq: int = Field(ge=0)
+    next_after_seq: int = Field(ge=0)
+    latest_seq: int = Field(ge=0)
+    has_more: bool
+    events: list[SessionEventPublic]
+
+
 class SessionRestoreRequest(BaseModel):
     session_id: str
     model_profile_id: str

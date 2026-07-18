@@ -11,8 +11,9 @@ class Database:
         self.init_schema()
 
     def connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path)
+        conn = sqlite3.connect(self.path, timeout=30)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout = 30000")
         return conn
 
     def init_schema(self) -> None:
@@ -132,6 +133,33 @@ class Database:
             )
             self._ensure_column(conn, "messages", "in_reply_to_action_id", "TEXT")
             self._ensure_column(conn, "checkpoints", "source_action_id", "TEXT")
+        self._apply_migrations()
+
+    def _apply_migrations(self) -> None:
+        """Apply additive, versioned schema changes to both new and existing DBs."""
+
+        migrations_dir = Path(__file__).with_name("migrations")
+        with self.connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                  version TEXT PRIMARY KEY,
+                  applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            applied = {
+                row["version"]
+                for row in conn.execute("SELECT version FROM schema_migrations").fetchall()
+            }
+            for migration_path in sorted(migrations_dir.glob("*.sql")):
+                if migration_path.name in applied:
+                    continue
+                conn.executescript(migration_path.read_text(encoding="utf-8"))
+                conn.execute(
+                    "INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)",
+                    (migration_path.name,),
+                )
 
     def _ensure_column(
         self,

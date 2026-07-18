@@ -10,7 +10,7 @@ state_hint + action + message + breakpoint_description + checkpoint + knowledge_
 
 后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、标注每条 AI 消息对应的教学 action、弹出检查点并把学生选择回传给模型。
 
-当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、可切换的加密模型配置、检查点选择题、跨 session 的全局知识卡片/题目卡片库、学习卡片 PDF 多排版导出、SQLite 历史会话与删除，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
+当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、可切换的加密模型配置、检查点选择题、跨 session 的全局知识卡片/题目卡片库、学习卡片 PDF 多排版导出、SQLite 历史会话与删除、按 session 严格递增的 durable events 与断线重放 SSE，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
 
 模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name。每个模型独立设置是否多模态；连接测试会逐模型显示成功或失败，并用内置样例图自动探测未勾选模型的图片能力。模型选择器统一显示为“供应商名称 · model name”。
 
@@ -56,6 +56,7 @@ docs/how-to-run.md
 
 - `docs/state-machine.md`：答疑状态机与 LLM 主导流程（`state_hint/action/checkpoint/card` 如何由模型决定，后端如何守门）
 - `docs/context-management.md`：上下文管理与诊断日志（prompt 拼装、history、检查点/卡片回传、SSE、SQLite、JSONL）
+- `docs/session-events.md`：版本化 session event 合同、有限历史 API、`after_seq`/`Last-Event-ID` 续传与 run 分支整合点
 - `docs/ai-model-config-v0.2.md`：模型配置 API、密钥存储和多模态标记
 - `docs/changelog.md`：版本改动记录
 
@@ -68,7 +69,7 @@ docs/how-to-run.md
   -> SQLite 取完整结构化历史
   -> build_messages 按 system / user / assistant 多轮消息拼 prompt
   -> LLM 产出 TutorTurn JSON
-  -> 后端校验 checkpoint/card + SQLite 落库 + 追加诊断日志
+  -> 后端校验 checkpoint/card + SQLite 业务态与 durable event 原子落库 + 追加诊断日志
   -> SSE 流式推给前端
   -> 前端展示 message / KaTeX 公式 / checkpoint 或学习卡片弹窗
 ```
@@ -78,7 +79,7 @@ docs/how-to-run.md
 - Frontend: Next.js + React + TypeScript
 - Math Rendering: KaTeX（聊天气泡和检查点题干/选项支持 `$...$`、`$$...$$`、`\(...\)`、`\[...\]`）
 - Backend: FastAPI
-- Database: SQLite（session、结构化消息、checkpoint 和全局 study_cards 的权威存储，也是历史恢复来源）
+- Database: SQLite（session、结构化消息、checkpoint、全局 study_cards 和可重放 session_events 的权威存储，也是历史恢复来源）
 - Diagnostic Log: JSONL（机器审计）+ Markdown（留白充足的人类阅读版）
 - Model API: OpenAI-compatible chat completions（**已支持流式 stream=true**）
 
@@ -91,6 +92,7 @@ apps/api   FastAPI 后端
   app/llm/provider.py                流式 chat completions
   app/routes/problem_images.py       题图识别与必要题图裁剪
   app/storage/session_logger.py      SessionLogger（JSONL + Markdown 诊断记录）
+  app/storage/session_events.py      durable event 写入、并发 seq 与有限历史
 apps/web   Next.js 前端
   components/MathText.tsx            KaTeX 数学公式渲染
 docs       文档
@@ -108,6 +110,15 @@ logs/sessions/<session_id>.log.md
 ```
 
 `.jsonl` 每行一个事件，适合脚本处理和审计；`.log.md` 按事件和消息分段并保留大量空行，适合直接阅读。两者都是只追加诊断数据，不参与业务恢复；历史会话列表、直接打开和显式分支恢复都只读 SQLite。左栏直接打开保持原 session id，调用 `POST /api/sessions/restore` 时才复制为新的 session。
+
+面向客户端断线续传的业务事件不读 JSONL，而是使用 SQLite：
+
+```text
+GET /api/sessions/{session_id}/events?after_seq=0&limit=100
+GET /api/sessions/{session_id}/events/stream?after_seq=0
+```
+
+完整合同和最小幂等消费示例见 `docs/session-events.md`。
 
 读取示例：
 

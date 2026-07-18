@@ -1,8 +1,8 @@
 # 上下文、Session 恢复与诊断日志
 
-版本：v1.0
+版本：v1.1
 
-日期：2026-07-15
+日期：2026-07-18
 
 适用项目：诊断式数学答疑 MVP
 
@@ -14,11 +14,12 @@
 
 | 数据 | 职责 | 是否用于恢复 |
 |---|---|---|
-| SQLite | 保存 session、结构化 messages、checkpoints、study_cards 和 action 关联 | 是，唯一来源 |
+| SQLite 业务表 | 保存 session、结构化 messages、checkpoints、study_cards 和 action 关联 | 是，唯一快照来源 |
+| SQLite `session_events` | 保存稳定业务边界的有序 change feed，供客户端断线补发 | 是，仅用于增量重放 |
 | `<session_id>.jsonl` | 严格的一行一事件机器日志，便于脚本分析和审计 | 否 |
 | `<session_id>.log.md` | 与 JSONL 同步写入、留白充足的人类可读时间线 | 否 |
 
-JSONL 不是数据库，也不承担断点续聊。它可能因为日志目录被清理、写盘失败或版本变化而不完整；SQLite 才保存可继续运行所需的关系数据。
+JSONL 不是数据库，也不承担断点续聊。它可能因为日志目录被清理、写盘失败或版本变化而不完整；SQLite 才保存可继续运行所需的关系数据。`session_events` 虽然也是 append-only，但它是 SQLite 内受事务保护的业务 change feed，与诊断 JSONL 是两套数据，不能互相回填或替代。
 
 ## 2. 每轮真正发给模型的消息
 
@@ -229,6 +230,8 @@ assistant 历史消息的 `metadata_json` 同时保存 `card_id` 和结构化 ca
 ```text
 GET  /api/sessions/history
 GET  /api/sessions/{session_id}
+GET  /api/sessions/{session_id}/events
+GET  /api/sessions/{session_id}/events/stream
 POST /api/sessions/restore
 DELETE /api/sessions
 DELETE /api/sessions/{session_id}
@@ -295,7 +298,9 @@ logs/sessions/<session_id>.log.md
 
 日志写入失败不会中断教学主流程。也正因如此，日志只能用于诊断，不能作为恢复依据。
 
-## 8. 流式输出
+## 8. 流式输出与断线重放
+
+### 8.1 当前 chat 生成流
 
 链路：
 
@@ -319,6 +324,27 @@ message_done
 ```
 
 只有学生可见的 `message` 字段会增量展示。若首个模型输出格式不合法并触发重试，`message_reset` 会让前端丢弃该 action 已展示的残片。`state_hint`、`action`、`checkpoint` 和 card 必须等完整 JSON 到达、校验和后端策略归一化后才发出。`card_ready` 后当前 HTTP stream 停止，等待前端保存卡片。
+
+`message_delta/message_reset` 是高频瞬时事件，不写 `session_events`。完整 student/assistant message、归一化 action、checkpoint/card、run 完成、error 和 idle 等稳定边界会与业务数据一起写入 SQLite；因此 chat SSE 断开后不需要恢复每个字符，只需重放完整完成事件。
+
+### 8.2 durable event 历史与 SSE
+
+有限历史：
+
+```text
+GET /api/sessions/{session_id}/events?after_seq=0&limit=100
+```
+
+`limit` 最大 200，按 session 内 `seq` 升序返回。持续订阅：
+
+```text
+GET /api/sessions/{session_id}/events/stream?after_seq=42
+Last-Event-ID: 42  # 可替代 query
+```
+
+连接先补发 `seq > cursor` 的 durable events，再继续跟随 SQLite 新写入。每帧都带 `id: <seq>` 和统一 `schema_version=1` 信封；网络重复投递时，客户端忽略 `seq <= lastAppliedSeq` 即可幂等处理。客户端首次打开 session 仍先读 `GET /api/sessions/{session_id}` 的完整快照，再跟随事件；旧库升级不会根据 messages 或 JSONL 伪造历史 event。
+
+事件类型、字段、版本升级规则和最小消费示例见 `docs/session-events.md`。
 
 ## 9. 排查建议
 
