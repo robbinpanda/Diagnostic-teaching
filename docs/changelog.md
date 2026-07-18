@@ -20,7 +20,16 @@
 - Checkpoint answer 改由接纳服务在一个 `BEGIN IMMEDIATE` 事务中写 `session_inputs`、checkpoint 状态、`CHECKPOINT_RESPONSE` message 和 session state；同选项重试返回第一次结果，不同选项重试返回 `409 CHECKPOINT_ANSWER_CONFLICT`。
 - 知识卡关闭后的继续改为 durable 控制命令，卡片 `saved_at` 与 `CARD_DISMISSED_CONTINUE` 同事务提交；problem card 仍只归档、不继续。
 - 会话详情回传普通消息的 `client_message_id`，显式恢复分支复制并重映射普通消息输入记录；会话删除同时删除所属 `session_inputs`。
-- 新增幂等、ID 冲突、并发双击、请求重试、checkpoint 重复提交及强制失败事务回滚测试。本版本不包含通用事件重放、SSE 续传或生成中断系统。
+- 新增幂等、ID 冲突、并发双击、请求重试、checkpoint 重复提交及强制失败事务回滚测试。
+
+### Session durable events、有限历史与 SSE 续传
+
+- 新增 Alembic `0003_session_events` 迁移：SQLite 保存 append-only `session_events`，以 `(session_id, seq)` 唯一约束和 writer lock 保证并发下严格递增。
+- message/action/checkpoint/card 的完成事件与对应业务写入同事务提交；chat run 增加 `run.started/run.completed/error.occurred/session.idle` 边界。高频 `message_delta` 继续只实时发送，完整 message/action 可重放。
+- 新增有限历史 `GET /api/sessions/{session_id}/events`，单页最多 200；新增 `GET /api/sessions/{session_id}/events/stream`，支持 `after_seq`、`Last-Event-ID`、先补发后跟随和 keep-alive。
+- 固定 `schema_version=1` 信封与类型版本策略；客户端以 `seq` 去重，重复消费不会重复应用状态。
+- 旧 SQLite 不伪造过去事件，首次打开仍以 session detail 为基线；JSONL/Markdown 继续仅用于诊断，不能作为 durable event 或恢复来源。
+- 新增迁移、并发 seq、事务回滚、分页隔离、顺序、断线续传、重复消费以及 checkpoint/card/error/idle 测试。
 
 ## v1.8 — 2026-07-17
 

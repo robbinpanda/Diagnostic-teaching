@@ -187,6 +187,26 @@ class InputAcceptanceService:
                 "UPDATE sessions SET updated_at = ? WHERE id = ?",
                 (ts, session_id),
             )
+            self.sessions.events.append_in_transaction(
+                conn,
+                session_id,
+                [
+                    (
+                        "message.completed",
+                        {
+                            "run_id": None,
+                            "input_id": input_id,
+                            "client_message_id": key,
+                            "message_id": message_id,
+                            "role": "student",
+                            "content": text,
+                            "action_id": action_id,
+                            "action": "STUDENT_RESPONSE",
+                            "in_reply_to_action_id": in_reply_to_action_id,
+                        },
+                    )
+                ],
+            )
             input_row = conn.execute(
                 "SELECT * FROM session_inputs WHERE id = ?",
                 (input_id,),
@@ -255,7 +275,8 @@ class InputAcceptanceService:
 
             input_id = new_id("inp")
             ts = card_row["saved_at"] or now_iso()
-            if card_row["saved_at"] is None:
+            newly_saved = card_row["saved_at"] is None
+            if newly_saved:
                 conn.execute(
                     "UPDATE study_cards SET saved_at = ? WHERE id = ?",
                     (ts, card_id),
@@ -283,6 +304,24 @@ class InputAcceptanceService:
                 "UPDATE sessions SET updated_at = ? WHERE id = ?",
                 (ts, session_id),
             )
+            if newly_saved:
+                self.sessions.events.append_in_transaction(
+                    conn,
+                    session_id,
+                    [
+                        (
+                            "card.saved",
+                            {
+                                "input_id": input_id,
+                                "card_id": card_id,
+                                "card_type": card_row["card_type"],
+                                "source_action_id": card_row["source_action_id"],
+                                "source_message_id": card_row["source_message_id"],
+                                "saved_at": ts,
+                            },
+                        )
+                    ],
+                )
             input_row = conn.execute(
                 "SELECT * FROM session_inputs WHERE id = ?",
                 (input_id,),
@@ -468,6 +507,35 @@ class InputAcceptanceService:
                 WHERE id = ?
                 """,
                 (next_state_hint, ts, session_id),
+            )
+            self.sessions.events.append_in_transaction(
+                conn,
+                session_id,
+                [
+                    (
+                        "checkpoint.completed",
+                        {
+                            **checkpoint_result,
+                            "input_id": input_id,
+                            "source_action_id": checkpoint["source_action_id"],
+                            "student_message_id": message_id,
+                            "student_action_id": action_id,
+                        },
+                    ),
+                    (
+                        "message.completed",
+                        {
+                            "run_id": None,
+                            "input_id": input_id,
+                            "message_id": message_id,
+                            "role": "student",
+                            "content": student_message,
+                            "action_id": action_id,
+                            "action": "CHECKPOINT_RESPONSE",
+                            "in_reply_to_action_id": checkpoint["source_action_id"],
+                        },
+                    ),
+                ],
             )
             input_row = conn.execute(
                 "SELECT * FROM session_inputs WHERE id = ?",

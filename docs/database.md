@@ -83,4 +83,4 @@ foreign keys 是连接级开关，因此不能只在建库时设置。WAL 是数
 python -m alembic -c alembic.ini revision -m "describe change"
 ```
 
-编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。本基线没有提前创建 `session_inputs`、run 状态或 `session_events`；对应 P0 分支合并后应在基线之后各自新增 revision，并通过 `down_revision` 串成单一迁移链。
+编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。当前迁移链为可靠性基线 → durable `session_inputs` → `session_events`；后续 run 状态继续通过新的 `down_revision` 串成单一迁移链。

@@ -237,7 +237,7 @@ DELETE /api/cards/{card_id}
 
 `DELETE /api/cards` 会清空全部已归档和待归档卡片，但不删除 session、message、checkpoint 或日志。`session_id` 仍保存在卡片记录中作为来源审计字段，但全局卡片库的查询与删除不依赖当前会话。新建、恢复或删除 session 都不会清空已归档卡片；只有 `saved_at=null` 的待归档卡片仍属于原会话的阻塞工作流。
 
-## 9. SSE 事件顺序
+## 9. SSE 事件顺序与 durable 边界
 
 一次 `/api/chat/stream` 可能包含多个 action。每个 action 都会有自己的事件段：
 
@@ -266,6 +266,21 @@ message_done
 ```
 
 前端收到 `message_done` 后会把下一个 action 开成新的 assistant 气泡，避免多个 LLM 调用的文本糊成一段。
+
+上面是 `POST /api/chat/stream` 的当前请求内事件，`message_delta/message_reset` 不保证断线重放。后端同时把稳定业务边界写入 SQLite `session_events`：
+
+```text
+run.started
+message.completed        # 完整 student/assistant message
+action.completed         # 后端归一化后的 action
+checkpoint.ready? / card.ready?
+run.completed
+session.idle
+```
+
+checkpoint answer 会在原子事务中依次追加 `checkpoint.completed` 和对应的 student `message.completed`；卡片归档追加 `card.saved`。run 失败时追加 `error.occurred -> run.completed(status=failed) -> session.idle`。
+
+`GET /api/sessions/{session_id}/events/stream` 用 `after_seq` 或 `Last-Event-ID` 先补齐遗漏事件再持续订阅。同一 session 的 `seq` 严格递增；客户端重复收到相同 `seq` 时只应用一次。这个 change feed 不改变六个教学 action，也不让模型控制 `wait_for_student`。完整合同见 `docs/session-events.md`。
 
 ## 10. 日志口径
 

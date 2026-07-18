@@ -15,6 +15,7 @@ from app.core.schemas import (
 )
 from app.storage.database import Database
 from app.storage.security import SecretBox, mask_api_key
+from app.storage.session_events import SessionEventRepository
 
 
 def now_iso() -> str:
@@ -188,6 +189,7 @@ class ModelProfileRepository:
 class SessionRepository:
     def __init__(self, db: Database):
         self.db = db
+        self.events = SessionEventRepository(db)
 
     def create(self, payload: SessionCreate) -> sqlite3.Row:
         session_id = new_id("sess")
@@ -211,6 +213,22 @@ class SessionRepository:
                     ts,
                     ts,
                 ),
+            )
+            self.events.append_in_transaction(
+                conn,
+                session_id,
+                [
+                    (
+                        "session.created",
+                        {
+                            "model_profile_id": payload.model_profile_id,
+                            "grade_band": payload.grade_band,
+                            "subject": payload.subject,
+                            "state_hint": "diagnosing",
+                            "restored_from": None,
+                        },
+                    )
+                ],
             )
         return self.get(session_id)
 
@@ -256,6 +274,7 @@ class SessionRepository:
         turn: TutorTurn,
         *,
         action_index: int,
+        run_id: str | None = None,
     ) -> tuple[sqlite3.Row, sqlite3.Row | None, sqlite3.Row | None]:
         """Atomically save session state, assistant action, checkpoint, and pending card."""
         message_id = new_id("msg")
@@ -371,6 +390,69 @@ class SessionRepository:
                 (message_id,),
             ).fetchone()
 
+            durable_events: list[tuple[str, dict]] = [
+                (
+                    "message.completed",
+                    {
+                        "run_id": run_id,
+                        "message_id": message_id,
+                        "role": "assistant",
+                        "content": turn.message,
+                        "action_id": action_id,
+                        "action": turn.action,
+                        "in_reply_to_action_id": None,
+                    },
+                ),
+                (
+                    "action.completed",
+                    {
+                        "run_id": run_id,
+                        "action_index": action_index,
+                        "action_id": action_id,
+                        "message_id": message_id,
+                        "action": turn.action,
+                        "state_hint": turn.state_hint,
+                        "wait_for_student": turn.wait_for_student,
+                        "message": turn.message,
+                        "breakpoint": turn.breakpoint_description,
+                        "confidence": turn.breakpoint_confidence,
+                        "checkpoint_id": checkpoint_id,
+                        "card_id": card_id,
+                    },
+                ),
+            ]
+            if turn.checkpoint and checkpoint_id:
+                checkpoint_data = turn.checkpoint.model_dump()
+                for option in checkpoint_data["options"]:
+                    option.pop("is_correct", None)
+                    option.pop("misconception", None)
+                durable_events.append(
+                    (
+                        "checkpoint.ready",
+                        {
+                            "run_id": run_id,
+                            "checkpoint_id": checkpoint_id,
+                            "source_action_id": action_id,
+                            "checkpoint": checkpoint_data,
+                        },
+                    )
+                )
+            if card_content and card_id:
+                durable_events.append(
+                    (
+                        "card.ready",
+                        {
+                            "run_id": run_id,
+                            "card_id": card_id,
+                            "card_type": card_content.type,
+                            "source_action_id": action_id,
+                            "source_message_id": message_id,
+                            "content": card_content.model_dump(),
+                        },
+                    )
+                )
+            self.events.append_in_transaction(conn, session_id, durable_events)
+
         return assistant_row, checkpoint_row, card_row
 
     def get_card(self, card_id: str) -> sqlite3.Row:
@@ -438,6 +520,22 @@ class SessionRepository:
                 conn.execute(
                     "UPDATE sessions SET updated_at = ? WHERE id = ?",
                     (ts, session_id),
+                )
+                self.events.append_in_transaction(
+                    conn,
+                    session_id,
+                    [
+                        (
+                            "card.saved",
+                            {
+                                "card_id": card_id,
+                                "card_type": row["card_type"],
+                                "source_action_id": row["source_action_id"],
+                                "source_message_id": row["source_message_id"],
+                                "saved_at": ts,
+                            },
+                        )
+                    ],
                 )
             return conn.execute(
                 "SELECT * FROM study_cards WHERE id = ?",
@@ -763,5 +861,25 @@ class SessionRepository:
                         card["saved_at"],
                     ),
                 )
+
+            self.events.append_in_transaction(
+                conn,
+                new_session_id,
+                [
+                    (
+                        "session.created",
+                        {
+                            "model_profile_id": model_profile_id,
+                            "grade_band": source["grade_band"],
+                            "subject": source["subject"],
+                            "state_hint": source["phase"],
+                            "restored_from": source["id"],
+                            "baseline_message_count": len(messages),
+                            "baseline_checkpoint_count": len(checkpoints),
+                            "baseline_pending_card_count": len(cards),
+                        },
+                    )
+                ],
+            )
 
         return self.get(new_session_id)

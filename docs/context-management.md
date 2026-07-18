@@ -14,11 +14,12 @@
 
 | 数据 | 职责 | 是否用于恢复 |
 |---|---|---|
-| SQLite | 保存 session、durable `session_inputs`、结构化 messages、checkpoints、study_cards 和 action 关联 | 是，唯一来源 |
+| SQLite 业务表 | 保存 session、durable `session_inputs`、结构化 messages、checkpoints、study_cards 和 action 关联 | 是，唯一快照来源 |
+| SQLite `session_events` | 保存稳定业务边界的有序 change feed，供客户端断线补发 | 是，仅用于增量重放 |
 | `<session_id>.jsonl` | 严格的一行一事件机器日志，便于脚本分析和审计 | 否 |
 | `<session_id>.log.md` | 与 JSONL 同步写入、留白充足的人类可读时间线 | 否 |
 
-JSONL 不是数据库，也不承担断点续聊。它可能因为日志目录被清理、写盘失败或版本变化而不完整；SQLite 才保存可继续运行所需的关系数据。
+JSONL 不是数据库，也不承担断点续聊。它可能因为日志目录被清理、写盘失败或版本变化而不完整；SQLite 才保存可继续运行所需的关系数据。`session_events` 虽然也是 append-only，但它是 SQLite 内受事务保护的业务 change feed，与诊断 JSONL 是两套数据，不能互相回填或替代。
 
 SQLite schema 由 `apps/api/migrations/versions/` 下的 Alembic revision 管理。后端构造 `Database` 时先自动执行 `upgrade head`，不再在运行期用 `_ensure_column` 临时补列。旧库首次启动会进入兼容迁移，现有行和已归档全局卡片都会保留；之后由 `alembic_version` 记录 revision。详见 `docs/database.md`。
 
@@ -296,6 +297,8 @@ assistant 历史消息的 `metadata_json` 同时保存 `card_id` 和结构化 ca
 ```text
 GET  /api/sessions/history
 GET  /api/sessions/{session_id}
+GET  /api/sessions/{session_id}/events
+GET  /api/sessions/{session_id}/events/stream
 POST /api/sessions/restore
 DELETE /api/sessions
 DELETE /api/sessions/{session_id}
@@ -321,9 +324,9 @@ DELETE /api/sessions/{session_id}
 
 这样原始实验记录保持不变，恢复后的新分支也有独立、完整的数据关系。
 
-删除历史会话会删除该 session 的 SQLite 主记录，并由数据库外键级联删除 session_inputs、messages、checkpoints；数据库触发器删除尚未关闭的待归档卡片。对应的 JSONL/Markdown 诊断日志仍由路由层删除。已归档学习卡片解除活动会话外键后继续保留在全局卡片库，来源审计字段不变，模型配置也不受影响。
+删除历史会话会删除该 session 的 SQLite 主记录，并由数据库外键级联删除 session_inputs、messages、checkpoints、session_events；数据库触发器删除尚未关闭的待归档卡片。对应的 JSONL/Markdown 诊断日志仍由路由层删除。已归档学习卡片解除活动会话外键后继续保留在全局卡片库，来源审计字段不变，模型配置也不受影响。
 
-`DELETE /api/sessions` 是批量版本：删除全部 session；外键和触发器同步处理 session_inputs、messages、checkpoints 与待归档卡片；路由层再删除日志目录中的所有 `.jsonl` / `.log.md` session 日志。已归档全局卡片和模型配置保留。若仍有答疑流正在生成，接口返回 409，避免清空后被并发写回。
+`DELETE /api/sessions` 是批量版本：删除全部 session；外键和触发器同步处理 session_inputs、messages、checkpoints、session_events 与待归档卡片；路由层再删除日志目录中的所有 `.jsonl` / `.log.md` session 日志。已归档全局卡片和模型配置保留。若仍有答疑流正在生成，接口返回 409，避免清空后被并发写回。
 
 ## 7. 诊断日志
 
@@ -362,7 +365,9 @@ logs/sessions/<session_id>.log.md
 
 日志写入失败不会中断教学主流程。也正因如此，日志只能用于诊断，不能作为恢复依据。
 
-## 8. 流式输出
+## 8. 流式输出与断线重放
+
+### 8.1 当前 chat 生成流
 
 生成链路（学生输入已在这之前提交并落库）：
 
@@ -386,6 +391,27 @@ message_done
 ```
 
 只有学生可见的 `message` 字段会增量展示。若首个模型输出格式不合法并触发重试，`message_reset` 会让前端丢弃该 action 已展示的残片。`state_hint`、`action`、`checkpoint` 和 card 必须等完整 JSON 到达、校验和后端策略归一化后才发出。`card_ready` 后当前 HTTP stream 停止，等待前端保存卡片。
+
+`message_delta/message_reset` 是高频瞬时事件，不写 `session_events`。完整 student/assistant message、归一化 action、checkpoint/card、run 完成、error 和 idle 等稳定边界会与业务数据一起写入 SQLite；因此 chat SSE 断开后不需要恢复每个字符，只需重放完整完成事件。
+
+### 8.2 durable event 历史与 SSE
+
+有限历史：
+
+```text
+GET /api/sessions/{session_id}/events?after_seq=0&limit=100
+```
+
+`limit` 最大 200，按 session 内 `seq` 升序返回。持续订阅：
+
+```text
+GET /api/sessions/{session_id}/events/stream?after_seq=42
+Last-Event-ID: 42  # 可替代 query
+```
+
+连接先补发 `seq > cursor` 的 durable events，再继续跟随 SQLite 新写入。每帧都带 `id: <seq>` 和统一 `schema_version=1` 信封；网络重复投递时，客户端忽略 `seq <= lastAppliedSeq` 即可幂等处理。客户端首次打开 session 仍先读 `GET /api/sessions/{session_id}` 的完整快照，再跟随事件；旧库升级不会根据 messages 或 JSONL 伪造历史 event。
+
+事件类型、字段、版本升级规则和最小消费示例见 `docs/session-events.md`。
 
 ## 9. 排查建议
 
