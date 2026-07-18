@@ -7,9 +7,10 @@ import { MathText } from "./MathText";
 type Props = {
   checkpoint: Checkpoint | null;
   onChoose: (optionId: string) => void;
+  busy?: boolean;
 };
 
-export function CheckpointModal({ checkpoint, onChoose }: Props) {
+export function CheckpointModal({ checkpoint, onChoose, busy = false }: Props) {
   if (!checkpoint) return null;
   const options = [...checkpoint.options, checkpoint.unknown_option];
   return (
@@ -24,7 +25,7 @@ export function CheckpointModal({ checkpoint, onChoose }: Props) {
         </h2>
         <div className="optionList">
           {options.map((option) => (
-            <button key={option.id} className="optionButton" type="button" onClick={() => onChoose(option.id)}>
+            <button key={option.id} className="optionButton" type="button" onClick={() => onChoose(option.id)} disabled={busy}>
               <span className="optionBadge">{option.id === "UNKNOWN" ? "?" : option.id}</span>
               <MathText className="optionText" text={option.text} />
             </button>

@@ -47,6 +47,16 @@ CLI 与应用使用同一套 `DATABASE_URL` / `.env` 路径解析。schema 后�
 
 Windows 上运行期间看到 `app.db-wal` 和 `app.db-shm` 是正常现象，不要单独删除或只复制 `app.db` 做在线备份。需要可靠备份时先关闭 API，让 WAL 正常 checkpoint，再复制数据库文件。数据库应放在本机磁盘，不建议放到网络共享盘或正在同步的云盘目录；WAL 不适合这类文件系统。
 
+## 前端状态验证
+
+前端依赖安装完成后，可单独验证状态 reducer、session 隔离和流取消：
+
+```bat
+cd apps\web
+npm test
+npm exec tsc -- --noEmit
+```
+
 ## 启动
 
 双击：

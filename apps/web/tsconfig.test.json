@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "outDir": "./dist/test",
+    "rootDir": "."
+  },
+  "include": [
+    "lib/api.ts",
+    "lib/session-workflow.ts",
+    "lib/stream-controller.ts",
+    "lib/stream-protocol.ts",
+    "lib/timeline.ts",
+    "tests/**/*.test.ts"
+  ],
+  "exclude": ["node_modules", ".next"]
+}

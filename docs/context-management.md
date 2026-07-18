@@ -425,6 +425,33 @@ Last-Event-ID: 42  # 可替代 query
 
 事件类型、字段、版本升级规则和最小消费示例见 `docs/session-events.md`。
 
+### 9.3 前端运行态、取消与重放适配边界
+
+`apps/web/app/page.tsx` 只保留页面展示和普通列表操作；会话运行态下沉到：
+
+```text
+useSessionRuntime
+  -> session-workflow.ts       composer/run/checkpoint/card 互斥状态
+  -> stream-controller.ts      每个 run 独立 AbortController
+  -> stream-protocol.ts        SSE -> sessionId/runId/可选 seq 的规范事件
+  -> timeline.ts               message 拼接、reset/final 校准、重复与迟到事件规则
+```
+
+切换会话、新建答疑或页面卸载时，controller 会 abort 当前 `streamChat`，并使旧 run 的回调失效。用户点击停止时，前端先调用 session interrupt 接口，让后端把 run 原子落为 `interrupted` 并取消 provider，再收束本地 fetch。timeline reducer 还会校验 event 的 session id 与本地 run id，因此即使旧异步回调迟到，也不能写入新 session。停止时仅移除尚未 `message_done` 的临时 assistant 片段；已经完成的 action 和学生消息保留，SQLite 仍是重新打开会话时的唯一权威来源。
+
+chat 流与 durable change feed 的边界如下：
+
+- chat SSE parser 可读取可选 `id:`，事件适配器也可读取 `data.seq`；`streamChat` 仅在调用方显式给出 replay cursor 时发送 `after_seq`。
+- 第 9.2 节的 session-events 接口已经提供稳定业务边界的 SQLite 重放；当前页面仍以 session 快照恢复，并用 chat SSE 展示本轮字符流，两者不能混成同一个 exactly-once 承诺。
+- reducer 会按已有 event id、单调 seq、terminal 事件和 checkpoint/card ID 做确定性去重；没有身份的 `message_delta` 仍按网络到达顺序处理。
+
+前端状态测试运行：
+
+```bat
+cd apps\web
+npm test
+```
+
 ## 10. 排查建议
 
 优先直接打开：

@@ -281,6 +281,12 @@ session.idle
 checkpoint answer 会在原子事务中依次追加 `checkpoint.completed` 和对应的 student `message.completed`；卡片归档追加 `card.saved`。run 失败时追加 `error.occurred -> run.completed(status=failed) -> session.idle`。
 
 `GET /api/sessions/{session_id}/events/stream` 用 `after_seq` 或 `Last-Event-ID` 先补齐遗漏事件再持续订阅。同一 session 的 `seq` 严格递增；客户端重复收到相同 `seq` 时只应用一次。这个 change feed 不改变六个教学 action，也不让模型控制 `wait_for_student`。完整合同见 `docs/session-events.md`。
+前端不再直接在页面组件里拼接这些事件。原始 SSE 先被适配为绑定 `sessionId + runId` 的事件，再进入 timeline reducer；composer、run、checkpoint、card 则由一个判别联合状态机保证互斥。当前确定性规则为：
+
+- 事件的 session 或 run 与当前运行不匹配时忽略；切换 session、新建答疑和页面卸载会 abort 当前 fetch，显式停止则先请求服务端 interrupt，再收束本地 fetch。
+- `decision` 负责用后端最终 message/action 校准当前气泡；`message_reset` 只重置当前未完成 action 的重试拼接；`message_done` 后同 action 的迟到 delta/decision/reset 不再修改已完成消息。
+- checkpoint/card 采用 first-wins，同 ID 重复通知不重复打开交互；error 终止当前 run，但保留进入下一次 run 的恢复路径。
+- session-events SSE 已通过 `id`/`seq` 重放稳定业务边界；chat SSE 的高频 delta 仍可能不带身份。reducer 会去重已有序号并记录缺口，未带 id/seq 的 delta 严格按到达顺序拼接，不能据此声称字符流 exactly-once。
 
 ## 10. 日志口径
 
