@@ -1,8 +1,8 @@
 # 上下文、Session 恢复与诊断日志
 
-版本：v1.0
+版本：v1.1
 
-日期：2026-07-15
+日期：2026-07-18
 
 适用项目：诊断式数学答疑 MVP
 
@@ -19,6 +19,8 @@
 | `<session_id>.log.md` | 与 JSONL 同步写入、留白充足的人类可读时间线 | 否 |
 
 JSONL 不是数据库，也不承担断点续聊。它可能因为日志目录被清理、写盘失败或版本变化而不完整；SQLite 才保存可继续运行所需的关系数据。
+
+SQLite schema 由 `apps/api/migrations/versions/` 下的 Alembic revision 管理。后端构造 `Database` 时先自动执行 `upgrade head`，不再在运行期用 `_ensure_column` 临时补列。旧库首次启动会进入兼容迁移，现有行和已归档全局卡片都会保留；之后由 `alembic_version` 记录 revision。详见 `docs/database.md`。
 
 ## 2. 每轮真正发给模型的消息
 
@@ -218,6 +220,8 @@ source_action_id / source_message_id / created_at / saved_at
 
 前端启动时调用全局 `GET /api/cards`，支持按 `card_type` 筛选；双击使用与首次弹窗相同的视图，删除单张调用 `DELETE /api/cards/{id}`，清空全部调用 `DELETE /api/cards`。批量清卡会删除已归档和待归档卡片，但不会删除会话或日志。卡片保留 `session_id / source_action_id / source_message_id` 作为来源审计信息，但全局列表和删除不要求当前 session。
 
+数据库内部另外使用可空的 `study_cards.live_session_id` 作为真实外键。卡片生成时它与来源 `session_id` 相同；删除会话时，触发器先删除 `saved_at=null` 的待归档卡片，已归档卡片则由 `ON DELETE SET NULL` 解除活动会话关系。不可变的来源 `session_id / source_action_id / source_message_id` 仍保留，因此全局卡片既不会被误删，也不会丢失来源审计文本。
+
 右侧卡片库的“导出学习卡片”支持混选已归档 `knowledge_card` 与 `problem_card`。弹窗打开时默认全选，按 `saved_at` 从新到旧生成有序选择；用户取消全选后，逐张点击会按点击先后追加到有序 ID 数组，再次点击会移除该项，重新选择则追加到末尾，界面编号和最终打印顺序始终一致。导出完全使用前端已有的结构化卡片数据和 KaTeX 渲染，不新增副本、不修改 SQLite，也不把卡片上传到外部服务。预设为 A4 竖版单列、A4 竖版双列和 A4 横版三列；列内按从上到下、再向右的顺序流动。CSS 会优先避免拆开整张卡片；若单卡高于可打印列，则优先在卡片的结构化内容分区之间换列或换页。浏览器打印面板中选择“另存为 PDF”完成下载。
 
 assistant 历史消息的 `metadata_json` 同时保存 `card_id` 和结构化 card，保证模型历史仍是完整 `TutorTurn` 格式；会话恢复时会重建 card ID、action ID 和 message ID 的引用。
@@ -254,9 +258,9 @@ DELETE /api/sessions/{session_id}
 
 这样原始实验记录保持不变，恢复后的新分支也有独立、完整的数据关系。
 
-删除历史会话会删除该 session 的 SQLite 主记录、messages、checkpoints、尚未关闭的待归档卡片，以及对应的 JSONL/Markdown 诊断日志；已归档学习卡片继续保留在全局卡片库，模型配置也不受影响。
+删除历史会话会删除该 session 的 SQLite 主记录，并由数据库外键级联删除 messages、checkpoints；数据库触发器删除尚未关闭的待归档卡片。对应的 JSONL/Markdown 诊断日志仍由路由层删除。已归档学习卡片解除活动会话外键后继续保留在全局卡片库，来源审计字段不变，模型配置也不受影响。
 
-`DELETE /api/sessions` 是批量版本：删除全部 session、messages、checkpoints、待归档卡片，以及日志目录中的所有 `.jsonl` / `.log.md` session 日志；已归档全局卡片和模型配置保留。若仍有答疑流正在生成，接口返回 409，避免清空后被并发写回。
+`DELETE /api/sessions` 是批量版本：删除全部 session；外键和触发器同步处理 messages、checkpoints 与待归档卡片；路由层再删除日志目录中的所有 `.jsonl` / `.log.md` session 日志。已归档全局卡片和模型配置保留。若仍有答疑流正在生成，接口返回 409，避免清空后被并发写回。
 
 ## 7. 诊断日志
 

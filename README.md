@@ -12,6 +12,8 @@ state_hint + action + message + breakpoint_description + checkpoint + knowledge_
 
 当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、可切换的加密模型配置、检查点选择题、跨 session 的全局知识卡片/题目卡片库、学习卡片 PDF 多排版导出、SQLite 历史会话与删除，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
 
+SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 revision；旧版无 Alembic 标记的数据库会在保留业务数据的前提下建立迁移基线。每条应用连接启用 foreign keys、WAL 与 5 秒 busy timeout，具体约束、备份和 Windows 本地运行行为见 `docs/database.md`。
+
 模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name。每个模型独立设置是否多模态；连接测试会逐模型显示成功或失败，并用内置样例图自动探测未勾选模型的图片能力。模型选择器统一显示为“供应商名称 · model name”。
 
 `POST /api/sessions/intake` 会累计统一输入中的题目和学生已有思路：缺题目就追问题目，只有题目就追问“想到哪一步”，两项齐备后才创建正式 session。图片识别结果也进入同一 intake；上传图片创建的 session 会保留用户原图并绑定多模态模型。
@@ -56,10 +58,11 @@ docs/how-to-run.md
 
 - `docs/state-machine.md`：答疑状态机与 LLM 主导流程（`state_hint/action/checkpoint/card` 如何由模型决定，后端如何守门）
 - `docs/context-management.md`：上下文管理与诊断日志（prompt 拼装、history、检查点/卡片回传、SSE、SQLite、JSONL）
+- `docs/database.md`：Alembic 迁移、SQLite 外键/索引/删除语义，以及 Windows WAL 运行说明
 - `docs/ai-model-config-v0.2.md`：模型配置 API、密钥存储和多模态标记
 - `docs/changelog.md`：版本改动记录
 
-`docs/tutoring-agent-mvp-dev-doc-v0.2.md` 仅保留立项时的历史设计基线；出现冲突时，以现行代码、测试和上面三份现行说明为准。
+`docs/tutoring-agent-mvp-dev-doc-v0.2.md` 仅保留立项时的历史设计基线；出现冲突时，以现行代码、测试和上面的现行说明为准。
 
 一句话理解当前架构：
 
@@ -78,7 +81,7 @@ docs/how-to-run.md
 - Frontend: Next.js + React + TypeScript
 - Math Rendering: KaTeX（聊天气泡和检查点题干/选项支持 `$...$`、`$$...$$`、`\(...\)`、`\[...\]`）
 - Backend: FastAPI
-- Database: SQLite（session、结构化消息、checkpoint 和全局 study_cards 的权威存储，也是历史恢复来源）
+- Database: SQLite + Alembic（session、结构化消息、checkpoint 和全局 study_cards 的权威存储；启用 foreign keys、WAL 和 busy timeout）
 - Diagnostic Log: JSONL（机器审计）+ Markdown（留白充足的人类阅读版）
 - Model API: OpenAI-compatible chat completions（**已支持流式 stream=true**）
 
@@ -91,6 +94,7 @@ apps/api   FastAPI 后端
   app/llm/provider.py                流式 chat completions
   app/routes/problem_images.py       题图识别与必要题图裁剪
   app/storage/session_logger.py      SessionLogger（JSONL + Markdown 诊断记录）
+  migrations/                        Alembic schema revision（数据库演进唯一入口）
 apps/web   Next.js 前端
   components/MathText.tsx            KaTeX 数学公式渲染
 docs       文档

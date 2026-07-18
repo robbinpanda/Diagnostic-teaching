@@ -253,6 +253,8 @@ DELETE /api/model-profiles/{profile_id}
 
 ## 6. SQLite 表设计
 
+下面是字段概览；可执行 schema 以 `apps/api/migrations/versions/` 的 Alembic revision 为准。`sessions.model_profile_id` 外键使用 `ON DELETE RESTRICT`，而配置删除接口只做软删除，因此历史 session 仍能稳定引用原 profile。迁移与 Windows SQLite 运行说明见 `docs/database.md`。
+
 ```sql
 CREATE TABLE model_profiles (
   id TEXT PRIMARY KEY,
@@ -263,14 +265,14 @@ CREATE TABLE model_profiles (
   api_key_ciphertext TEXT NOT NULL,
   api_key_mask TEXT NOT NULL,
   tags_json TEXT NOT NULL DEFAULT '[]',
-  enabled INTEGER NOT NULL DEFAULT 1,
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
   deleted_at TEXT,
   last_test_status TEXT,
   last_test_latency_ms INTEGER,
-  timeout_ms INTEGER NOT NULL DEFAULT 30000,
+  timeout_ms INTEGER NOT NULL DEFAULT 30000 CHECK (timeout_ms > 0),
   temperature REAL NOT NULL DEFAULT 0.2,
-  max_output_tokens INTEGER NOT NULL DEFAULT 8000,
-  is_multimodal INTEGER NOT NULL DEFAULT 0,
+  max_output_tokens INTEGER NOT NULL DEFAULT 8000 CHECK (max_output_tokens > 0),
+  is_multimodal INTEGER NOT NULL DEFAULT 0 CHECK (is_multimodal IN (0, 1)),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

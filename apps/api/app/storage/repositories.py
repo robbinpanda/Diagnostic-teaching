@@ -222,28 +222,15 @@ class SessionRepository:
         return row
 
     def delete(self, session_id: str) -> None:
-        """Delete a session while preserving cards already saved to the global library."""
+        """Delete a session using database-level child/card deletion semantics."""
         with self.db.connect() as conn:
-            exists = conn.execute(
-                "SELECT 1 FROM sessions WHERE id = ?",
-                (session_id,),
-            ).fetchone()
-            if exists is None:
+            cursor = conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            if cursor.rowcount == 0:
                 raise KeyError(session_id)
-            conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
-            conn.execute("DELETE FROM checkpoints WHERE session_id = ?", (session_id,))
-            conn.execute(
-                "DELETE FROM study_cards WHERE session_id = ? AND saved_at IS NULL",
-                (session_id,),
-            )
-            conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
     def delete_all_sessions(self) -> None:
-        """Delete all resumable session state while preserving saved global cards."""
+        """Delete sessions; database constraints preserve only archived global cards."""
         with self.db.connect() as conn:
-            conn.execute("DELETE FROM messages")
-            conn.execute("DELETE FROM checkpoints")
-            conn.execute("DELETE FROM study_cards WHERE saved_at IS NULL")
             conn.execute("DELETE FROM sessions")
 
     def update_phase(
@@ -398,12 +385,13 @@ class SessionRepository:
                 conn.execute(
                     """
                     INSERT INTO study_cards (
-                      id, session_id, card_type, title, content_json,
+                      id, session_id, live_session_id, card_type, title, content_json,
                       source_action_id, source_message_id, created_at, saved_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                     """,
                     (
                         card_id,
+                        session_id,
                         session_id,
                         card_content.type,
                         card_content.title,
@@ -444,7 +432,7 @@ class SessionRepository:
         clauses: list[str] = []
         params: list[str] = []
         if session_id is not None:
-            clauses.append("session_id = ?")
+            clauses.append("live_session_id = ?")
             params.append(session_id)
         if not include_pending:
             clauses.append("saved_at IS NOT NULL")
@@ -480,7 +468,7 @@ class SessionRepository:
             ).fetchone()
             if row is None:
                 raise KeyError(card_id)
-            if row["session_id"] != session_id:
+            if row["live_session_id"] != session_id:
                 raise PermissionError(card_id)
             if row["saved_at"] is None:
                 conn.execute(
@@ -815,12 +803,13 @@ class SessionRepository:
                 conn.execute(
                     """
                     INSERT INTO study_cards (
-                      id, session_id, card_type, title, content_json,
+                      id, session_id, live_session_id, card_type, title, content_json,
                       source_action_id, source_message_id, created_at, saved_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         card_map[card["id"]],
+                        new_session_id,
                         new_session_id,
                         card["card_type"],
                         card["title"],

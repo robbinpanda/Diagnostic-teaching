@@ -26,6 +26,27 @@ copy .env.example .env
 
 进程环境变量优先于 `.env`；真实 `.env`、`data/` 和 `logs/` 都已被 Git 忽略。
 
+## 数据库迁移与 Windows 本地行为
+
+后端每次启动都会先执行 Alembic `upgrade head`。新库会直接创建当前 schema；旧版无 `alembic_version` 的数据库会自动建立兼容基线并保留现有 profile、session、message、checkpoint 和 card。首次升级旧库前建议先关闭所有 API 窗口并备份 `data/app.db`，只启动一个后端进程完成迁移。
+
+需要手工检查或升级时，在 `apps/api` 目录运行：
+
+```bat
+python -m alembic -c alembic.ini current
+python -m alembic -c alembic.ini upgrade head
+```
+
+CLI 与应用使用同一套 `DATABASE_URL` / `.env` 路径解析。schema 后续演进只新增 `apps/api/migrations/versions/` revision，不再修改 `database.py` 临时补列。本次基线没有创建 `session_inputs`、run 状态或 `session_events`；这些功能应各自通过后续 revision 添加。
+
+每条应用数据库连接都会设置：
+
+- `foreign_keys=ON`：外键在每条连接上真正生效。
+- `journal_mode=WAL` 与 `synchronous=NORMAL`：读请求通常不再阻塞短写入，同时保持适合本地应用的持久性/性能平衡。
+- `busy_timeout=5000`：遇到另一个短事务占用写锁时最多等待 5 秒；超过后仍会明确报 `database is locked`，SQLite 依旧只有一个写者。
+
+Windows 上运行期间看到 `app.db-wal` 和 `app.db-shm` 是正常现象，不要单独删除或只复制 `app.db` 做在线备份。需要可靠备份时先关闭 API，让 WAL 正常 checkpoint，再复制数据库文件。数据库应放在本机磁盘，不建议放到网络共享盘或正在同步的云盘目录；WAL 不适合这类文件系统。
+
 ## 启动
 
 双击：
