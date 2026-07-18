@@ -546,12 +546,12 @@ def test_delete_all_cards_removes_saved_and_pending_cards_only(tmp_path: Path):
 def test_bulk_delete_is_rejected_while_a_chat_stream_is_active(tmp_path: Path):
     client, session_id = _bootstrap_app(tmp_path)
     coordinator = client.app.state.chat_streams
-    coordinator._active_session_ids.add(session_id)
+    handle = asyncio.run(coordinator.enqueue(session_id, "run_test_active"))
     try:
         sessions_response = client.delete("/api/sessions")
         cards_response = client.delete("/api/cards")
     finally:
-        coordinator._active_session_ids.discard(session_id)
+        asyncio.run(coordinator.finish(handle))
 
     assert sessions_response.status_code == 409
     assert cards_response.status_code == 409
@@ -597,14 +597,26 @@ def test_checkpoint_session_mismatch_does_not_mutate_checkpoint(tmp_path: Path):
     assert current["answered_at"] is None
 
 
-def test_session_stream_coordinator_rejects_second_active_stream():
+def test_session_stream_coordinator_serializes_same_session_and_parallelizes_others():
     async def exercise():
         coordinator = SessionStreamCoordinator()
-        assert await coordinator.try_start("sess_1") is True
-        assert await coordinator.try_start("sess_1") is False
-        assert await coordinator.try_start("sess_2") is True
-        await coordinator.finish("sess_1")
-        assert await coordinator.try_start("sess_1") is True
+        first = await coordinator.enqueue("sess_1", "run_1")
+        second = await coordinator.enqueue("sess_1", "run_2")
+        other = await coordinator.enqueue("sess_2", "run_3")
+
+        await coordinator.start(first)
+        second_start = asyncio.create_task(coordinator.start(second))
+        await asyncio.sleep(0)
+        assert not second_start.done()
+        await coordinator.start(other)
+        assert (await coordinator.status("sess_1"))["running"] is True
+        assert (await coordinator.status("sess_2"))["running"] is True
+
+        await coordinator.finish(first)
+        await asyncio.wait_for(second_start, timeout=1)
+        assert second.state == "running"
+        await coordinator.finish(second)
+        await coordinator.finish(other)
 
     asyncio.run(exercise())
 

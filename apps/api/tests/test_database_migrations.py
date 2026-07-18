@@ -176,7 +176,7 @@ def test_fresh_database_uses_alembic_and_sqlite_reliability_pragmas(tmp_path: Pa
         assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == SQLITE_BUSY_TIMEOUT_MS
         assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1
         assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == (
-            "0003_session_events"
+            "0004_session_runs"
         )
 
         session_fks = {

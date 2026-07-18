@@ -324,11 +324,21 @@ DELETE /api/sessions/{session_id}
 
 这样原始实验记录保持不变，恢复后的新分支也有独立、完整的数据关系。
 
-删除历史会话会删除该 session 的 SQLite 主记录，并由数据库外键级联删除 session_inputs、messages、checkpoints、session_events；数据库触发器删除尚未关闭的待归档卡片。对应的 JSONL/Markdown 诊断日志仍由路由层删除。已归档学习卡片解除活动会话外键后继续保留在全局卡片库，来源审计字段不变，模型配置也不受影响。
+删除历史会话会删除该 session 的 SQLite 主记录，并由数据库外键级联删除 session_inputs、messages、checkpoints、session_events、session_runs；数据库触发器删除尚未关闭的待归档卡片。对应的 JSONL/Markdown 诊断日志仍由路由层删除。已归档学习卡片解除活动会话外键后继续保留在全局卡片库，来源审计字段不变，模型配置也不受影响。
 
-`DELETE /api/sessions` 是批量版本：删除全部 session；外键和触发器同步处理 session_inputs、messages、checkpoints、session_events 与待归档卡片；路由层再删除日志目录中的所有 `.jsonl` / `.log.md` session 日志。已归档全局卡片和模型配置保留。若仍有答疑流正在生成，接口返回 409，避免清空后被并发写回。
+`DELETE /api/sessions` 是批量版本：删除全部 session；外键和触发器同步处理 session_inputs、messages、checkpoints、session_events、session_runs 与待归档卡片；路由层再删除日志目录中的所有 `.jsonl` / `.log.md` session 日志。已归档全局卡片和模型配置保留。若仍有答疑流正在生成，接口返回 409，避免清空后被并发写回。
 
-## 7. 诊断日志
+## 7. Run 是可恢复业务态，不是诊断事件流
+
+SQLite `session_runs` 是每次生成请求的权威生命周期记录。`run_id` 由后端生成，`attempt` 在同一 session 内事务递增；`queued_at / started_at / finished_at / updated_at` 记录阶段时间，`error_json` 保存结构化终态原因，`last_committed_action_index` 记录本 run 最后一个原子提交的完整教学 action。
+
+coordinator 只保存当前进程的执行对象、每 session 锁和 provider 子任务引用，用于串行、查询和取消；它不是恢复来源。`GET /api/sessions/{session_id}/run` 同时核对 coordinator 的 active/running 状态与 SQLite 当前/最近 run。进程启动时，SQLite 中仍为 `queued/running` 的旧记录统一转为 `failed/process_restarted`，不会根据 JSONL 或内存状态续跑。
+
+显式中断调用 `POST /api/sessions/{session_id}/interrupt`。后端先提交 `interrupted/explicit_interrupt`，随后取消 provider 子任务并终止 bounded loop；重复调用或 session 当前空闲时是 no-op。客户端自行关闭 fetch/页面只会触发响应清理，run 记为 `failed/client_disconnected`，不等同于显式中断。
+
+assistant message、checkpoint、pending card 和 `last_committed_action_index` 在受 run 状态保护的 SQLite 事务中提交。未完整解析的 provider 输出、仅发送过 `message_delta` 的半成品和中断后才到达的结果都不会写入 messages。JSONL/Markdown 仍可记录取消前的诊断片段，但不能据此恢复 action。
+
+## 8. 诊断日志
 
 日志目录：
 
@@ -336,7 +346,7 @@ DELETE /api/sessions/{session_id}
 logs/sessions/
 ```
 
-### 7.1 JSONL：给机器
+### 8.1 JSONL：给机器
 
 ```text
 logs/sessions/<session_id>.jsonl
@@ -353,7 +363,7 @@ logs/sessions/<session_id>.jsonl
 
 JSONL 保持紧凑，不为了人眼阅读插入跨行格式，否则会破坏“一行一事件”的可靠性。
 
-### 7.2 Markdown：给人
+### 8.2 Markdown：给人
 
 ```text
 logs/sessions/<session_id>.log.md
@@ -365,9 +375,9 @@ logs/sessions/<session_id>.log.md
 
 日志写入失败不会中断教学主流程。也正因如此，日志只能用于诊断，不能作为恢复依据。
 
-## 8. 流式输出与断线重放
+## 9. 流式输出
 
-### 8.1 当前 chat 生成流
+### 9.1 当前 chat 生成流
 
 生成链路（学生输入已在这之前提交并落库）：
 
@@ -382,19 +392,21 @@ provider.chat_stream_completion()
 常见事件顺序：
 
 ```text
+run_started
 message_delta ...
 message_reset（仅格式重试时可能出现）
 decision
 checkpoint_ready（可选）
 card_ready（可选，仅 knowledge_card / problem_card）
 message_done
+run_interrupted（仅显式中断，且没有当前 step 的完整 action 落库）
 ```
 
 只有学生可见的 `message` 字段会增量展示。若首个模型输出格式不合法并触发重试，`message_reset` 会让前端丢弃该 action 已展示的残片。`state_hint`、`action`、`checkpoint` 和 card 必须等完整 JSON 到达、校验和后端策略归一化后才发出。`card_ready` 后当前 HTTP stream 停止，等待前端保存卡片。
 
 `message_delta/message_reset` 是高频瞬时事件，不写 `session_events`。完整 student/assistant message、归一化 action、checkpoint/card、run 完成、error 和 idle 等稳定边界会与业务数据一起写入 SQLite；因此 chat SSE 断开后不需要恢复每个字符，只需重放完整完成事件。
 
-### 8.2 durable event 历史与 SSE
+### 9.2 durable event 历史与 SSE
 
 有限历史：
 
@@ -413,7 +425,7 @@ Last-Event-ID: 42  # 可替代 query
 
 事件类型、字段、版本升级规则和最小消费示例见 `docs/session-events.md`。
 
-## 9. 排查建议
+## 10. 排查建议
 
 优先直接打开：
 

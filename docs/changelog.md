@@ -31,6 +31,16 @@
 - 旧 SQLite 不伪造过去事件，首次打开仍以 session detail 为基线；JSONL/Markdown 继续仅用于诊断，不能作为 durable event 或恢复来源。
 - 新增迁移、并发 seq、事务回滚、分页隔离、顺序、断线续传、重复消费以及 checkpoint/card/error/idle 测试。
 
+### 会话 run 生命周期、显式中断与重启遗留清理
+
+- 新增 Alembic `0004_session_runs` 迁移，持久化 `run_id / session_id / attempt / queued|running|completed|failed|interrupted`、阶段时间戳、最后提交 action 下标与结构化错误。
+- `SessionStreamCoordinator` 改为每 session 独立 FIFO 锁：同 session 请求串行，不同 session 并行；可查询 queued/running，并保留当前 provider 子任务用于精确取消。
+- 新增 `GET /api/sessions/{session_id}/run` 和 `POST /api/sessions/{session_id}/interrupt`。空闲/重复中断是幂等 no-op；显式中断会先落 `interrupted`，再取消 provider 和后续 bounded loop。
+- assistant action、checkpoint、pending card 与 run 状态门闩原子协调：完整提交的 action 保留，半截流式 step 不写 messages；前端停止按钮会调用服务端 interrupt，并移除当前未提交气泡。
+- 区分客户端断流与显式中断：前者为 `failed/client_disconnected`，后者为 `interrupted/explicit_interrupt`。应用启动把遗留 queued/running 标为 `failed/process_restarted`，不静默续跑 provider。
+- run 生命周期变更与 `run.started/run.completed/error.occurred/session.idle` 事件同事务提交，并复用统一的 `session_events` 顺序和续传协议。
+- 新增 run attempt、同/跨 session 并发、重复/空闲中断、生成中中断、完整 action 保留、半截 action 丢弃、异常释放、客户端断流和重启遗留状态测试。
+
 ## v1.8 — 2026-07-17
 
 ### 同一供应商批量添加模型与多模态自动探测

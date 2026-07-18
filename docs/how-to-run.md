@@ -37,7 +37,7 @@ python -m alembic -c alembic.ini current
 python -m alembic -c alembic.ini upgrade head
 ```
 
-CLI 与应用使用同一套 `DATABASE_URL` / `.env` 路径解析。schema 后续演进只新增 `apps/api/migrations/versions/` revision，不再修改 `database.py` 临时补列。当前迁移链已在可靠性基线之后依次加入 `session_inputs` 与 `session_events`；持久化 run 状态仍应通过新的后续 revision 添加。
+CLI 与应用使用同一套 `DATABASE_URL` / `.env` 路径解析。schema 后续演进只新增 `apps/api/migrations/versions/` revision，不再修改 `database.py` 临时补列。当前迁移链已在可靠性基线之后依次加入 `session_inputs`、`session_events` 与 `session_runs`。
 
 每条应用数据库连接都会设置：
 
@@ -118,7 +118,7 @@ scripts\inspect-session.cmd sess_c4052d2538a6
 
 该脚本会自动定位 `ai4edu-tutor` Conda 环境，并读取 `.env` 中自定义的 `DATABASE_URL` 与 `SESSION_LOG_DIR`。
 
-你重点看六张表：
+你重点看七张表：
 
 1. `sessions`：当前阶段、题目、模型。
 2. `session_inputs`：已可靠接纳的普通消息、checkpoint answer、卡片关闭继续命令，以及幂等键和首次结果。
@@ -126,6 +126,16 @@ scripts\inspect-session.cmd sess_c4052d2538a6
 4. `checkpoints`：每个检查点的问题、选项、正确答案、学生选择，以及产生它的 `source_action_id`。
 5. `study_cards`：全局知识/题目卡片内容、来源 session/action/message，以及是否已由学生关闭归档的 `saved_at`。
 6. `session_events`：按 session 严格递增的 durable change feed，用于有限历史、SSE 断线补发和事件顺序排查；它与 JSONL 诊断日志无关。
+7. `session_runs`：每次生成的 `run_id / attempt / status`、开始结束时间、最后提交 action 下标和结构化错误。
+
+生成过程中可查询或显式停止当前 session：
+
+```text
+GET  /api/sessions/<session_id>/run
+POST /api/sessions/<session_id>/interrupt
+```
+
+空闲或重复 interrupt 是幂等 no-op。显式中断显示为 `interrupted/explicit_interrupt`；关闭页面或客户端停止读取显示为 `failed/client_disconnected`。服务重启后若看到 `failed/process_restarted`，表示旧进程留下的 queued/running run 已被安全终结，服务不会自动重放 provider 请求；可以在确认已提交消息后重新发起生成。
 
 页面左侧会话栏直接读取 SQLite。点击一条会话会打开原 session，并恢复其 messages、待答 checkpoint 和待归档 card，不会因为查看而复制记录；需要显式创建实验分支时仍可调用 `POST /api/sessions/restore`。
 

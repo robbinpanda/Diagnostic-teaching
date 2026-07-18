@@ -9,11 +9,14 @@ from app.core.schemas import (
     SessionCreate,
     SessionCreateResponse,
     SessionHistoryListResponse,
+    SessionInterruptResponse,
     SessionIntakeRequest,
     SessionIntakeResponse,
     SessionRestoreRequest,
     SessionRestoreResponse,
     SessionRestoredMessage,
+    SessionRunPublic,
+    SessionRunStatusResponse,
 )
 from app.routes.cards import card_from_row
 
@@ -32,6 +35,21 @@ INLINE_THOUGHT_RE = re.compile(
     r"(?:\n+|[。；;]\s*)(?P<thought>(?:我|目前|现在|还没|没有|完全不会|不知道|没思路|卡在).+)$",
     re.IGNORECASE | re.DOTALL,
 )
+
+
+def run_from_row(row) -> SessionRunPublic:
+    return SessionRunPublic(
+        run_id=row["id"],
+        session_id=row["session_id"],
+        attempt=row["attempt"],
+        status=row["status"],
+        queued_at=row["queued_at"],
+        started_at=row["started_at"],
+        finished_at=row["finished_at"],
+        updated_at=row["updated_at"],
+        last_committed_action_index=row["last_committed_action_index"],
+        error=json.loads(row["error_json"]) if row["error_json"] else None,
+    )
 
 
 def resolve_intake(
@@ -251,6 +269,57 @@ def get_session(session_id: str, request: Request) -> SessionRestoreResponse:
     return session_detail_response(request, session)
 
 
+@router.get("/{session_id}/run", response_model=SessionRunStatusResponse)
+async def get_session_run_status(
+    session_id: str,
+    request: Request,
+) -> SessionRunStatusResponse:
+    try:
+        request.app.state.sessions.get(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
+    coordinator_status = await request.app.state.chat_streams.status(session_id)
+    active_row = request.app.state.sessions.latest_active_run(session_id)
+    run_row = active_row or request.app.state.sessions.latest_run(session_id)
+    return SessionRunStatusResponse(
+        active=bool(active_row is not None and coordinator_status["active"]),
+        running=bool(
+            active_row is not None
+            and active_row["status"] == "running"
+            and coordinator_status["running"]
+        ),
+        run=run_from_row(run_row) if run_row is not None else None,
+    )
+
+
+@router.post("/{session_id}/interrupt", response_model=SessionInterruptResponse)
+async def interrupt_session(
+    session_id: str,
+    request: Request,
+) -> SessionInterruptResponse:
+    try:
+        request.app.state.sessions.get(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
+
+    targets = await request.app.state.chat_streams.request_interrupt(session_id)
+    error = {
+        "code": "explicit_interrupt",
+        "message": "用户通过 interrupt 接口显式中断本轮生成。",
+        "type": "RunInterrupted",
+        "retryable": True,
+    }
+    for handle in targets:
+        request.app.state.sessions.mark_run_interrupted(handle.run_id, error)
+    request.app.state.chat_streams.cancel_execution_tasks(targets)
+    status = await request.app.state.chat_streams.status(session_id)
+    return SessionInterruptResponse(
+        interrupted=bool(targets),
+        active=status["active"],
+        run_ids=[handle.run_id for handle in targets],
+    )
+
+
 @router.delete("", status_code=204)
 async def delete_all_sessions(request: Request) -> Response:
     if await request.app.state.chat_streams.has_active_streams():
@@ -263,11 +332,13 @@ async def delete_all_sessions(request: Request) -> Response:
 
 
 @router.delete("/{session_id}", status_code=204)
-def delete_session(session_id: str, request: Request) -> Response:
+async def delete_session(session_id: str, request: Request) -> Response:
     try:
         request.app.state.sessions.get(session_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
+    if await request.app.state.chat_streams.has_session_streams(session_id):
+        raise HTTPException(status_code=409, detail="该会话仍有答疑正在生成，请先中断或等待完成")
 
     logger = getattr(request.app.state, "session_logger", None)
     if logger is not None:

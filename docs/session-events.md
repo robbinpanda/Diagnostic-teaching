@@ -164,13 +164,13 @@ source.addEventListener("session_event", (event) => {
 
 旧数据库升级后不会根据 messages/JSONL 伪造过去事件。客户端打开旧 session 或恢复分支时，应先调用 `GET /api/sessions/{session_id}` 取得 SQLite 快照，再从当时的 `latest_seq` 开始跟随事件。`POST /api/sessions/restore` 创建的新分支以 `session.created` 记录来源和已复制 baseline 数量；复制内容仍从 session detail 读取。
 
-## 6. 与 run 分支的整合点
+## 6. 与 canonical run 生命周期的关系
 
-当前代码在 `POST /api/chat/stream` 入口生成请求级 `run_<id>`，只用于事件关联，没有新增 run 表，也没有 interrupt API。
+当前代码在 `POST /api/chat/stream` 入口创建 `session_runs` 权威记录，canonical `run_<id>` 同时用于执行协调、状态查询、中断和事件关联。`run.started/run.completed/error.occurred/session.idle` 与 run 状态变化在同一 SQLite 事务提交。
 
-若 P0 run 分支引入持久化 run/attempt：
+当前整合遵循以下约束：
 
-1. 先由 run 仓储创建 canonical run ID，再把同一个 ID 传给 `record_tutor_action()`；学生消息仍由 run 之前的 durable input 接纳事务独立提交。
-2. 把 run 状态更新与 `run.started/run.completed/error.occurred/session.idle` 放进同一 SQLite 事务；保留本文件的事件 type 和 data 字段含义。
-3. run 分支不要再次创建 `session_events` 或另一套 seq；直接复用 `SessionEventRepository.append_in_transaction()`。
-4. interrupt 属于独立能力；未来可增加新事件 type，不应改变本版 `run.completed.status=cancelled` 的传输断开语义。
+1. run 仓储创建 canonical run ID，并把同一个 ID 传给 `record_tutor_action()`；通过独立 input API 接纳的学生消息可以早于 run 提交，旧版 stream 内输入则在 run 取得 session 锁后接纳。
+2. run 状态更新与 `run.started/run.completed/error.occurred/session.idle` 在同一 SQLite 事务提交，保留本文件的事件 type 和 data 字段含义。
+3. 所有 run 事件复用 `SessionEventRepository.append_in_transaction()` 和同一条 session `seq`，不建立第二套 change feed。
+4. 显式 interrupt 将 run 置为 `interrupted`，事件侧以 `run.completed.status=cancelled` 表达终止；客户端断流则保留 `failed/client_disconnected` 语义。

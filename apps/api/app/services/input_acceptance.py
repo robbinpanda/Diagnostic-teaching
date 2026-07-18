@@ -109,6 +109,7 @@ class InputAcceptanceService:
         *,
         client_message_id: str,
         message: str,
+        run_id: str | None = None,
     ) -> AcceptedSessionInput:
         text = message.strip()
         if not text:
@@ -194,7 +195,7 @@ class InputAcceptanceService:
                     (
                         "message.completed",
                         {
-                            "run_id": None,
+                            "run_id": run_id,
                             "input_id": input_id,
                             "client_message_id": key,
                             "message_id": message_id,
@@ -344,6 +345,7 @@ class InputAcceptanceService:
         session_id: str,
         selected_option_id: str,
         elapsed_ms: int,
+        run_id: str | None = None,
     ) -> AcceptedSessionInput:
         key = f"checkpoint:{checkpoint_id}"
         payload_json = _canonical_json(
@@ -525,7 +527,7 @@ class InputAcceptanceService:
                     (
                         "message.completed",
                         {
-                            "run_id": None,
+                            "run_id": run_id,
                             "input_id": input_id,
                             "message_id": message_id,
                             "role": "student",

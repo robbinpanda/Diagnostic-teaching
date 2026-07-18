@@ -71,7 +71,7 @@ def test_session_event_migration_is_additive_and_versioned(tmp_path: Path):
         revision = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
 
     assert columns == {"id", "session_id", "seq", "type", "data_json", "created_at"}
-    assert revision == "0003_session_events"
+    assert revision == "0004_session_runs"
 
 
 def test_concurrent_appends_allocate_strict_per_session_sequence(tmp_path: Path):
@@ -248,12 +248,15 @@ def test_checkpoint_and_card_completion_events_are_durable(tmp_path: Path):
             },
         }
     )
+    run = client.app.state.sessions.create_run(session_id)
+    client.app.state.sessions.mark_run_running(run["id"])
     _, _, card = client.app.state.sessions.record_tutor_action(
         session_id,
         turn,
         action_index=0,
-        run_id="run_test",
+        run_id=run["id"],
     )
+    client.app.state.sessions.mark_run_completed(run["id"])
     client.app.state.sessions.save_card(card["id"], session_id=session_id)
 
     events = [
