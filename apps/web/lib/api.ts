@@ -65,7 +65,7 @@ export type StudyCard = {
   saved_at?: string | null;
 };
 
-export type SseEvent =
+type SseEventPayload =
   | { event: "decision"; data: { state_hint?: string; action?: string; action_id?: string; wait_for_student?: boolean; message?: string; breakpoint?: string; confidence?: number; action_index?: number } }
   | { event: "message_delta"; data: { text: string; action_index?: number } }
   | { event: "message_reset"; data: { action_index?: number } }
@@ -74,6 +74,8 @@ export type SseEvent =
   | { event: "message_done"; data: { ok: boolean; action_index?: number; wait_for_student?: boolean; will_continue?: boolean; awaiting_card_dismissal?: boolean; continue_after_card?: boolean } }
   | { event: "error"; data: { message: string } }
   | { event: string; data: Record<string, unknown> };
+
+export type SseEvent = SseEventPayload & { id?: string };
 
 export type SessionHistoryItem = {
   session_id: string;
@@ -394,12 +396,20 @@ export async function streamChat(
       event: string;
     } | null;
   },
-  onEvent: (event: SseEvent) => void
+  onEvent: (event: SseEvent) => void,
+  options: {
+    signal?: AbortSignal;
+    replayCursor?: { afterSeq?: number };
+  } = {}
 ) {
+  const body = options.replayCursor?.afterSeq === undefined
+    ? input
+    : { ...input, after_seq: options.replayCursor.afterSeq };
   const response = await fetch(`${API_BASE}/api/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input)
+    body: JSON.stringify(body),
+    signal: options.signal
   });
   if (!response.ok || !response.body) {
     const detail = await response.text();
@@ -409,19 +419,28 @@ export async function streamChat(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+
+  function emitFrame(frame: string) {
+    const lines = frame.split(/\r?\n/);
+    const eventLine = lines.find((line) => line.startsWith("event:"));
+    const dataLines = lines.filter((line) => line.startsWith("data:"));
+    const idLine = lines.find((line) => line.startsWith("id:"));
+    if (!eventLine || dataLines.length === 0) return;
+    const event = eventLine.slice("event:".length).trim();
+    const dataText = dataLines.map((line) => line.slice("data:".length).trimStart()).join("\n");
+    const data = JSON.parse(dataText);
+    const id = idLine?.slice("id:".length).trim();
+    onEvent({ event, data, ...(id ? { id } : {}) } as SseEvent);
+  }
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split("\n\n");
+    const parts = buffer.split(/\r?\n\r?\n/);
     buffer = parts.pop() ?? "";
-    for (const part of parts) {
-      const eventLine = part.split("\n").find((line) => line.startsWith("event:"));
-      const dataLine = part.split("\n").find((line) => line.startsWith("data:"));
-      if (!eventLine || !dataLine) continue;
-      const event = eventLine.replace("event:", "").trim();
-      const data = JSON.parse(dataLine.replace("data:", "").trim());
-      onEvent({ event, data } as SseEvent);
-    }
+    for (const part of parts) emitFrame(part);
   }
+  buffer += decoder.decode();
+  if (buffer.trim()) emitFrame(buffer);
 }

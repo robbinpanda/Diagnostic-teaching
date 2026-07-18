@@ -320,6 +320,33 @@ message_done
 
 只有学生可见的 `message` 字段会增量展示。若首个模型输出格式不合法并触发重试，`message_reset` 会让前端丢弃该 action 已展示的残片。`state_hint`、`action`、`checkpoint` 和 card 必须等完整 JSON 到达、校验和后端策略归一化后才发出。`card_ready` 后当前 HTTP stream 停止，等待前端保存卡片。
 
+### 8.1 前端运行态、取消与重放适配边界
+
+`apps/web/app/page.tsx` 只保留页面展示和普通列表操作；会话运行态下沉到：
+
+```text
+useSessionRuntime
+  -> session-workflow.ts       composer/run/checkpoint/card 互斥状态
+  -> stream-controller.ts      每个 run 独立 AbortController
+  -> stream-protocol.ts        SSE -> sessionId/runId/可选 seq 的规范事件
+  -> timeline.ts               message 拼接、reset/final 校准、重复与迟到事件规则
+```
+
+切换会话、新建答疑、页面卸载或用户点击停止时，controller 会 abort 当前 `streamChat`，并使旧 run 的回调失效。timeline reducer 还会再次校验 event 的 session id 与 run id，因此即使旧异步回调迟到，也不能写入新 session。停止时仅移除尚未 `message_done` 的临时 assistant 片段；已经完成的 action 和学生消息保留，SQLite 仍是重新打开会话时的唯一权威来源。
+
+重放接口目前只是兼容边界，不是已存在的后端能力：
+
+- SSE parser 可读取未来的 `id:`，事件适配器也可读取 `data.seq`。
+- `streamChat` 只有在调用方显式提供 replay cursor 时才发送 `after_seq`；现行调用不会增加该字段，保持当前后端兼容。
+- reducer 可对已有 event id、单调 seq、terminal 事件和 checkpoint/card ID 做确定性去重；现行后端不提供 seq/id，所以无身份的 `message_delta` 仍按网络到达顺序处理，不能虚构 exactly-once 或断线续传保证。
+
+前端状态测试运行：
+
+```bat
+cd apps\web
+npm test
+```
+
 ## 9. 排查建议
 
 优先直接打开：

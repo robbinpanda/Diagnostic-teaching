@@ -14,6 +14,7 @@ import {
   Paperclip,
   Pencil,
   Plus,
+  Square,
   Trash2,
   X
 } from "lucide-react";
@@ -27,10 +28,10 @@ import {
   type LearningCardExportLayout
 } from "../components/LearningCardExportDialog";
 import { LearningCardPrintView } from "../components/LearningCardPrintView";
+import { useSessionRuntime } from "../hooks/useSessionRuntime";
 import {
   analyzeProblemImage,
   answerCheckpoint,
-  Checkpoint,
   deleteAllCards,
   deleteAllSessions,
   deleteCard,
@@ -45,18 +46,8 @@ import {
   ModelProfile,
   saveCard,
   SessionHistoryItem,
-  SessionIntakeResult,
-  streamChat,
   StudyCard
 } from "../lib/api";
-
-type ChatMessage = {
-  id: string;
-  role: "student" | "assistant" | "system";
-  text: string;
-  action?: string;
-  imageUrl?: string | null;
-};
 
 type LearningCardPrintJob = {
   cards: StudyCard[];
@@ -76,23 +67,11 @@ function teachingActionLabel(action: string) {
   return ACTION_LABELS[action] ?? action;
 }
 
-function initialContextMessage(problem: string, thought: string) {
-  return `题目\n${problem}\n\n我目前想到\n${thought}`;
-}
-
 export default function Home() {
   const [profiles, setProfiles] = useState<ModelProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [gradeBand, setGradeBand] = useState<"junior" | "senior">("junior");
-  const [problemText, setProblemText] = useState("");
-  const [initialThought, setInitialThought] = useState("");
-  const [originalProblemImage, setOriginalProblemImage] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [checkpoint, setCheckpoint] = useState<Checkpoint | null>(null);
-  const [checkpointStartedAt, setCheckpointStartedAt] = useState<number | null>(null);
-  const [activeCard, setActiveCard] = useState<StudyCard | null>(null);
   const [viewingCard, setViewingCard] = useState<StudyCard | null>(null);
   const [cards, setCards] = useState<StudyCard[]>([]);
   const [cardFilter, setCardFilter] = useState<"all" | "knowledge_card" | "problem_card">("all");
@@ -104,10 +83,6 @@ export default function Home() {
   const [deleteAllCardsBusy, setDeleteAllCardsBusy] = useState(false);
   const [deleteBusyId, setDeleteBusyId] = useState("");
   const [cardBusyId, setCardBusyId] = useState("");
-  const [startBusy, setStartBusy] = useState(false);
-  const [streamBusy, setStreamBusy] = useState(false);
-  const [imageBusy, setImageBusy] = useState(false);
-  const [error, setError] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ModelProfile | null>(null);
   const [leftOpen, setLeftOpen] = useState(true);
@@ -116,6 +91,25 @@ export default function Home() {
   const [learningCardPrintJob, setLearningCardPrintJob] = useState<LearningCardPrintJob | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const openSessionRequestRef = useRef(0);
+  const runtime = useSessionRuntime({ onRunSettled: () => void refreshHistory() });
+  const {
+    activeCard,
+    checkpoint,
+    checkpointStartedAt,
+    composerBlocked,
+    error,
+    initialThought,
+    messages,
+    originalProblemImage,
+    problemText,
+    sessionId,
+    streamBusy,
+    workflow
+  } = runtime;
+  const startBusy = workflow.mode === "composer" && workflow.activity === "intake";
+  const imageBusy = workflow.mode === "composer" && workflow.activity === "image";
+  const sessionNavigationBusy = workflow.mode === "composer" && workflow.activity !== "idle";
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId),
@@ -145,6 +139,10 @@ export default function Home() {
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: streamBusy ? "auto" : "smooth" });
   }, [messages, streamBusy]);
+
+  useEffect(() => {
+    if (activeCard) setViewingCard(null);
+  }, [activeCard]);
 
   useEffect(() => {
     if (!learningCardPrintJob) return;
@@ -182,7 +180,7 @@ export default function Home() {
         setSelectedProfileId("");
       }
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "模型列表加载失败");
+      runtime.setError(nextError instanceof Error ? nextError.message : "模型列表加载失败");
     }
   }
 
@@ -190,7 +188,7 @@ export default function Home() {
     try {
       setCards(await fetchCards());
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "学习卡片加载失败");
+      runtime.setError(nextError instanceof Error ? nextError.message : "学习卡片加载失败");
     }
   }
 
@@ -199,86 +197,54 @@ export default function Home() {
     try {
       setHistoryItems(await fetchSessionHistory());
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "历史会话加载失败");
+      runtime.setError(nextError instanceof Error ? nextError.message : "历史会话加载失败");
     } finally {
       setHistoryBusy(false);
     }
   }
 
-  function appendMessage(
-    role: ChatMessage["role"],
-    text: string,
-    action?: string,
-    imageUrl?: string | null
-  ) {
-    setMessages((current) => [
-      ...current,
-      { id: crypto.randomUUID(), role, text, action, imageUrl }
-    ]);
-  }
-
   function clearCurrentSessionState() {
-    setSessionId("");
-    setProblemText("");
-    setInitialThought("");
-    setOriginalProblemImage(null);
-    setMessages([]);
+    openSessionRequestRef.current += 1;
+    setOpenSessionBusyId("");
+    runtime.clearSession();
     setInput("");
-    setCheckpoint(null);
-    setCheckpointStartedAt(null);
-    setActiveCard(null);
     setViewingCard(null);
-    setError("");
+    runtime.clearError();
   }
 
   async function handleOpenSession(nextSessionId: string) {
-    if (nextSessionId === sessionId || streamBusy || startBusy || activeCard) return;
+    if (nextSessionId === sessionId || sessionNavigationBusy) return;
+    const requestId = openSessionRequestRef.current + 1;
+    openSessionRequestRef.current = requestId;
+    runtime.prepareSessionChange();
     setOpenSessionBusyId(nextSessionId);
-    setError("");
+    runtime.clearError();
     try {
       const opened = await fetchSession(nextSessionId);
-      setSessionId(opened.session_id);
+      if (openSessionRequestRef.current !== requestId) return;
+      runtime.loadSession(opened);
       setSelectedProfileId(opened.model_profile_id);
       setGradeBand(opened.grade_band);
-      setProblemText(opened.problem_text);
-      setInitialThought(opened.student_initial_thought);
-      setOriginalProblemImage(opened.problem_image_data_url ?? null);
-      setMessages([
-        {
-          id: `context-${opened.session_id}`,
-          role: "student",
-          text: initialContextMessage(opened.problem_text, opened.student_initial_thought),
-          imageUrl: opened.problem_image_data_url
-        },
-        ...opened.messages.map((message) => ({
-          id: message.id,
-          role: message.role,
-          text: message.text,
-          action: message.action
-        }))
-      ]);
-      setCheckpoint(opened.pending_checkpoint ?? null);
-      setCheckpointStartedAt(opened.pending_checkpoint ? Date.now() : null);
-      setActiveCard(opened.pending_card ?? null);
       setViewingCard(null);
       setLeftOpen(false);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "打开会话失败");
+      if (openSessionRequestRef.current !== requestId) return;
+      runtime.setError(nextError instanceof Error ? nextError.message : "打开会话失败");
     } finally {
-      setOpenSessionBusyId("");
+      if (openSessionRequestRef.current === requestId) setOpenSessionBusyId("");
     }
   }
 
   async function handleDeleteSession(item: SessionHistoryItem) {
     if (!window.confirm(`删除会话“${item.title || "未命名题目"}”？已归档卡片会保留。`)) return;
     setDeleteSessionBusyId(item.session_id);
-    setError("");
+    runtime.clearError();
     try {
       await deleteSession(item.session_id);
       setHistoryItems((current) => current.filter((candidate) => candidate.session_id !== item.session_id));
       if (sessionId === item.session_id) clearCurrentSessionState();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "删除会话失败");
+      runtime.setError(nextError instanceof Error ? nextError.message : "删除会话失败");
     } finally {
       setDeleteSessionBusyId("");
     }
@@ -287,13 +253,13 @@ export default function Home() {
   async function handleDeleteAllSessions() {
     if (!window.confirm("清空全部会话？会话、消息、检查点和诊断日志会永久删除，已归档卡片会保留。")) return;
     setDeleteAllSessionsBusy(true);
-    setError("");
+    runtime.clearError();
     try {
       await deleteAllSessions();
       setHistoryItems([]);
       clearCurrentSessionState();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "清空全部会话失败");
+      runtime.setError(nextError instanceof Error ? nextError.message : "清空全部会话失败");
     } finally {
       setDeleteAllSessionsBusy(false);
     }
@@ -308,159 +274,35 @@ export default function Home() {
     });
   }
 
-  async function runStream(nextSessionId: string, message?: string) {
-    setStreamBusy(true);
-    setError("");
-    let assistantId = "";
-    let assistantText = "";
-    let retryBaseline = "";
-    let retryText = "";
-    let retryingAssistant = false;
-    let receivedVisibleText = false;
-    let receivedCheckpoint = false;
-    let receivedCard = false;
-    let cardWaitingForMessageDone: StudyCard | null = null;
-    let receivedError = false;
-
-    function setAssistantMessage(nextText: string) {
-      if (!nextText.trim()) return;
-      receivedVisibleText = true;
-      if (!assistantId) assistantId = crypto.randomUUID();
-      assistantText = nextText;
-      const id = assistantId;
-      setMessages((current) => {
-        const exists = current.some((item) => item.id === id);
-        if (!exists) return [...current, { id, role: "assistant", text: nextText }];
-        return current.map((item) => (item.id === id ? { ...item, text: nextText } : item));
-      });
-    }
-
-    function appendAssistantDelta(text: string) {
-      if (!text) return;
-      if (retryingAssistant) {
-        retryText += text;
-        if (retryBaseline.startsWith(retryText)) return;
-        retryingAssistant = false;
-        setAssistantMessage(retryText);
-        return;
-      }
-      setAssistantMessage(assistantText + text);
-    }
-
-    function resetAssistantMessage() {
-      retryBaseline = assistantText;
-      retryText = "";
-      retryingAssistant = Boolean(assistantId && assistantText);
-    }
-
-    function reconcileAssistantMessage(finalText?: string) {
-      if (!finalText?.trim()) return;
-      if (retryingAssistant) {
-        retryingAssistant = false;
-        retryBaseline = "";
-        retryText = "";
-        setAssistantMessage(finalText);
-        return;
-      }
-      if (!assistantText || finalText.startsWith(assistantText) || finalText.length >= assistantText.length) {
-        setAssistantMessage(finalText);
-      }
-    }
-
-    try {
-      await streamChat({ session_id: nextSessionId, message }, (event) => {
-        if (event.event === "decision") {
-          const data = event.data as { action?: string; message?: string };
-          reconcileAssistantMessage(data.message);
-          if (assistantId && data.action) {
-            const id = assistantId;
-            setMessages((current) => current.map((item) => (
-              item.id === id ? { ...item, action: data.action } : item
-            )));
-          }
-        }
-        if (event.event === "message_delta") appendAssistantDelta((event.data as { text: string }).text);
-        if (event.event === "message_reset") resetAssistantMessage();
-        if (event.event === "checkpoint_ready") {
-          receivedCheckpoint = true;
-          setCheckpoint(event.data as Checkpoint);
-          setCheckpointStartedAt(Date.now());
-        }
-        if (event.event === "card_ready") {
-          receivedCard = true;
-          cardWaitingForMessageDone = event.data as StudyCard;
-        }
-        if (event.event === "error") {
-          receivedError = true;
-          if (retryingAssistant && assistantId) {
-            const id = assistantId;
-            assistantId = "";
-            assistantText = "";
-            retryBaseline = "";
-            retryText = "";
-            retryingAssistant = false;
-            setMessages((current) => current.filter((item) => item.id !== id));
-          }
-          setError((event.data as { message: string }).message);
-        }
-        if (event.event === "message_done") {
-          assistantId = "";
-          assistantText = "";
-          retryBaseline = "";
-          retryText = "";
-          retryingAssistant = false;
-          if (cardWaitingForMessageDone) {
-            setViewingCard(null);
-            setActiveCard(cardWaitingForMessageDone);
-            cardWaitingForMessageDone = null;
-          }
-        }
-      });
-      if (!receivedVisibleText && !receivedCheckpoint && !receivedCard && !receivedError) {
-        appendMessage("system", "这一轮模型没有返回可见内容，请再说一句你的当前想法。");
-      }
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "答疑请求失败");
-    } finally {
-      setStreamBusy(false);
-      void refreshHistory();
-    }
-  }
-
-  async function applyIntakeResult(result: SessionIntakeResult) {
-    setProblemText(result.problem_text);
-    setInitialThought(result.student_initial_thought);
-    appendMessage("assistant", result.assistant_message);
+  async function applyIntakeResult(result: Awaited<ReturnType<typeof intakeSession>>) {
+    runtime.applyIntakeResult(result);
+    runtime.finishComposerTask();
     if (result.status === "ready" && result.session_id) {
-      setSessionId(result.session_id);
-      setCheckpoint(null);
-      setCheckpointStartedAt(null);
-      setActiveCard(null);
       await refreshHistory();
-      await runStream(result.session_id);
+      await runtime.runStream(result.session_id);
     }
   }
 
   async function handleSend() {
     const text = input.trim();
-    if (!text || startBusy || streamBusy) return;
+    if (!text || composerBlocked) return;
     if (!selectedProfileId) {
-      setError("请先在输入框下方选择一个模型；如果还没有模型，请打开设置添加。");
+      runtime.setError("请先在输入框下方选择一个模型；如果还没有模型，请打开设置添加。");
       return;
     }
     if (originalProblemImage && !selectedProfile?.is_multimodal) {
-      setError("这道题带有原图，请选择支持图片识别的多模态模型。");
+      runtime.setError("这道题带有原图，请选择支持图片识别的多模态模型。");
       return;
     }
     setInput("");
-    appendMessage("student", text, sessionId ? "STUDENT_RESPONSE" : undefined);
+    runtime.addMessage("student", text, sessionId ? "STUDENT_RESPONSE" : undefined);
     if (sessionId) {
-      await runStream(sessionId, text);
+      await runtime.runStream(sessionId, text);
       return;
     }
 
-    setStartBusy(true);
-    setError("");
+    runtime.startComposerTask("intake");
+    runtime.clearError();
     try {
       const result = await intakeSession({
         grade_band: gradeBand,
@@ -473,9 +315,7 @@ export default function Home() {
       });
       await applyIntakeResult(result);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "创建答疑会话失败");
-    } finally {
-      setStartBusy(false);
+      runtime.failComposerTask(nextError instanceof Error ? nextError.message : "创建答疑会话失败");
     }
   }
 
@@ -483,16 +323,16 @@ export default function Home() {
     if (!file || sessionId) return;
     const visionProfile = selectedProfile?.is_multimodal ? selectedProfile : multimodalProfiles[0];
     if (!visionProfile) {
-      setError("上传图片需要多模态模型，请先在模型设置中添加并标记“支持图片识别”。");
+      runtime.setError("上传图片需要多模态模型，请先在模型设置中添加并标记“支持图片识别”。");
       return;
     }
     setSelectedProfileId(visionProfile.id);
-    setImageBusy(true);
-    setError("");
+    runtime.startComposerTask("image");
+    runtime.clearError();
     try {
       const dataUrl = await readFileAsDataUrl(file);
-      setOriginalProblemImage(dataUrl);
-      appendMessage("student", "上传了一张题目图片", undefined, dataUrl);
+      runtime.updateDraft({ originalProblemImage: dataUrl });
+      runtime.addMessage("student", "上传了一张题目图片", undefined, dataUrl);
       const analyzed = await analyzeProblemImage({
         model_profile_id: visionProfile.id,
         image_base64: dataUrl,
@@ -509,21 +349,19 @@ export default function Home() {
       });
       await applyIntakeResult(result);
     } catch (nextError) {
-      setOriginalProblemImage(null);
-      setError(nextError instanceof Error ? nextError.message : "图片识别失败");
+      runtime.updateDraft({ originalProblemImage: null });
+      runtime.failComposerTask(nextError instanceof Error ? nextError.message : "图片识别失败");
     } finally {
-      setImageBusy(false);
       if (imageInputRef.current) imageInputRef.current.value = "";
     }
   }
 
   async function handleCheckpoint(optionId: string) {
-    if (!checkpoint || !sessionId) return;
+    if (!checkpoint || !sessionId || workflow.mode !== "checkpoint" || workflow.phase !== "ready") return;
     const activeCheckpoint = checkpoint;
     const startedAt = checkpointStartedAt;
     const elapsed = startedAt ? Date.now() - startedAt : 0;
-    setCheckpoint(null);
-    setCheckpointStartedAt(null);
+    runtime.beginCheckpointSubmission();
     try {
       const answer = await answerCheckpoint({
         checkpointId: activeCheckpoint.id,
@@ -531,42 +369,38 @@ export default function Home() {
         selected_option_id: optionId,
         elapsed_ms: elapsed
       });
-      appendMessage("student", answer.student_message, "CHECKPOINT_RESPONSE");
-      await runStream(sessionId);
+      runtime.completeCheckpointSubmission(answer.student_message);
+      await runtime.runStream(sessionId);
     } catch (nextError) {
-      setCheckpoint(activeCheckpoint);
-      setCheckpointStartedAt(startedAt);
-      setError(nextError instanceof Error ? nextError.message : "提交检查点失败");
+      runtime.failCheckpointSubmission(nextError instanceof Error ? nextError.message : "提交检查点失败");
     }
   }
 
   async function handleActiveCardClose() {
-    if (!activeCard || !sessionId || cardBusyId || streamBusy) return;
+    if (!activeCard || !sessionId || workflow.mode !== "card" || workflow.phase !== "ready") return;
     const cardToSave = activeCard;
-    setCardBusyId(cardToSave.id);
-    setError("");
+    runtime.beginCardSave();
+    runtime.clearError();
     try {
       const saved = await saveCard(cardToSave.id, sessionId);
       setCards((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
-      setActiveCard(null);
-      if (cardToSave.card_type === "knowledge_card") await runStream(sessionId);
+      runtime.completeCardSave();
+      if (cardToSave.card_type === "knowledge_card") await runtime.runStream(sessionId);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "保存学习卡片失败");
-    } finally {
-      setCardBusyId("");
+      runtime.failCardSave(nextError instanceof Error ? nextError.message : "保存学习卡片失败");
     }
   }
 
   async function handleDeleteCard(card: StudyCard) {
     if (cardBusyId || !window.confirm(`删除卡片“${card.content.title}”？删除后无法恢复。`)) return;
     setCardBusyId(card.id);
-    setError("");
+    runtime.clearError();
     try {
       await deleteCard(card.id);
       setCards((current) => current.filter((item) => item.id !== card.id));
       setViewingCard((current) => current?.id === card.id ? null : current);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "删除学习卡片失败");
+      runtime.setError(nextError instanceof Error ? nextError.message : "删除学习卡片失败");
     } finally {
       setCardBusyId("");
     }
@@ -575,14 +409,13 @@ export default function Home() {
   async function handleDeleteAllCards() {
     if (!window.confirm("清空全部学习卡片？会话、消息和日志会保留。")) return;
     setDeleteAllCardsBusy(true);
-    setError("");
+    runtime.clearError();
     try {
       await deleteAllCards();
       setCards([]);
-      setActiveCard(null);
       setViewingCard(null);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "清空学习卡片失败");
+      runtime.setError(nextError instanceof Error ? nextError.message : "清空学习卡片失败");
     } finally {
       setDeleteAllCardsBusy(false);
     }
@@ -597,18 +430,16 @@ export default function Home() {
     if (!selectedProfile || sessionId) return;
     if (!window.confirm(`删除模型配置“${modelProfileLabel(selectedProfile)}”？`)) return;
     setDeleteBusyId(selectedProfile.id);
-    setError("");
+    runtime.clearError();
     try {
       await deleteModelProfile(selectedProfile.id);
       await refreshProfiles();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "删除模型配置失败");
+      runtime.setError(nextError instanceof Error ? nextError.message : "删除模型配置失败");
     } finally {
       setDeleteBusyId("");
     }
   }
-
-  const composerBlocked = startBusy || streamBusy || imageBusy || Boolean(checkpoint) || Boolean(activeCard);
 
   return (
     <>
@@ -622,7 +453,7 @@ export default function Home() {
           </button>
         </div>
 
-        <button className="newChatButton" type="button" onClick={clearCurrentSessionState} disabled={composerBlocked}>
+        <button className="newChatButton" type="button" onClick={clearCurrentSessionState} disabled={sessionNavigationBusy}>
           <MessageSquarePlus size={18} />
           新建答疑
         </button>
@@ -649,7 +480,7 @@ export default function Home() {
                 className="sessionEntry"
                 type="button"
                 onClick={() => handleOpenSession(item.session_id)}
-                disabled={Boolean(openSessionBusyId) || composerBlocked}
+                disabled={Boolean(openSessionBusyId) || sessionNavigationBusy}
               >
                 <strong><MathText text={item.title || "未命名题目"} className="titleMathText" /></strong>
                 <span>{item.message_count} 条消息 · {new Date(item.updated_at).toLocaleDateString("zh-CN")}</span>
@@ -721,12 +552,12 @@ export default function Home() {
         </div>
 
         <div className="composerDock">
-          {error && <div className="inlineError"><span>{error}</span><button type="button" onClick={() => setError("")}><X size={15} /></button></div>}
+          {error && <div className="inlineError"><span>{error}</span><button type="button" onClick={runtime.clearError}><X size={15} /></button></div>}
           {!sessionId && originalProblemImage && (
             <div className="attachmentContext">
               <img src={originalProblemImage} alt="已读取的题目图片" />
               <div><strong>题目图片已读取</strong><span>原图会随每轮答疑发送给多模态模型</span></div>
-              <button type="button" onClick={() => { setOriginalProblemImage(null); setProblemText(""); }} aria-label="移除图片"><X size={15} /></button>
+              <button type="button" onClick={() => runtime.updateDraft({ originalProblemImage: null, problemText: "" })} aria-label="移除图片"><X size={15} /></button>
             </div>
           )}
           <div className="composerCard">
@@ -783,8 +614,15 @@ export default function Home() {
                   </button>
                 )}
               </div>
-              <button className="sendButton" type="button" onClick={handleSend} disabled={composerBlocked || !input.trim()} aria-label="发送">
-                {startBusy || streamBusy ? <Loader2 size={18} className="spin" /> : <ArrowUp size={19} />}
+              <button
+                className="sendButton"
+                type="button"
+                onClick={streamBusy ? runtime.stopStream : handleSend}
+                disabled={!streamBusy && (composerBlocked || !input.trim())}
+                aria-label={streamBusy ? "停止生成" : "发送"}
+                title={streamBusy ? "停止生成" : "发送"}
+              >
+                {streamBusy ? <Square size={14} /> : startBusy ? <Loader2 size={18} className="spin" /> : <ArrowUp size={19} />}
               </button>
             </div>
           </div>
@@ -823,7 +661,7 @@ export default function Home() {
             <FileDown size={15} />
             导出卡片
           </button>
-          <button className="clearCardsButton" type="button" onClick={handleDeleteAllCards} disabled={deleteAllCardsBusy || streamBusy || cards.length === 0}>
+          <button className="clearCardsButton" type="button" onClick={handleDeleteAllCards} disabled={deleteAllCardsBusy || composerBlocked || cards.length === 0}>
             {deleteAllCardsBusy ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
             清空卡片
           </button>
@@ -836,11 +674,11 @@ export default function Home() {
         onClose={() => setDialogOpen(false)}
         onSaved={(profileId) => refreshProfiles(profileId)}
       />
-      <CheckpointModal checkpoint={checkpoint} onChoose={handleCheckpoint} />
+      <CheckpointModal checkpoint={checkpoint} onChoose={handleCheckpoint} busy={workflow.mode === "checkpoint" && workflow.phase === "submitting"} />
       <StudyCardModal
         card={activeCard ?? viewingCard}
         onClose={activeCard ? handleActiveCardClose : () => setViewingCard(null)}
-        busy={Boolean(activeCard && (cardBusyId === activeCard.id || streamBusy))}
+        busy={workflow.mode === "card" && workflow.phase === "saving"}
       />
       <LearningCardExportDialog
         cards={cards}

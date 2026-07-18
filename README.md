@@ -12,6 +12,8 @@ state_hint + action + message + breakpoint_description + checkpoint + knowledge_
 
 当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、可切换的加密模型配置、检查点选择题、跨 session 的全局知识卡片/题目卡片库、学习卡片 PDF 多排版导出、SQLite 历史会话与删除，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
 
+前端会话运行态由 timeline reducer、互斥 workflow 状态机和可取消 stream controller 管理。切换会话、新建答疑、页面卸载或点击生成中的停止按钮都会中止当前 HTTP 流；每个事件同时绑定 session id 与本地 run id，旧流不能写入后来打开的 session。当前后端 SSE 尚未提供服务端 `seq`，前端保留了 `id/seq/after_seq` 适配接口，但不会把本地到达顺序冒充服务端重放保证。
+
 模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name。每个模型独立设置是否多模态；连接测试会逐模型显示成功或失败，并用内置样例图自动探测未勾选模型的图片能力。模型选择器统一显示为“供应商名称 · model name”。
 
 `POST /api/sessions/intake` 会累计统一输入中的题目和学生已有思路：缺题目就追问题目，只有题目就追问“想到哪一步”，两项齐备后才创建正式 session。图片识别结果也进入同一 intake；上传图片创建的 session 会保留用户原图并绑定多模态模型。
@@ -93,6 +95,12 @@ apps/api   FastAPI 后端
   app/storage/session_logger.py      SessionLogger（JSONL + Markdown 诊断记录）
 apps/web   Next.js 前端
   components/MathText.tsx            KaTeX 数学公式渲染
+  hooks/useSessionRuntime.ts          session/timeline/workflow 的 React 接线
+  lib/timeline.ts                     流式消息拼接与事件确定性 reducer
+  lib/session-workflow.ts             composer/run/checkpoint/card 互斥状态机
+  lib/stream-controller.ts            AbortController 与 session/run 隔离
+  lib/stream-protocol.ts              可选 seq/after_seq 事件适配边界
+  tests/                               前端 reducer、取消和隔离测试
 docs       文档
 scripts    Windows 启动、关闭、调试脚本
 config     模型配置预设示例

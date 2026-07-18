@@ -259,6 +259,13 @@ message_done
 
 前端收到 `message_done` 后会把下一个 action 开成新的 assistant 气泡，避免多个 LLM 调用的文本糊成一段。
 
+前端不再直接在页面组件里拼接这些事件。原始 SSE 先被适配为绑定 `sessionId + runId` 的事件，再进入 timeline reducer；composer、run、checkpoint、card 则由一个判别联合状态机保证互斥。当前确定性规则为：
+
+- 事件的 session 或 run 与当前运行不匹配时忽略；切换 session、新建答疑、页面卸载和显式停止都会先 abort 当前 fetch。
+- `decision` 负责用后端最终 message/action 校准当前气泡；`message_reset` 只重置当前未完成 action 的重试拼接；`message_done` 后同 action 的迟到 delta/decision/reset 不再修改已完成消息。
+- checkpoint/card 采用 first-wins，同 ID 重复通知不重复打开交互；error 终止当前 run，但保留进入下一次 run 的恢复路径。
+- 如果未来服务端通过 SSE `id` 或 `data.seq` 提供单调序号，reducer 会去重已应用序号并记录缺口，`streamChat` 也已保留显式 `after_seq` 请求游标。当前后端没有该字段，因此未带 id/seq 的 delta 严格按到达顺序拼接；前端不会声称它能识别两个内容相同但无身份的 delta 是否为重发。
+
 ## 10. 日志口径
 
 每次 LLM 调用都会同时追加严格 JSONL 和留白充足的 Markdown。JSONL 中每一次调用单独写一条 `tutor_turn`：

@@ -2,6 +2,16 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v1.9 — 2026-07-18
+
+### 前端状态边界、流取消与 session 隔离
+
+- 把 `page.tsx` 中的消息拼接和会话运行态迁到 `useSessionRuntime`、timeline reducer、互斥 workflow reducer 与 stream controller；composer、run、checkpoint、card 不再由多组布尔值自由组合。
+- `streamChat` 支持 `AbortSignal`。切换会话、新建答疑、页面卸载和生成中的显式停止都会取消旧 fetch；所有规范流事件绑定 session id 与本地 run id，迟到的旧流回调无法写入新会话。
+- timeline reducer 为 `decision/message_delta/message_reset/checkpoint_ready/card_ready/message_done/error` 定义重复、reset、终止和迟到规则；已完成 action 不接受后续改写，checkpoint/card first-wins，错误后可启动新 run 恢复。
+- 新增可选 SSE `id` / `data.seq` / `after_seq` 适配层。现行后端没有服务端 seq，默认请求体保持不变；无身份 delta 仍按到达顺序处理，不承诺 exactly-once 或断线续传。
+- 新增前端 Node 测试脚本，覆盖 reducer 拼接、重复与迟到事件、session/run 隔离、取消、错误恢复、AbortSignal 透传，以及 legacy/after_seq 请求兼容。
+
 ## v1.8 — 2026-07-17
 
 ### 同一供应商批量添加模型与多模态自动探测

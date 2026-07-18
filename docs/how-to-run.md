@@ -26,6 +26,14 @@ copy .env.example .env
 
 进程环境变量优先于 `.env`；真实 `.env`、`data/` 和 `logs/` 都已被 Git 忽略。
 
+前端依赖安装完成后，可单独验证状态 reducer、session 隔离和流取消：
+
+```bat
+cd apps\web
+npm test
+npm exec tsc -- --noEmit
+```
+
 ## 启动
 
 双击：
