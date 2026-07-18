@@ -2,6 +2,16 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v1.9 — 2026-07-18
+
+### Alembic 与 SQLite 可靠性基线
+
+- 引入 Alembic，后端启动自动执行 `upgrade head`；当前五张业务表建立统一迁移基线，旧版无迁移标记的 SQLite 会补齐历史列并保留全部有效业务数据。
+- 移除 `database.py` 的内联建表和 `_ensure_column` 演进方式；后续 schema 只通过新的 revision 扩展。
+- 每条 SQLite 连接启用 `foreign_keys=ON`、WAL、`synchronous=NORMAL` 和 5 秒 busy timeout，补充 Windows WAL 文件、单写者限制和停机备份说明。
+- sessions 到 model_profiles 使用 `RESTRICT`；messages/checkpoints 到 sessions 使用 `CASCADE`。study_cards 新增活动会话外键，数据库触发器删除待归档卡，已归档卡在 session 删除后保留不可变来源审计并继续存在于全局卡片库。
+- 新增迁移重复执行、旧库升级、外键拒绝孤儿、索引、级联删除和已归档卡保留测试。
+
 ## v1.8 — 2026-07-17
 
 ### 同一供应商批量添加模型与多模态自动探测
