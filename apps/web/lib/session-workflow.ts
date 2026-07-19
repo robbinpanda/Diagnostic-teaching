@@ -3,7 +3,7 @@ import type { Checkpoint, StudyCard } from "./api";
 type WorkflowBase = { error: string | null };
 
 export type SessionWorkflowState =
-  | (WorkflowBase & { mode: "composer"; activity: "idle" | "intake" | "image" })
+  | (WorkflowBase & { mode: "composer"; activity: "idle" | "start" | "image" })
   | (WorkflowBase & {
       mode: "run";
       phase: "streaming" | "stopping";
@@ -26,7 +26,7 @@ export type SessionWorkflowState =
 export type SessionWorkflowAction =
   | { type: "session_reset" }
   | { type: "session_loaded"; pendingCheckpoint?: Checkpoint | null; pendingCard?: StudyCard | null; now: number }
-  | { type: "composer_task_started"; activity: "intake" | "image" }
+  | { type: "composer_task_started"; activity: "start" | "image" }
   | { type: "composer_task_finished" }
   | { type: "run_started"; sessionId: string; runId: string }
   | { type: "run_stop_requested"; sessionId: string; runId: string }

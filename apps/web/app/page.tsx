@@ -43,10 +43,10 @@ import {
   fetchProfiles,
   fetchSession,
   fetchSessionHistory,
-  intakeSession,
   modelProfileLabel,
   ModelProfile,
   saveCard,
+  startSession,
   SessionHistoryItem,
   StudyCard
 } from "../lib/api";
@@ -99,6 +99,16 @@ export default function Home() {
     text: string;
     clientMessageId: string;
   } | null>(null);
+  const pendingSessionStartRef = useRef<{
+    sessionId: string;
+    clientMessageId: string;
+    text: string;
+    profileId: string;
+    gradeBand: "junior" | "senior";
+    problemText: string;
+    initialThought: string;
+    imageUrl: string | null;
+  } | null>(null);
   const openSessionRequestRef = useRef(0);
   const runtime = useSessionRuntime({ onRunSettled: () => void refreshHistory() });
   const {
@@ -115,7 +125,7 @@ export default function Home() {
     streamBusy,
     workflow
   } = runtime;
-  const startBusy = workflow.mode === "composer" && workflow.activity === "intake";
+  const startBusy = workflow.mode === "composer" && workflow.activity === "start";
   const imageBusy = workflow.mode === "composer" && workflow.activity === "image";
   const sessionNavigationBusy = workflow.mode === "composer" && workflow.activity !== "idle";
   const stopBusy = workflow.mode === "run" && workflow.phase === "stopping";
@@ -214,6 +224,8 @@ export default function Home() {
 
   function clearCurrentSessionState() {
     openSessionRequestRef.current += 1;
+    pendingStudentMessageRef.current = null;
+    pendingSessionStartRef.current = null;
     setOpenSessionBusyId("");
     runtime.clearSession();
     setInput("");
@@ -283,13 +295,11 @@ export default function Home() {
     });
   }
 
-  async function applyIntakeResult(result: Awaited<ReturnType<typeof intakeSession>>) {
-    runtime.applyIntakeResult(result);
+  async function finishSessionStart(result: Awaited<ReturnType<typeof startSession>>) {
+    runtime.bindStartedSession(result);
     runtime.finishComposerTask();
-    if (result.status === "ready" && result.session_id) {
-      await refreshHistory();
-      await runtime.runStream(result.session_id);
-    }
+    await refreshHistory();
+    await runtime.runStream(result.session_id);
   }
 
   async function handleSend() {
@@ -330,11 +340,36 @@ export default function Home() {
       return;
     }
 
-    runtime.addMessage("student", text);
-    runtime.startComposerTask("intake");
+    const previousStart = pendingSessionStartRef.current;
+    const isStartRetry = Boolean(
+      previousStart
+      && previousStart.text === text
+      && previousStart.profileId === selectedProfileId
+      && previousStart.gradeBand === gradeBand
+      && previousStart.problemText === problemText
+      && previousStart.initialThought === initialThought
+      && previousStart.imageUrl === originalProblemImage
+    );
+    const pendingStart = isStartRetry && previousStart
+      ? previousStart
+      : {
+          sessionId: `sess_${crypto.randomUUID().replaceAll("-", "")}`,
+          clientMessageId: crypto.randomUUID(),
+          text,
+          profileId: selectedProfileId,
+          gradeBand,
+          problemText,
+          initialThought,
+          imageUrl: originalProblemImage
+        };
+    pendingSessionStartRef.current = pendingStart;
+    if (!isStartRetry) runtime.addMessage("student", text);
+    runtime.startComposerTask("start");
     runtime.clearError();
     try {
-      const result = await intakeSession({
+      const result = await startSession({
+        session_id: pendingStart.sessionId,
+        client_message_id: pendingStart.clientMessageId,
         grade_band: gradeBand,
         subject: "math",
         model_profile_id: selectedProfileId,
@@ -343,8 +378,10 @@ export default function Home() {
         student_initial_thought: initialThought,
         problem_image_data_url: originalProblemImage
       });
-      await applyIntakeResult(result);
+      pendingSessionStartRef.current = null;
+      await finishSessionStart(result);
     } catch (nextError) {
+      setInput((current) => current || text);
       runtime.failComposerTask(nextError instanceof Error ? nextError.message : "创建答疑会话失败");
     } finally {
       sendInFlightRef.current = false;
@@ -371,15 +408,18 @@ export default function Home() {
         content_type: file.type || "image/png",
         filename: file.name
       });
-      const result = await intakeSession({
+      const result = await startSession({
+        session_id: `sess_${crypto.randomUUID().replaceAll("-", "")}`,
+        client_message_id: crypto.randomUUID(),
         grade_band: gradeBand,
         subject: "math",
         model_profile_id: visionProfile.id,
+        message: "上传了一张题目图片",
         problem_text: analyzed.problem_text,
         student_initial_thought: analyzed.student_work_summary.trim() || initialThought,
         problem_image_data_url: dataUrl
       });
-      await applyIntakeResult(result);
+      await finishSessionStart(result);
     } catch (nextError) {
       runtime.updateDraft({ originalProblemImage: null });
       runtime.failComposerTask(nextError instanceof Error ? nextError.message : "图片识别失败");

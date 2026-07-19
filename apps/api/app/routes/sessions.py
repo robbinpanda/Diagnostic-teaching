@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
@@ -10,31 +9,23 @@ from app.core.schemas import (
     SessionCreateResponse,
     SessionHistoryListResponse,
     SessionInterruptResponse,
-    SessionIntakeRequest,
-    SessionIntakeResponse,
     SessionRestoreRequest,
     SessionRestoreResponse,
     SessionRestoredMessage,
     SessionRunPublic,
     SessionRunStatusResponse,
+    SessionStartRequest,
+    SessionStartResponse,
 )
 from app.routes.cards import card_from_row
+from app.services.input_acceptance import (
+    IdempotencyConflictError,
+    InputAcceptanceService,
+    InputStateConflictError,
+    InputValidationError,
+)
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
-
-INTAKE_LABEL_RE = re.compile(
-    r"(?:^|\n)\s*(?P<label>题目|问题|题干|我的思路|思路|想法|尝试|我想到哪|我做到哪)\s*[:：]\s*",
-    re.IGNORECASE,
-)
-THOUGHT_LABELS = {"我的思路", "思路", "想法", "尝试", "我想到哪", "我做到哪"}
-THOUGHT_ONLY_RE = re.compile(
-    r"^\s*(?:我|目前|现在|还没|没有|完全不会|不知道|没思路|卡在|做到|想到)",
-    re.IGNORECASE,
-)
-INLINE_THOUGHT_RE = re.compile(
-    r"(?:\n+|[。；;]\s*)(?P<thought>(?:我|目前|现在|还没|没有|完全不会|不知道|没思路|卡在).+)$",
-    re.IGNORECASE | re.DOTALL,
-)
 
 
 def run_from_row(row) -> SessionRunPublic:
@@ -50,61 +41,6 @@ def run_from_row(row) -> SessionRunPublic:
         last_committed_action_index=row["last_committed_action_index"],
         error=json.loads(row["error_json"]) if row["error_json"] else None,
     )
-
-
-def resolve_intake(
-    message: str,
-    problem_text: str = "",
-    student_initial_thought: str = "",
-) -> tuple[str, str]:
-    """Merge one free-form composer turn into the two fields required by tutoring.
-
-    Explicit labels win. Once one field has been collected, the next unlabeled turn
-    fills the missing field, which makes the follow-up conversation deterministic.
-    """
-
-    problem = problem_text.strip()
-    thought = student_initial_thought.strip()
-    text = message.strip()
-    if not text:
-        return problem, thought
-
-    matches = list(INTAKE_LABEL_RE.finditer(text))
-    labeled_problem = ""
-    labeled_thought = ""
-    for index, match in enumerate(matches):
-        value_start = match.end()
-        value_end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        value = text[value_start:value_end].strip()
-        if not value:
-            continue
-        if match.group("label") in THOUGHT_LABELS:
-            labeled_thought = value
-        else:
-            labeled_problem = value
-
-    if labeled_problem:
-        problem = labeled_problem
-    if labeled_thought:
-        thought = labeled_thought
-    if matches:
-        return problem, thought
-
-    if problem and not thought:
-        return problem, text
-    if thought and not problem:
-        return text, thought
-
-    inline_thought = INLINE_THOUGHT_RE.search(text)
-    if inline_thought and inline_thought.start("thought") > 0:
-        possible_problem = text[: inline_thought.start()].strip(" \n。；;")
-        possible_thought = inline_thought.group("thought").strip()
-        if possible_problem and possible_thought:
-            return possible_problem, possible_thought
-
-    if THOUGHT_ONLY_RE.match(text):
-        return problem, text
-    return text, thought
 
 
 def validate_session_profile(payload: SessionCreate, request: Request):
@@ -141,54 +77,57 @@ def create_session(payload: SessionCreate, request: Request) -> SessionCreateRes
     return SessionCreateResponse(
         session_id=session["id"],
         state_hint=session["phase"],
+        context_status=session["context_status"],
         model_profile_id=session["model_profile_id"],
     )
 
 
-@router.post("/intake", response_model=SessionIntakeResponse)
-def intake_session(payload: SessionIntakeRequest, request: Request) -> SessionIntakeResponse:
-    problem, thought = resolve_intake(
-        payload.message,
-        payload.problem_text,
-        payload.student_initial_thought,
-    )
-    common = {
-        "problem_text": problem,
-        "student_initial_thought": thought,
-        "model_profile_id": payload.model_profile_id,
-    }
-    if not problem:
-        return SessionIntakeResponse(
-            status="needs_problem",
-            assistant_message=(
-                "我先记下了你目前的想法。请把完整题目也发给我；可以直接粘贴文字，或点回形针上传题目图片。"
-                if thought
-                else "先把题目发给我吧。你可以直接粘贴文字，或点回形针上传题目图片。"
-            ),
-            **common,
-        )
-    if not thought:
-        return SessionIntakeResponse(
-            status="needs_thought",
-            assistant_message="题目收到了。你已经想到哪一步、试过什么，或者具体卡在哪里？完全没思路也可以直接说。",
-            **common,
-        )
+@router.post("/start", response_model=SessionStartResponse)
+def start_session(payload: SessionStartRequest, request: Request) -> SessionStartResponse:
+    profile = validate_session_profile(payload, request)
+    try:
+        started = InputAcceptanceService(request.app.state.sessions).start_session(payload)
+    except IdempotencyConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "SESSION_START_IDEMPOTENCY_CONFLICT",
+                "message": "同一个会话启动标识已被用于不同内容。",
+            },
+        ) from exc
+    except (InputValidationError, InputStateConflictError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    session_payload = SessionCreate(
-        grade_band=payload.grade_band,
-        subject=payload.subject,
-        model_profile_id=payload.model_profile_id,
-        problem_text=problem,
-        student_initial_thought=thought,
-        problem_image_data_url=payload.problem_image_data_url,
-    )
-    session = persist_session(session_payload, request)
-    return SessionIntakeResponse(
-        status="ready",
-        assistant_message="题目和你的思路都收到了，我们从你当前卡住的位置开始。",
+    session = started.session_row
+    message = started.message_row
+    logger = getattr(request.app.state, "session_logger", None)
+    if logger is not None and started.accepted:
+        logger.log_session_started(
+            session_id=session["id"],
+            model=profile["model"],
+            grade_band=session["grade_band"],
+            problem_text=session["problem_text"],
+            student_initial_thought=session["student_initial_thought"],
+        )
+        logger.log_message(
+            session_id=session["id"],
+            message_id=message["id"],
+            role="student",
+            action_id=message["action_id"],
+            action=message["action"],
+            in_reply_to_action_id=message["in_reply_to_action_id"],
+            content=message["content"],
+        )
+    return SessionStartResponse(
+        status="accepted" if started.accepted else "duplicate",
         session_id=session["id"],
         state_hint=session["phase"],
-        **common,
+        context_status=session["context_status"],
+        model_profile_id=session["model_profile_id"],
+        problem_text=session["problem_text"],
+        student_initial_thought=session["student_initial_thought"],
+        message_id=message["id"],
+        action_id=message["action_id"],
     )
 
 
@@ -201,13 +140,18 @@ def list_session_history(request: Request) -> SessionHistoryListResponse:
                 "session_id": row["id"],
                 "restored_from": row["restored_from"],
                 # Keep complete math delimiters; the frontend applies visual ellipsis.
-                "title": row["problem_text"].strip().replace("\n", " "),
+                "title": (
+                    row["problem_text"].strip()
+                    or (row["first_student_message"] or "").strip()
+                    or "新答疑"
+                ).replace("\n", " "),
                 "grade_band": row["grade_band"],
                 "model_profile_id": row["model_profile_id"],
                 "model_display_name": row["model_display_name"],
                 "message_count": row["message_count"],
                 "checkpoint_count": row["checkpoint_count"],
                 "state_hint": row["phase"],
+                "context_status": row["context_status"],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }
@@ -237,6 +181,7 @@ def session_detail_response(request: Request, session) -> SessionRestoreResponse
         session_id=session["id"],
         restored_from=session["restored_from"],
         state_hint=session["phase"],
+        context_status=session["context_status"],
         breakpoint_description=session["breakpoint_description"],
         model_profile_id=session["model_profile_id"],
         grade_band=session["grade_band"],
@@ -403,6 +348,7 @@ def restore_session(payload: SessionRestoreRequest, request: Request) -> Session
         session_id=session["id"],
         restored_from=payload.session_id,
         state_hint=session["phase"],
+        context_status=session["context_status"],
         breakpoint_description=session["breakpoint_description"],
         model_profile_id=session["model_profile_id"],
         grade_band=session["grade_band"],

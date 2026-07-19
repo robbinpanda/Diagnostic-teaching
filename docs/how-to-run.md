@@ -37,7 +37,7 @@ python -m alembic -c alembic.ini current
 python -m alembic -c alembic.ini upgrade head
 ```
 
-CLI 与应用使用同一套 `DATABASE_URL` / `.env` 路径解析。schema 后续演进只新增 `apps/api/migrations/versions/` revision，不再修改 `database.py` 临时补列。当前迁移链已在可靠性基线之后依次加入 `session_inputs`、`session_events` 与 `session_runs`。
+CLI 与应用使用同一套 `DATABASE_URL` / `.env` 路径解析。schema 后续演进只新增 `apps/api/migrations/versions/` revision，不再修改 `database.py` 临时补列。当前迁移链已在可靠性基线之后依次加入 `session_inputs`、`session_events`、`session_runs` 与会话内 `context_status`。
 
 每条应用数据库连接都会设置：
 
@@ -130,7 +130,7 @@ scripts\inspect-session.cmd sess_c4052d2538a6
 
 你重点看七张表：
 
-1. `sessions`：当前阶段、题目、模型。
+1. `sessions`：`context_status`、当前教学阶段、题目/思路语义摘要、模型与可选原图。
 2. `session_inputs`：已可靠接纳的普通消息、checkpoint answer、卡片关闭继续命令，以及幂等键和首次结果。
 3. `messages`：学生消息、AI 回复，以及每条消息的 `action_id / action / in_reply_to_action_id`。
 4. `checkpoints`：每个检查点的问题、选项、正确答案、学生选择，以及产生它的 `source_action_id`。

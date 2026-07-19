@@ -1,10 +1,10 @@
 # 答疑状态机与 LLM 主导流程
 
-版本：v1.2
-日期：2026-07-18
+版本：v1.3
+日期：2026-07-19
 适用项目：诊断式数学答疑 MVP
 
-本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作；后端根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop。`EXPLAIN_PRINCIPLE` 必须产生 `knowledge_card`，`EXPLAIN_LOCAL` 可按知识复用价值选择产生 `knowledge_card`，`SUMMARIZE` 必须产生 `problem_card`。**
+本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行上下文收集与教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作，同时判断 `context_status` 并提供可靠的新语义摘要；后端在上下文未 ready 时只允许开放提问，ready 后再根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop。`EXPLAIN_PRINCIPLE` 必须产生 `knowledge_card`，`EXPLAIN_LOCAL` 可按知识复用价值选择产生 `knowledge_card`，`SUMMARIZE` 必须产生 `problem_card`。**
 
 如果后续要优化教学策略，优先改：
 
@@ -25,12 +25,9 @@ sequenceDiagram
   participant Log as JSONL + Markdown
   participant LLM as 语言模型
 
-  Student->>API: POST /api/sessions/intake 发送统一输入
-  alt 缺少题目或当前思路
-    API-->>Student: needs_problem / needs_thought + 定向追问
-  else 两项齐备
-    API->>DB: 创建 diagnosing session
-  end
+  Student->>API: POST /api/sessions/start 发送首条消息
+  API->>DB: 原子创建 session + session_inputs + STUDENT_RESPONSE
+  API-->>Student: accepted / duplicate + session_id
   Student->>API: 提交普通消息 / 答检查点 / 关闭知识卡继续
   API->>DB: session_inputs + 业务结果原子落库
   API-->>Student: accepted / duplicate / conflict
@@ -38,11 +35,11 @@ sequenceDiagram
   loop 最多 3 个连续非阻塞 action
     API->>DB: 读取 session + 全部 messages
     API->>LLM: system + SESSION_START + 结构化 user/assistant 多轮消息
-    LLM-->>API: stream=true 原始 JSON token
+    LLM-->>API: context_status + 语义摘要 + 单一 action
     API-->>Student: SSE message_delta(本 action 可见内容)
     API->>API: raw 完整后解析 TutorTurn
-    API->>API: validate checkpoint/card + apply_backend_action_policy()
-    API->>DB: update state_hint + add assistant message/action + pending card
+    API->>API: 未 ready 时只允许 ASK_OPEN_QUESTION；再校验 checkpoint/card/action
+    API->>DB: update context/status/摘要 + assistant action + pending card
     API->>Log: 追加 JSONL 事件和 Markdown 阅读版
     API-->>Student: decision + message_done
   end
@@ -56,9 +53,11 @@ sequenceDiagram
 
 关键点：
 
-- 正式教学状态机开始前有一层 intake 门控。后端累计 `problem_text` 与 `student_initial_thought`；任一为空时只返回追问，不创建 session、不调用教学 LLM。
+- 没有前置 intake。首条消息立即创建正式 session，并与对应 `session_inputs`、`STUDENT_RESPONSE` message 在同一事务落库；客户端提供稳定 session id 和 `client_message_id`，相同请求重试返回原结果。
+- `context_status` 取 `need_problem / need_thought / ready`。模型依据完整对话语义更新 `problem_summary / student_thought_summary`，后端把它们与 assistant action 原子写回 `sessions.problem_text / student_initial_thought`。不得按消息序号猜测字段。
+- `need_problem` 或 `need_thought` 时后端清除 checkpoint/card，并强制 action 为 `ASK_OPEN_QUESTION`；只有 `ready` 后才能讲解、出选择题、总结或生成卡片。“完全没思路”是有效的 `student_thought_summary`，可以进入 ready。
 - 正式 session 的输入接纳和模型生成是两个服务边界。`POST /api/sessions/{session_id}/inputs` 与 checkpoint answer 接口先把输入及其业务结果写入 SQLite；`POST /api/chat/stream` 再从权威历史生成。客户端断开 SSE 不会使已经接纳的输入消失。
-- 单条输入可用“题目：… / 思路：…”标签同时提供两项；若首轮只有未标注文本，默认先视为题目，下一轮未标注文本补为当前思路。“完全没思路”也是有效的当前思路。
+- 题目与思路可在同一条或任意多条消息中、以任意顺序提供；标签只帮助语义理解，不决定字段。寒暄、表情和无关文字不能成为题目或思路摘要。
 - LLM 每轮决定 `state_hint`、`action`、`message`、`breakpoint_description`、`checkpoint`、`knowledge_card`、`problem_card`。
 - 后端不信任模型给出的等待判断；`wait_for_student` 由后端根据 action 强制推导。
 - `ASK_OPEN_QUESTION` 和 `ASK_MULTIPLE_CHOICE` 是阻塞动作，会停下等待学生。
@@ -75,6 +74,9 @@ sequenceDiagram
 ```json
 {
   "state_hint": "diagnosing|scaffolding|explaining|checking|recovering|summarizing",
+  "context_status": "need_problem|need_thought|ready",
+  "problem_summary": "本轮新确认的题目摘要，可为 null",
+  "student_thought_summary": "本轮新确认的思路/卡点/明确没思路，可为 null",
   "action": "ASK_OPEN_QUESTION|ASK_MULTIPLE_CHOICE|EXPLAIN_LOCAL|EXPLAIN_PRINCIPLE|RESPOND_TO_CHECKPOINT|SUMMARIZE",
   "message": "给学生看的中文内容",
   "breakpoint_description": "当前卡点，可为 null",
@@ -87,6 +89,9 @@ sequenceDiagram
 ```
 
 动作与结构化字段必须严格匹配：
+
+- `context_status != ready`：只允许 `ASK_OPEN_QUESTION`，`checkpoint/knowledge_card/problem_card` 全部为 `null`。
+- `problem_summary / student_thought_summary`：仅保存从真实对话确认的信息；本轮没有可靠新增时为 `null`，不会用寒暄覆盖已确认摘要。
 
 - `ASK_MULTIPLE_CHOICE`：`checkpoint` 非空，两个 card 字段为 `null`。
 - `EXPLAIN_LOCAL`：`knowledge_card` 可空；仅当 message 含值得独立记忆、可迁移的公式、定理、性质或方法辨析时非空，`checkpoint/problem_card` 为 `null`。

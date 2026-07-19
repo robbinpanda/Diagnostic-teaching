@@ -542,6 +542,125 @@ def local_demo_response(messages: list[dict[str, Any]]) -> str:
         -1,
     )
     last_user = message_text(messages[last_user_index]["content"]) if last_user_index >= 0 else ""
+    session_context: dict[str, Any] = {}
+    for candidate in messages:
+        if candidate["role"] != "user":
+            continue
+        try:
+            possible_context = json.loads(message_text(candidate["content"]))
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if isinstance(possible_context, dict) and possible_context.get("kind") == "session_context":
+            session_context = possible_context
+            break
+
+    latest_student_text = last_user
+    try:
+        latest_envelope = json.loads(last_user)
+    except (TypeError, json.JSONDecodeError):
+        latest_envelope = None
+    if isinstance(latest_envelope, dict) and latest_envelope.get("kind") == "student_message":
+        latest_student_text = str(latest_envelope.get("message") or "").strip()
+
+    context_status = str(session_context.get("context_status") or "ready")
+    context_fields: dict[str, Any] = {
+        "context_status": "ready",
+        "problem_summary": None,
+        "student_thought_summary": None,
+    }
+    if context_status != "ready":
+        compact = re.sub(r"[\s，。！？!?、]", "", latest_student_text).lower()
+        is_filler = compact in {"你好", "您好", "嗨", "hello", "hi", "在吗", "谢谢", "好的", "好"}
+        has_thought_marker = bool(
+            re.search(
+                r"没思路|没有思路|不知道从哪|完全不会|卡在|我(?:想到|做到|试过)|思路\s*[:：]",
+                latest_student_text,
+            )
+        )
+        has_problem_marker = bool(
+            re.search(
+                r"题目\s*[:：]|已知|求|证明|计算|方程|函数|几何|数列|多少|[？?]",
+                latest_student_text,
+            )
+        )
+
+        if context_status == "need_problem":
+            if is_filler or (not has_problem_marker and not has_thought_marker):
+                return json.dumps(
+                    {
+                        "state_hint": "diagnosing",
+                        "context_status": "need_problem",
+                        "problem_summary": None,
+                        "student_thought_summary": None,
+                        "action": "ASK_OPEN_QUESTION",
+                        "message": "你好！把你想解决的完整题目发给我吧，可以直接粘贴文字，也可以上传题目图片。你现在想解决的是哪道题？",
+                        "breakpoint_description": None,
+                        "breakpoint_confidence": 0,
+                        "checkpoint": None,
+                        "knowledge_card": None,
+                        "problem_card": None,
+                        "debug": {"source": "local_demo", "context_collection": True},
+                    },
+                    ensure_ascii=False,
+                )
+            if has_thought_marker and not has_problem_marker:
+                return json.dumps(
+                    {
+                        "state_hint": "diagnosing",
+                        "context_status": "need_problem",
+                        "problem_summary": None,
+                        "student_thought_summary": latest_student_text,
+                        "action": "ASK_OPEN_QUESTION",
+                        "message": "我记下你现在的状态了。请把要解决的完整题目发给我，可以发文字或题目图片。你想解决的是哪道题？",
+                        "breakpoint_description": None,
+                        "breakpoint_confidence": 0,
+                        "checkpoint": None,
+                        "knowledge_card": None,
+                        "problem_card": None,
+                        "debug": {"source": "local_demo", "context_collection": True},
+                    },
+                    ensure_ascii=False,
+                )
+            context_fields["problem_summary"] = latest_student_text
+            if has_thought_marker:
+                context_fields["student_thought_summary"] = latest_student_text
+            else:
+                context_fields["context_status"] = "need_thought"
+                return json.dumps(
+                    {
+                        "state_hint": "diagnosing",
+                        **context_fields,
+                        "action": "ASK_OPEN_QUESTION",
+                        "message": "题目已经明确了。你已经试过什么、想到哪一步，或者具体卡在哪里？完全没思路也可以直接说。",
+                        "breakpoint_description": None,
+                        "breakpoint_confidence": 0,
+                        "checkpoint": None,
+                        "knowledge_card": None,
+                        "problem_card": None,
+                        "debug": {"source": "local_demo", "context_collection": True},
+                    },
+                    ensure_ascii=False,
+                )
+        elif context_status == "need_thought":
+            if is_filler or latest_student_text == "上传了一张题目图片":
+                return json.dumps(
+                    {
+                        "state_hint": "diagnosing",
+                        "context_status": "need_thought",
+                        "problem_summary": None,
+                        "student_thought_summary": None,
+                        "action": "ASK_OPEN_QUESTION",
+                        "message": "题目已经明确了。你已经试过什么、想到哪一步，或者具体卡在哪里？完全没思路也可以直接说。",
+                        "breakpoint_description": None,
+                        "breakpoint_confidence": 0,
+                        "checkpoint": None,
+                        "knowledge_card": None,
+                        "problem_card": None,
+                        "debug": {"source": "local_demo", "context_collection": True},
+                    },
+                    ensure_ascii=False,
+                )
+            context_fields["student_thought_summary"] = latest_student_text
     assistants_after_last_user = (
         [message for message in messages[last_user_index + 1 :] if message["role"] == "assistant"]
         if last_user_index >= 0
@@ -575,6 +694,7 @@ def local_demo_response(messages: list[dict[str, Any]]) -> str:
                 message = "这个选择暴露了一个具体误区：平方项本身虽然非负，但它前面有负号；平方项越大，整体反而越小。因此求最大值时应让平方项尽量小。"
             payload = {
                 "state_hint": state_hint,
+                **context_fields,
                 "action": "RESPOND_TO_CHECKPOINT",
                 "message": message,
                 "breakpoint_description": "已根据最近一次选择题结果完成针对性反馈",
@@ -615,6 +735,7 @@ def local_demo_response(messages: list[dict[str, Any]]) -> str:
                 message = "这里有个误区：平方项本身不会小于 0，但前面有负号，所以平方项越大整体越小，最大值出现在平方项最小（为 0）的时候。"
         payload = {
             "state_hint": state_hint,
+            **context_fields,
             "action": action,
             "message": message,
             "breakpoint_description": "已根据检查点选择推进",
@@ -640,6 +761,7 @@ def local_demo_response(messages: list[dict[str, Any]]) -> str:
     }
     payload = {
         "state_hint": "checking",
+        **context_fields,
         "action": "ASK_MULTIPLE_CHOICE",
         "message": "我先不从头讲完整题，先抓你现在最可能卡住的一点：带负号的平方项会怎样影响最大值。",
         "breakpoint_description": "不确定平方项和负系数怎样共同影响函数最大值",

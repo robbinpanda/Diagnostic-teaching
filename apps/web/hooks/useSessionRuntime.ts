@@ -6,7 +6,7 @@ import {
   streamChat,
   type Checkpoint,
   type RestoredSession,
-  type SessionIntakeResult,
+  type SessionStartResult,
   type SseEvent,
   type StudyCard
 } from "../lib/api";
@@ -26,6 +26,7 @@ import {
 
 type SessionContext = {
   sessionId: string;
+  contextStatus: "need_problem" | "need_thought" | "ready";
   problemText: string;
   initialThought: string;
   originalProblemImage: string | null;
@@ -33,6 +34,7 @@ type SessionContext = {
 
 const EMPTY_SESSION_CONTEXT: SessionContext = {
   sessionId: "",
+  contextStatus: "need_problem",
   problemText: "",
   initialThought: "",
   originalProblemImage: null
@@ -119,25 +121,34 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     prepareSessionChange();
     replaceContext({
       sessionId: opened.session_id,
+      contextStatus: opened.context_status,
       problemText: opened.problem_text,
       initialThought: opened.student_initial_thought,
       originalProblemImage: opened.problem_image_data_url ?? null
     });
+    const firstStudentIndex = opened.messages.findIndex((message) => message.role === "student");
+    const hasDurableStudentMessage = firstStudentIndex >= 0;
+    const legacyContextMessage =
+      !hasDurableStudentMessage && (opened.problem_text || opened.student_initial_thought)
+        ? [{
+            id: `context-${opened.session_id}`,
+            role: "student" as const,
+            text: initialContextMessage(opened.problem_text, opened.student_initial_thought),
+            imageUrl: opened.problem_image_data_url
+          }]
+        : [];
     dispatchTimeline({
       type: "session_loaded",
       sessionKey: opened.session_id,
       messages: [
-        {
-          id: `context-${opened.session_id}`,
-          role: "student",
-          text: initialContextMessage(opened.problem_text, opened.student_initial_thought),
-          imageUrl: opened.problem_image_data_url
-        },
-        ...opened.messages.map((message) => ({
+        ...legacyContextMessage,
+        ...opened.messages.map((message, index) => ({
           id: message.id,
           role: message.role,
           text: message.text,
-          action: message.action
+          action: message.action,
+          imageUrl:
+            index === firstStudentIndex ? opened.problem_image_data_url : undefined
         }))
       ],
       pendingCheckpoint: opened.pending_checkpoint,
@@ -156,26 +167,24 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     replaceContext({ ...contextRef.current, ...patch });
   }
 
-  function applyIntakeResult(result: SessionIntakeResult) {
-    addMessage("assistant", result.assistant_message);
+  function bindStartedSession(result: SessionStartResult) {
     const previousSessionKey = currentSessionKey();
     const nextContext = {
       ...contextRef.current,
+      contextStatus: result.context_status,
       problemText: result.problem_text,
       initialThought: result.student_initial_thought,
-      sessionId: result.status === "ready" && result.session_id ? result.session_id : ""
+      sessionId: result.session_id
     };
     replaceContext(nextContext);
-    if (nextContext.sessionId) {
-      dispatchTimeline({
-        type: "session_bound",
-        previousSessionKey,
-        sessionKey: nextContext.sessionId
-      });
-    }
+    dispatchTimeline({
+      type: "session_bound",
+      previousSessionKey,
+      sessionKey: nextContext.sessionId
+    });
   }
 
-  function startComposerTask(activity: "intake" | "image") {
+  function startComposerTask(activity: "start" | "image") {
     dispatchWorkflow({ type: "composer_task_started", activity });
   }
 
@@ -342,7 +351,7 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     checkpointStartedAt: workflow.mode === "checkpoint" ? workflow.startedAt : null,
     activeCard: workflow.mode === "card" ? workflow.card : null,
     addMessage,
-    applyIntakeResult,
+    bindStartedSession,
     beginCardSave,
     beginCheckpointSubmission,
     clearError,

@@ -6,6 +6,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl
 
 
 Provider = Literal["openai", "openai_compatible", "anthropic", "local_demo"]
+ContextStatus = Literal["need_problem", "need_thought", "ready"]
 
 
 class ModelProfileCreate(BaseModel):
@@ -133,39 +134,35 @@ class SessionCreate(BaseModel):
     grade_band: Literal["junior", "senior"]
     subject: Literal["math"] = "math"
     model_profile_id: str
-    problem_text: str = Field(min_length=1)
-    student_initial_thought: str = ""
+    problem_text: str = Field(default="", max_length=20_000)
+    student_initial_thought: str = Field(default="", max_length=20_000)
     problem_image_data_url: str | None = Field(default=None, max_length=17_000_000)
 
 
 class SessionCreateResponse(BaseModel):
     session_id: str
     state_hint: str
+    context_status: ContextStatus
     model_profile_id: str
 
 
-class SessionIntakeRequest(BaseModel):
-    """One turn of the pre-session conversation used to collect required context."""
+class SessionStartRequest(SessionCreate):
+    """Create a formal session and durably admit its first student message."""
 
-    model_config = ConfigDict(extra="forbid")
+    session_id: str = Field(pattern=r"^sess_[0-9a-f]{32}$")
+    client_message_id: str = Field(min_length=1, max_length=128)
+    message: str = Field(min_length=1, max_length=20_000)
 
-    grade_band: Literal["junior", "senior"]
-    subject: Literal["math"] = "math"
+class SessionStartResponse(BaseModel):
+    status: Literal["accepted", "duplicate"]
+    session_id: str
+    state_hint: str
+    context_status: ContextStatus
     model_profile_id: str
-    message: str = Field(default="", max_length=20_000)
-    problem_text: str = Field(default="", max_length=20_000)
-    student_initial_thought: str = Field(default="", max_length=20_000)
-    problem_image_data_url: str | None = Field(default=None, max_length=17_000_000)
-
-
-class SessionIntakeResponse(BaseModel):
-    status: Literal["needs_problem", "needs_thought", "ready"]
-    assistant_message: str
     problem_text: str
     student_initial_thought: str
-    session_id: str | None = None
-    state_hint: str | None = None
-    model_profile_id: str
+    message_id: str
+    action_id: str
 
 
 class SessionHistoryItem(BaseModel):
@@ -178,6 +175,7 @@ class SessionHistoryItem(BaseModel):
     message_count: int
     checkpoint_count: int
     state_hint: str
+    context_status: ContextStatus
     created_at: str
     updated_at: str
 
@@ -224,6 +222,7 @@ class SessionRestoreResponse(BaseModel):
     session_id: str
     restored_from: str | None = None
     state_hint: str
+    context_status: ContextStatus
     breakpoint_description: str | None = None
     model_profile_id: str
     grade_band: Literal["junior", "senior"]
@@ -399,6 +398,9 @@ class TutorTurn(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     state_hint: str = Field(default="diagnosing", validation_alias=AliasChoices("state_hint", "phase"))
+    context_status: ContextStatus = "ready"
+    problem_summary: str | None = Field(default=None, max_length=20_000)
+    student_thought_summary: str | None = Field(default=None, max_length=20_000)
     action: str
     message: str
     breakpoint_description: str | None = None

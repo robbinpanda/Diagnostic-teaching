@@ -2,6 +2,18 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v2.1 — 2026-07-19
+
+### 取消前置 intake，改为正式会话内语义收集
+
+- 删除按消息序号把第一条当题目、第二条当思路的 `POST /api/sessions/intake` 流程；寒暄不会再被写成 `problem_text` 或 `student_initial_thought`。
+- 新增 `POST /api/sessions/start`：浏览器提供稳定 session id 与 `client_message_id`，服务端在同一 SQLite 事务创建 session、写 `session_inputs`、首条 `STUDENT_RESPONSE` 和 durable events；响应丢失重试返回原会话。
+- TutorTurn 新增 `context_status=need_problem|need_thought|ready`、`problem_summary` 与 `student_thought_summary`。模型基于完整对话语义收集上下文，题目和思路可同条、跨多条或逆序提供；“完全没思路”计为有效思路。
+- 后端增加最高优先级上下文守门：未 ready 时清除 checkpoint/card，并强制只能 `ASK_OPEN_QUESTION`；ready 后才允许选择题、讲解、总结与卡片。
+- 新增 Alembic `0005_conversational_context`，把 `context_status` 纳入 SQLite 权威恢复态；摘要更新与完整 assistant action 原子提交。
+- 前端移除 canned intake assistant 消息，首发后立即绑定正式 session；历史会话优先显示已识别题目，尚未识别时显示首条学生消息。
+- 增加两个“你好”不填充题目/思路、首发幂等、语义收集、没思路进入 ready、后端 action 守门和迁移测试。
+
 ## v2.0 — 2026-07-19
 
 ### OpenCode 免费模型与双协议模型调用

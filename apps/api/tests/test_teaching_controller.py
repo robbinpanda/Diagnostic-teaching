@@ -95,6 +95,54 @@ def test_backend_policy_allows_summary_after_nonblocking_streak():
     assert turn.wait_for_student is False
 
 
+def test_context_guard_allows_only_open_question_before_problem_and_thought():
+    checkpoint = TutorCheckpoint(
+        question="平方项最小是多少？",
+        tested_point="平方项非负",
+        options=[
+            TutorCheckpointOption(id="A", text="0", is_correct=True),
+            TutorCheckpointOption(id="B", text="1", is_correct=False, misconception="误以为最小是 1"),
+            TutorCheckpointOption(id="C", text="-1", is_correct=False, misconception="误以为平方可为负"),
+        ],
+    )
+    turn = teaching.TutorTurn(
+        state_hint="checking",
+        context_status="need_problem",
+        action="ASK_MULTIPLE_CHOICE",
+        message="先选一个答案。",
+        checkpoint=checkpoint,
+    )
+
+    apply_backend_action_policy(turn, current_context_status="need_problem")
+
+    assert turn.action == "ASK_OPEN_QUESTION"
+    assert turn.wait_for_student is True
+    assert turn.checkpoint is None
+    assert turn.knowledge_card is None
+    assert turn.problem_card is None
+    assert "完整题目" in turn.message
+
+
+def test_explicit_no_idea_completes_thought_collection():
+    turn = teaching.TutorTurn(
+        state_hint="explaining",
+        context_status="ready",
+        student_thought_summary="学生明确表示完全没思路。",
+        action="EXPLAIN_LOCAL",
+        message="我们先从题目的第一个条件开始。",
+    )
+
+    apply_backend_action_policy(
+        turn,
+        current_context_status="need_thought",
+        current_problem_text="已知 $x+1=2$，求 $x$。",
+    )
+
+    assert turn.context_status == "ready"
+    assert turn.action == "EXPLAIN_LOCAL"
+    assert turn.wait_for_student is False
+
+
 def test_action_protocol_keeps_teaching_responsibilities_distinct():
     definitions = {item["name"]: item for item in teaching.TEACHING_ACTION_DEFINITIONS}
 
@@ -114,6 +162,8 @@ def test_action_protocol_keeps_teaching_responsibilities_distinct():
     assert "而不是把它们串成固定流程" in teaching.ACTION_PROTOCOL
     assert "三个分别代表正确理解和不同误区的选项" in teaching.SYSTEM_PROMPT
     assert "默认优先选择 ASK_MULTIPLE_CHOICE" in teaching.SYSTEM_PROMPT
+    assert "不得根据消息是“第一条”还是“第二条”" in teaching.SYSTEM_PROMPT
+    assert "完全没思路" in teaching.SYSTEM_PROMPT
     assert "只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以向学生提问" in teaching.SYSTEM_PROMPT
     assert "其余 action 的 message 必须为纯陈述句" in teaching.JSON_CONTRACT
     assert "EXPLAIN_LOCAL 可以自行决定是否输出" in teaching.ACTION_PROTOCOL
@@ -587,6 +637,64 @@ def test_stream_retries_invalid_json_and_resets_partial_message(monkeypatch):
     assert turn.message == "请重新说说你目前想到哪一步？"
     assert turn.debug["format_retry_count"] == 1
     assert "完整、合法" in requests[1][-1]["content"]
+
+
+def test_stream_resets_model_text_when_context_guard_replaces_it(monkeypatch):
+    raw = json.dumps(
+        {
+            "state_hint": "explaining",
+            "context_status": "need_problem",
+            "problem_summary": None,
+            "student_thought_summary": None,
+            "action": "EXPLAIN_LOCAL",
+            "message": "我直接开始讲这道题。",
+            "checkpoint": None,
+            "knowledge_card": None,
+            "problem_card": None,
+            "debug": {},
+        },
+        ensure_ascii=False,
+    )
+
+    async def fake_chat_stream_completion(*args, **kwargs):
+        yield {"delta": raw, "finish_reason": None}
+        yield {"delta": "", "finish_reason": "stop"}
+
+    monkeypatch.setattr(teaching, "chat_stream_completion", fake_chat_stream_completion)
+    profile = LlmProfile(
+        id="prof_test",
+        provider="openai_compatible",
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="test-model",
+        timeout_ms=30000,
+        temperature=0.2,
+        max_output_tokens=1200,
+    )
+    session = {
+        "id": "sess_test",
+        "grade_band": "junior",
+        "subject": "math",
+        "problem_text": "",
+        "student_initial_thought": "",
+        "context_status": "need_problem",
+        "phase": "diagnosing",
+        "problem_image_data_url": None,
+    }
+
+    async def collect_events():
+        return [event async for event in teaching.generate_tutor_turn_stream(profile, session, [])]
+
+    events = asyncio.run(collect_events())
+    reset_index = next(index for index, event in enumerate(events) if event[0] == "message_reset")
+    guarded_text = "".join(
+        value for kind, value in events[reset_index + 1 :] if kind == "message_delta"
+    )
+    turn = next(value for kind, value in events if kind == "turn")
+
+    assert turn.action == "ASK_OPEN_QUESTION"
+    assert guarded_text == turn.message
+    assert "完整题目" in guarded_text
 
 
 def test_stream_retries_missing_action_with_action_specific_instruction(monkeypatch):

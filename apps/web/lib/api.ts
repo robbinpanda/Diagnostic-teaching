@@ -90,6 +90,7 @@ export type SessionHistoryItem = {
   message_count: number;
   checkpoint_count: number;
   state_hint: string;
+  context_status: "need_problem" | "need_thought" | "ready";
   created_at: string;
   updated_at: string;
 };
@@ -98,6 +99,7 @@ export type RestoredSession = {
   session_id: string;
   restored_from?: string | null;
   state_hint: string;
+  context_status: "need_problem" | "need_thought" | "ready";
   breakpoint_description?: string | null;
   model_profile_id: string;
   grade_band: "junior" | "senior";
@@ -116,14 +118,16 @@ export type RestoredSession = {
   pending_card?: StudyCard | null;
 };
 
-export type SessionIntakeResult = {
-  status: "needs_problem" | "needs_thought" | "ready";
-  assistant_message: string;
+export type SessionStartResult = {
+  status: "accepted" | "duplicate";
+  session_id: string;
+  state_hint: string;
+  context_status: "need_problem" | "need_thought" | "ready";
+  model_profile_id: string;
   problem_text: string;
   student_initial_thought: string;
-  session_id?: string | null;
-  state_hint?: string | null;
-  model_profile_id: string;
+  message_id: string;
+  action_id: string;
 };
 
 export async function fetchProfiles(): Promise<ModelProfile[]> {
@@ -250,19 +254,26 @@ export async function createSession(input: {
     body: JSON.stringify(input)
   });
   if (!response.ok) throw new Error(await response.text());
-  return response.json() as Promise<{ session_id: string; state_hint: string; model_profile_id: string }>;
+  return response.json() as Promise<{
+    session_id: string;
+    state_hint: string;
+    context_status: "need_problem" | "need_thought" | "ready";
+    model_profile_id: string;
+  }>;
 }
 
-export async function intakeSession(input: {
+export async function startSession(input: {
+  session_id: string;
+  client_message_id: string;
   grade_band: "junior" | "senior";
   subject: "math";
   model_profile_id: string;
-  message?: string;
-  problem_text?: string;
-  student_initial_thought?: string;
+  message: string;
+  problem_text: string;
+  student_initial_thought: string;
   problem_image_data_url?: string | null;
-}): Promise<SessionIntakeResult> {
-  const response = await fetch(`${API_BASE}/api/sessions/intake`, {
+}): Promise<SessionStartResult> {
+  const response = await fetch(`${API_BASE}/api/sessions/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input)

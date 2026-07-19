@@ -5,7 +5,7 @@
 当前版本的核心特征是：**语言模型主导每一轮答疑决策**。后端不是写死“第几步讲什么”的脚本，而是每轮把题目、学生历史、当前阶段和 JSON 输出合同发给 LLM，由 LLM 返回结构化 `TutorTurn`：
 
 ```txt
-state_hint + action + message + breakpoint_description + checkpoint + knowledge_card + problem_card
+context_status + problem/thought summary + state_hint + action + message + breakpoint_description + checkpoint + knowledge_card + problem_card
 ```
 
 后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、标注每条 AI 消息对应的教学 action、弹出检查点并把学生选择回传给模型。
@@ -18,7 +18,7 @@ SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 re
 
 模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name，并可选择 OpenAI-compatible chat completions 或 Anthropic Messages 协议。每个模型独立设置是否多模态；连接测试会逐模型显示成功或失败，并用内置样例图自动探测未勾选模型的图片能力。用户配置显示为“供应商名称 · model name”；OpenCode 托管免费模型显示为 `opencodefree-<model-id>`，由 `models.dev` 目录同步协议与图片能力，设置弹窗中的多模态复选框只读展示真实元数据。
 
-`POST /api/sessions/intake` 会累计统一输入中的题目和学生已有思路：缺题目就追问题目，只有题目就追问“想到哪一步”，两项齐备后才创建正式 session。图片识别结果也进入同一 intake；上传图片创建的 session 会保留用户原图并绑定多模态模型。
+前置 intake 已取消。第一条消息通过 `POST /api/sessions/start` 在一个 SQLite 事务中创建正式 session、写入 `session_inputs` 并保存 `STUDENT_RESPONSE`；客户端提供稳定的 session id 与 `client_message_id`，响应丢失后重试不会创建重复会话。题目和学生思路由正式答疑模型按完整对话语义提取，不能按消息顺序猜测；`context_status=need_problem|need_thought` 时后端强制只允许 `ASK_OPEN_QUESTION`，两项明确后进入 `ready`。学生明确说“完全没思路”属于有效思路状态。图片识别结果可作为 session 的初始语义摘要，原图仍会保留并绑定多模态模型。
 
 正式 session 的学生输入采用“先接纳、后生成”：普通消息先调用 `POST /api/sessions/{session_id}/inputs`，携带稳定的 `client_message_id`，服务端在一个 SQLite 事务中写入 `session_inputs` 和 `STUDENT_RESPONSE` message；随后 `/api/chat/stream` 只负责读取已落库上下文并生成。首次接纳返回 `201 + accepted`，同 ID 同内容重试返回 `200 + duplicate` 和原始结果，同 ID 不同内容返回 `409 IDEMPOTENCY_KEY_CONFLICT`。旧客户端仍可在 `/api/chat/stream` 中携带 message，后端会先走同一接纳服务。
 
@@ -78,14 +78,15 @@ docs/how-to-run.md
 一句话理解当前架构：
 
 ```txt
-统一输入 intake（题目 + 当前思路）
+POST /api/sessions/start 原子创建 session + 接纳首条普通消息
   -> session_inputs 接纳普通消息 / checkpoint answer / 卡片关闭后继续
   -> SQLite 原子写输入记录与对应 message/checkpoint/card 状态
   -> /api/chat/stream 读取已落库输入并启动生成
   -> SQLite 取完整结构化历史
   -> build_messages 按 system / user / assistant 多轮消息拼 prompt
-  -> LLM 产出 TutorTurn JSON
-  -> session run 串行门控 + 后端校验 checkpoint/card + SQLite 业务态与 durable event 原子落库 + 追加诊断日志
+  -> LLM 产出带 context_status / 语义摘要 / action 的 TutorTurn JSON
+  -> 未收齐题目与思路时后端只允许开放提问；ready 后进入正常教学 action
+  -> session run 串行门控 + 后端校验 context/action/checkpoint/card + SQLite 业务态与 durable event 原子落库 + 追加诊断日志
   -> SSE 流式推给前端
   -> 前端展示 message / KaTeX 公式 / checkpoint 或学习卡片弹窗
 ```

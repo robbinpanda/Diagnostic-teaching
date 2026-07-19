@@ -1,7 +1,7 @@
 # SQLite 数据库与 Alembic 迁移
 
-版本：v1.0
-日期：2026-07-18
+版本：v1.1
+日期：2026-07-19
 
 SQLite 是 session 恢复的唯一权威来源。JSONL/Markdown 仍然只是只追加诊断日志，不参与 schema 迁移或业务恢复。
 
@@ -57,6 +57,8 @@ python -m alembic -c alembic.ini upgrade head
 
 必要索引覆盖历史排序、session 子记录查询、阻塞 action 回复查找、待答 checkpoint、活动/全局卡片列表和外键父记录删除检查。
 
+`sessions.context_status` 由 `0005_conversational_context` 增加，取值仅为 `need_problem / need_thought / ready`。它与 `problem_text / student_initial_thought` 都属于 SQLite 权威业务态：模型产出的上下文状态和新语义摘要会与完整 assistant action 同事务提交，刷新或恢复时不从诊断日志重新推断。旧 session 在迁移时默认为 `ready`，保持升级前已进入正式教学的语义。
+
 ## 4. 连接可靠性
 
 应用的每条 `sqlite3` 连接都配置：
@@ -86,4 +88,4 @@ foreign keys 是连接级开关，因此不能只在建库时设置。WAL 是数
 python -m alembic -c alembic.ini revision -m "describe change"
 ```
 
-编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。当前迁移链为可靠性基线 → durable `session_inputs` → `session_events` → `session_runs`；后续 schema 继续通过新的 `down_revision` 串成单一迁移链。
+编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。当前迁移链为可靠性基线 → durable `session_inputs` → `session_events` → `session_runs` → conversational `context_status`；后续 schema 继续通过新的 `down_revision` 串成单一迁移链。

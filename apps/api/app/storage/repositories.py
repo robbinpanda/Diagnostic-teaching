@@ -35,6 +35,14 @@ def normalize_base_url(value: str) -> str:
     return value.rstrip("/")
 
 
+def initial_context_status(problem_text: str, student_initial_thought: str) -> str:
+    if not problem_text.strip():
+        return "need_problem"
+    if not student_initial_thought.strip():
+        return "need_thought"
+    return "ready"
+
+
 def host_from_url(value: str) -> str:
     return urlparse(value).netloc or value
 
@@ -297,13 +305,18 @@ class SessionRepository:
     def create(self, payload: SessionCreate) -> sqlite3.Row:
         session_id = new_id("sess")
         ts = now_iso()
+        context_status = initial_context_status(
+            payload.problem_text,
+            payload.student_initial_thought,
+        )
         with self.db.connect() as conn:
             conn.execute(
                 """
                 INSERT INTO sessions (
                   id, grade_band, subject, model_profile_id, problem_text,
-                  problem_image_data_url, student_initial_thought, phase, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'diagnosing', ?, ?)
+                  problem_image_data_url, student_initial_thought, phase,
+                  context_status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'diagnosing', ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -313,6 +326,7 @@ class SessionRepository:
                     payload.problem_text.strip(),
                     payload.problem_image_data_url,
                     payload.student_initial_thought.strip(),
+                    context_status,
                     ts,
                     ts,
                 ),
@@ -328,6 +342,7 @@ class SessionRepository:
                             "grade_band": payload.grade_band,
                             "subject": payload.subject,
                             "state_hint": "diagnosing",
+                            "context_status": context_status,
                             "restored_from": None,
                         },
                     )
@@ -634,6 +649,9 @@ class SessionRepository:
         ts = now_iso()
         metadata = {
             "state_hint": turn.state_hint,
+            "context_status": turn.context_status,
+            "problem_summary": turn.problem_summary,
+            "student_thought_summary": turn.student_thought_summary,
             "action": turn.action,
             "wait_for_student": turn.wait_for_student,
             "breakpoint": turn.breakpoint_description,
@@ -672,13 +690,27 @@ class SessionRepository:
                 """
                 UPDATE sessions
                 SET phase = ?, breakpoint_description = ?,
-                    breakpoint_confidence = ?, updated_at = ?
+                    breakpoint_confidence = ?, context_status = ?,
+                    problem_text = CASE
+                      WHEN ? IS NULL OR TRIM(?) = '' THEN problem_text ELSE ?
+                    END,
+                    student_initial_thought = CASE
+                      WHEN ? IS NULL OR TRIM(?) = '' THEN student_initial_thought ELSE ?
+                    END,
+                    updated_at = ?
                 WHERE id = ?
                 """,
                 (
                     turn.state_hint,
                     turn.breakpoint_description,
                     turn.breakpoint_confidence,
+                    turn.context_status,
+                    turn.problem_summary,
+                    turn.problem_summary,
+                    turn.problem_summary,
+                    turn.student_thought_summary,
+                    turn.student_thought_summary,
+                    turn.student_thought_summary,
                     ts,
                     session_id,
                 ),
@@ -792,6 +824,7 @@ class SessionRepository:
                         "message_id": message_id,
                         "action": turn.action,
                         "state_hint": turn.state_hint,
+                        "context_status": turn.context_status,
                         "wait_for_student": turn.wait_for_student,
                         "message": turn.message,
                         "breakpoint": turn.breakpoint_description,
@@ -1064,7 +1097,10 @@ class SessionRepository:
                          ELSE mp.display_name || ' · ' || mp.model
                        END AS model_display_name,
                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count,
-                       (SELECT COUNT(*) FROM checkpoints c WHERE c.session_id = s.id) AS checkpoint_count
+                       (SELECT COUNT(*) FROM checkpoints c WHERE c.session_id = s.id) AS checkpoint_count,
+                       (SELECT m.content FROM messages m
+                        WHERE m.session_id = s.id AND m.role = 'student'
+                        ORDER BY m.created_at ASC, m.rowid ASC LIMIT 1) AS first_student_message
                 FROM sessions s
                 LEFT JOIN model_profiles mp ON mp.id = s.model_profile_id
                 ORDER BY s.updated_at DESC
@@ -1100,9 +1136,9 @@ class SessionRepository:
                 INSERT INTO sessions (
                   id, grade_band, subject, model_profile_id, problem_text,
                   problem_image_data_url, student_initial_thought, phase,
-                  breakpoint_description, breakpoint_confidence, restored_from,
+                  context_status, breakpoint_description, breakpoint_confidence, restored_from,
                   created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     new_session_id,
@@ -1113,6 +1149,7 @@ class SessionRepository:
                     source["problem_image_data_url"],
                     source["student_initial_thought"],
                     source["phase"],
+                    source["context_status"],
                     source["breakpoint_description"],
                     source["breakpoint_confidence"],
                     source["id"],
@@ -1253,6 +1290,7 @@ class SessionRepository:
                             "grade_band": source["grade_band"],
                             "subject": source["subject"],
                             "state_hint": source["phase"],
+                            "context_status": source["context_status"],
                             "restored_from": source["id"],
                             "baseline_message_count": len(messages),
                             "baseline_checkpoint_count": len(checkpoints),

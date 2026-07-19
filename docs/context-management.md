@@ -1,6 +1,6 @@
 # 上下文、Session 恢复与诊断日志
 
-版本：v1.2
+版本：v1.3
 
 日期：2026-07-19
 
@@ -37,6 +37,8 @@ apps/api/app/services/input_acceptance.py
 接纳：HTTP input/answer -> BEGIN IMMEDIATE -> session_inputs + 对应业务状态 -> COMMIT
 生成：POST /api/chat/stream -> 读取 SQLite session/messages -> 调 LLM -> 保存 assistant action
 ```
+
+首条普通消息使用 `POST /api/sessions/start`：浏览器同时提供稳定的 `sess_<uuid>` 和 `client_message_id`，服务端在一个 `BEGIN IMMEDIATE` 事务中创建 session、写 `session_inputs`、写第一条 `STUDENT_RESPONSE` 并追加 durable events。响应丢失后原请求重试返回 `duplicate`；不会生成第二个 session。后续普通消息继续使用 `POST /api/sessions/{session_id}/inputs`。
 
 `session_inputs` 保存：
 
@@ -145,6 +147,7 @@ system 消息由四部分组成：
   },
   "grade_band": "junior",
   "subject": "math",
+  "context_status": "need_problem|need_thought|ready",
   "problem_text": "题目正文",
   "student_initial_thought": "学生初始思路",
   "current_state_hint": "diagnosing",
@@ -154,11 +157,13 @@ system 消息由四部分组成：
 
 如果题目有原图，这条消息使用多模态 content，同时携带文本 JSON 和 `image_url`。
 
-图片识别与正式答疑仍是两条隔离链路：`POST /api/problem-images/analyze` 把可确认的题目写入 `problem_text`，把可见作答/批改痕迹合并进 `student_initial_thought`；前端随后把这两个结果和原图交给统一的 `POST /api/sessions/intake`。上传图片创建的 session 始终保存用户原图并要求多模态答疑模型，保证后续每轮仍可查看图形与版面。视觉识别返回的 `answer_text / correctness / mistake_summary / diagram_note / diagram_image_data_url` 不会作为独立字段旁路进入答疑 prompt。
+`context_status` 是 SQLite 中可恢复的上下文收集状态。模型每轮同时输出 `problem_summary / student_thought_summary`；后端做单调归一化并与完整 assistant action 同事务写回。`need_problem / need_thought` 时后端只允许 `ASK_OPEN_QUESTION`，`ready` 后才开放其他教学 action。字段来自完整对话语义而非消息顺序；“完全没思路”会被保存为有效思路状态。
+
+图片识别与正式答疑仍是两条隔离链路：`POST /api/problem-images/analyze` 把可确认的题目作为 `problem_text` 初始摘要，把可见作答/批改痕迹作为 `student_initial_thought` 初始摘要；前端随后把结果、原图和“上传了一张题目图片”这条 durable 首消息交给 `POST /api/sessions/start`。上传图片创建的 session 始终保存用户原图并要求多模态答疑模型，保证后续每轮仍可查看图形与版面。视觉识别返回的 `answer_text / correctness / mistake_summary / diagram_note / diagram_image_data_url` 不会作为独立字段旁路进入答疑 prompt。
 
 `SessionCreate` 禁止未声明的额外字段，`build_messages()` 也只对白名单中的题目、初始思路、年级、学科、状态和可选原图组装 `SESSION_START`，防止视觉模型内部元数据旁路进入教学上下文。
 
-新 session 不再把初始思路重复写成第一条 student message。对旧数据库，若第一条 legacy student message 与初始思路完全相同，`build_messages()` 会跳过该重复项。
+文本新 session 的首条原文总是 durable student message，题目/思路摘要最初可为空并由模型后续更新；不会制造“题目/思路已收到”的 canned assistant 消息。题图 session 的首消息是上传动作，识别摘要仍放在 SESSION_START。对旧数据库，若第一条 legacy student message 与初始思路完全相同，`build_messages()` 会跳过该重复项。
 
 ### 2.3 历史 message 信封
 
@@ -212,6 +217,8 @@ assistant 教学动作类似：
 | `SUMMARIZE` | 终止 + 卡片确认 | 自然总结并产生 `problem_card`；关闭归档后结束，无需额外确认题 |
 
 模型只选择 action。`wait_for_student` 由后端根据 action 强制推导，模型不能自己决定。
+
+在 action 规则之前还有上下文守门：`context_status != ready` 时，任何选择题、讲解、总结或卡片输出都会被清除并归一化成 `ASK_OPEN_QUESTION`。这条规则优先于“需要学生参与时默认选择题”。
 
 每条新 message 都有：
 

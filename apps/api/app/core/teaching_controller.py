@@ -30,10 +30,10 @@ TEACHING_ACTION_DEFINITIONS = [
     {
         "name": "ASK_OPEN_QUESTION",
         "description": "提出一个开放且可作答的数学问题，让学生用自己的推理暴露理解、诊断卡点，或完成一个明确判断。",
-        "use_when": "仅当必须观察学生自主组织的推导、解释或解题表达，且选择题会明显提示答案或无法区分关键思路时使用。",
+        "use_when": "context_status 为 need_problem / need_thought 时用于自然补齐题目或思路；ready 后仅当必须观察学生自主组织的推导、解释或解题表达，且选择题会明显提示答案或无法区分关键思路时使用。",
         "blocking": True,
         "requires": ["一次只问一个核心问题", "message 末尾必须有清晰、具体、学生能直接回答的问题"],
-        "boundaries": ["不要问‘懂了吗’之类元认知问题", "不要在提问前先把答案完整讲完", "如果三个诊断选项足以获得所需证据，必须改用 ASK_MULTIPLE_CHOICE", "避免连续使用开放问题", "checkpoint 必须为 null"],
+        "boundaries": ["不要问‘懂了吗’之类元认知问题", "不要在提问前先把答案完整讲完", "context_status=ready 后，如果三个诊断选项足以获得所需证据，必须改用 ASK_MULTIPLE_CHOICE", "上下文未收齐时允许连续开放追问，但每次只补一个缺口", "checkpoint 必须为 null"],
         "backend_behavior": "展示 message 后停止生成，等待学生回复。",
     },
     {
@@ -87,18 +87,28 @@ TEACHING_ACTION_DEFINITIONS = [
 
 SYSTEM_PROMPT = """你是一名面向中国初高中学生的诊断式数学导师。你的任务不是尽快给出标准答案，而是依据学生真实表现判断卡点，再选择最合适的单一教学动作，帮助学生逐步建立可迁移的理解。
 
+上下文收集是最高优先级规则：
+1. 不得根据消息是“第一条”还是“第二条”来判断它是题目或思路；必须根据完整对话的真实语义判断。
+2. 每轮都要输出 context_status，并在新获得可靠信息时输出 problem_summary / student_thought_summary。寒暄、确认、表情和无关文字不能写入这两个摘要。
+3. 尚未获得可用于答疑的明确题目或学习目标时，context_status=need_problem，只能使用 ASK_OPEN_QUESTION，引导学生发送题目文字、题图或明确目标；不得讲解、出选择题、总结或生成卡片。
+4. 题目已经明确，但尚不知道学生试过什么、想到哪一步或卡在哪里时，context_status=need_thought，只能使用 ASK_OPEN_QUESTION，一次询问一个开放问题；不得讲解、出选择题、总结或生成卡片。
+5. 学生明确说“完全没思路”“不知道从哪里开始”是有效的思路状态。此时 student_thought_summary 应如实记录，并允许 context_status=ready，不能反复逼问思路。
+6. 题目和思路可以出现在同一条消息，也可以跨任意多条消息、以任意顺序出现。只有两者都已明确时才输出 context_status=ready，随后才执行正常教学策略。
+7. 已确认的题目和思路不会因后续寒暄或简短回答退回缺失状态；摘要只在获得更准确的信息时更新。
+
 教学原则：
 1. 证据优先：以学生最新回答、最近一次 checkpoint_result 和已发生的对话为依据，不凭空猜测卡点；不要复述已经展示过的内容。
 2. 基于当前断点教学：区分“缺少某个知识原理”“卡在当前局部推理”“确实需要新的学生证据”“已经可以自然收束”这几种情况，并选择职责匹配的 action。不要先给出整题的上帝视角路线图；从学生当前信息和最近断点出发，只处理眼前必要的内容。
 3. 每条 assistant 消息只执行一个 action，不要在同一条消息中混合讲解、提问、反馈和总结。
 4. 控制认知负荷：使用符合学生年级的中文，数学表达准确、简洁；公式使用 `$...$` 或 `$$...$$`，关键跳步不能省略。
-5. 需要学生参与时，默认优先选择 ASK_MULTIPLE_CHOICE。只要当前关键点能设计出三个分别代表正确理解和不同误区的选项，就不要使用 ASK_OPEN_QUESTION；只有必须观察学生自主组织的推导或解释时，才使用开放问题。
+5. 仅当 context_status=ready 后，需要学生参与时才默认优先选择 ASK_MULTIPLE_CHOICE。只要当前关键点能设计出三个分别代表正确理解和不同误区的选项，就不要使用 ASK_OPEN_QUESTION；只有必须观察学生自主组织的推导或解释时，才使用开放问题。
 6. 选择题必须诊断误区：恰好 3 个普通选项、恰好 1 个正确答案，两个错误选项分别对应不同的常见误区；始终保留‘我不知道’选项。
 7. 学生答错或选‘我不知道’不是失败。先用 RESPOND_TO_CHECKPOINT 准确闭环反馈，再在后续 action 中降低台阶、解释局部或讲清原理。
 8. 当前问题已有明确结论，或当前卡点已经讲清且没有实质性缺口时，可以直接 SUMMARIZE。不要把确认性问题当作进入总结的必经步骤，也不要求学生先独立说出最终答案；只有缺失的信息确实会影响当前结论时才继续提问。SUMMARIZE 的 message 不得引入新知识，problem_card 则要把整题已成立的结论重组为完整、结构化的上帝视角解法。
 9. 只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以向学生提问或要求学生回答。EXPLAIN_LOCAL、EXPLAIN_PRINCIPLE、RESPOND_TO_CHECKPOINT、SUMMARIZE 的 message 必须全部使用陈述句，不得出现问号、反问句，也不得用‘你能……’‘请你……’‘想一想……’等方式隐性提问。
 
 action 选择提示：
+- context_status 为 need_problem 或 need_thought：只能选择 ASK_OPEN_QUESTION，分别补齐题目/目标或学生思路；这条规则优先于选择题偏好。
 - 最新学生消息是尚未回应的 checkpoint_result：先选择 RESPOND_TO_CHECKPOINT，且只回应一次；反馈必须同时准确回应结果并提供具体、真诚的情绪支持。
 - 当前问题已有明确结论，或当前卡点已经讲清且继续提问没有必要：直接选择 SUMMARIZE，不要追加确认性问题。
 - 学生缺少一个概念、定理或方法的系统理解：选择 EXPLAIN_PRINCIPLE。
@@ -127,6 +137,7 @@ ACTION_PROTOCOL = f"""教学 action 协议：
 - 非阻塞 action 会触发下一次模型调用，因此不要在一个 message 中抢做后续 action，也不要重复上一条 assistant 消息。
 - 提问权只属于 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE。其他 action 必须纯陈述，不得包含显性问题、反问或任何要求学生作答的表达。
 - 当两个 ASK action 都可行时，优先 ASK_MULTIPLE_CHOICE；不要因为写开放问题更省事就选择 ASK_OPEN_QUESTION。
+- 但 context_status 为 need_problem 或 need_thought 时是例外：此时只能 ASK_OPEN_QUESTION，且问题只用于补齐缺少的题目/目标或学生思路。
 
 可用 action 定义：
 {json.dumps(TEACHING_ACTION_DEFINITIONS, ensure_ascii=False, indent=2)}
@@ -136,6 +147,9 @@ ACTION_PROTOCOL = f"""教学 action 协议：
 JSON_CONTRACT = """返回 JSON 格式：
 {
   "state_hint": "diagnosing|scaffolding|explaining|checking|recovering|summarizing",
+  "context_status": "need_problem|need_thought|ready",
+  "problem_summary": "从对话中确认的完整题目或学习目标；本轮没有新增时可为 null",
+  "student_thought_summary": "学生已经尝试的思路、明确卡点，或明确表示完全没思路；本轮没有新增时可为 null",
   "action": "ASK_OPEN_QUESTION|ASK_MULTIPLE_CHOICE|EXPLAIN_LOCAL|EXPLAIN_PRINCIPLE|RESPOND_TO_CHECKPOINT|SUMMARIZE",
   "message": "给学生看的中文内容",
   "breakpoint_description": "当前卡点，可为 null",
@@ -181,6 +195,8 @@ JSON_CONTRACT = """返回 JSON 格式：
 
 说明：
 - state_hint 只是教学状态提示，不是流程控制器。
+- context_status 表示题目与学生思路是否足以进入正式教学；不得按消息顺序猜测。need_problem / need_thought 时只能 ASK_OPEN_QUESTION。
+- problem_summary / student_thought_summary 是可持久化语义摘要，只在确实识别到相应内容时填写；寒暄和无关文本必须为 null。“完全没思路”应写入 student_thought_summary。
 - action 是本轮唯一教学动作。
 - 不要输出 wait_for_student；后端会根据 action 强制填充。
 - 只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 会等待学生。
@@ -217,8 +233,9 @@ def build_messages(
         },
         "grade_band": session["grade_band"] if "grade_band" in session.keys() else None,
         "subject": session["subject"] if "subject" in session.keys() else "math",
-        "problem_text": session["problem_text"],
-        "student_initial_thought": session["student_initial_thought"] or "学生还没有提供明确思路",
+        "context_status": _row_value(session, "context_status", "ready"),
+        "problem_text": session["problem_text"] or "尚未从对话中确认题目",
+        "student_initial_thought": session["student_initial_thought"] or "尚未从对话中确认学生思路",
         "current_state_hint": session["phase"],
         "has_problem_image": bool(session["problem_image_data_url"]) if "problem_image_data_url" in session.keys() else False,
     }
@@ -280,7 +297,8 @@ def _without_legacy_initial_thought(session: Row | dict, history: list[Row]) -> 
     """Avoid sending old sessions' duplicated initial thought twice.
 
     Earlier versions inserted ``student_initial_thought`` into both ``sessions``
-    and the first legacy message. New sessions keep it only in SESSION_START.
+    and the first legacy message. Current sessions keep every admitted student
+    message; the legacy action check below prevents filtering current history.
     """
     if not history:
         return history
@@ -339,6 +357,9 @@ def render_history_message(row: Row | dict) -> dict[str, str]:
             debug["history_original_action"] = action
         turn_payload = {
             "state_hint": metadata.get("state_hint") or "diagnosing",
+            "context_status": metadata.get("context_status") or "ready",
+            "problem_summary": metadata.get("problem_summary"),
+            "student_thought_summary": metadata.get("student_thought_summary"),
             "action": rendered_action,
             "message": content,
             "breakpoint_description": metadata.get("breakpoint"),
@@ -563,8 +584,53 @@ def validate_card_contract(turn: TutorTurn) -> None:
         raise ValueError("checkpoint is only allowed for ASK_MULTIPLE_CHOICE")
 
 
-def apply_backend_action_policy(turn: TutorTurn, *, force_blocking: bool = False) -> None:
+def apply_backend_action_policy(
+    turn: TutorTurn,
+    *,
+    force_blocking: bool = False,
+    current_context_status: str = "ready",
+    current_problem_text: str = "",
+    current_student_thought: str = "",
+) -> None:
     original_action = turn.action
+    original_context_status = turn.context_status
+    turn.problem_summary = (turn.problem_summary or "").strip() or None
+    turn.student_thought_summary = (turn.student_thought_summary or "").strip() or None
+
+    valid_context_statuses = {"need_problem", "need_thought", "ready"}
+    current_status = (
+        current_context_status
+        if current_context_status in valid_context_statuses
+        else "ready"
+    )
+    proposed_status = (
+        turn.context_status
+        if "context_status" in turn.model_fields_set
+        and turn.context_status in valid_context_statuses
+        else current_status
+    )
+    status_rank = {"need_problem": 0, "need_thought": 1, "ready": 2}
+    if status_rank[proposed_status] < status_rank[current_status]:
+        proposed_status = current_status
+
+    has_problem = bool(
+        current_status in {"need_thought", "ready"}
+        or current_problem_text.strip()
+        or turn.problem_summary
+    )
+    has_thought = bool(
+        current_status == "ready"
+        or current_student_thought.strip()
+        or turn.student_thought_summary
+    )
+    if proposed_status == "ready" and not has_problem:
+        proposed_status = "need_problem"
+    elif proposed_status == "ready" and not has_thought:
+        proposed_status = "need_thought"
+    elif proposed_status == "need_thought" and not has_problem:
+        proposed_status = "need_problem"
+    turn.context_status = proposed_status
+
     if turn.action not in VALID_ACTIONS:
         turn.debug["invalid_action"] = turn.action
         turn.action = "EXPLAIN_LOCAL"
@@ -577,7 +643,23 @@ def apply_backend_action_policy(turn: TutorTurn, *, force_blocking: bool = False
         turn.debug["checkpoint_missing_for_multiple_choice"] = True
         turn.action = "EXPLAIN_LOCAL"
 
-    if force_blocking and turn.action in NONBLOCKING_ACTIONS:
+    if turn.context_status != "ready":
+        if turn.action != "ASK_OPEN_QUESTION" or not re.search(r"[？?]\s*$", turn.message):
+            turn.message = (
+                "请把你想解决的完整题目发给我，可以直接粘贴文字，也可以上传题目图片。你现在想解决的是哪道题？"
+                if turn.context_status == "need_problem"
+                else "这道题你已经试过什么、想到哪一步，或者具体卡在哪里？完全没思路也可以直接说。"
+            )
+        turn.debug["context_action_guard"] = {
+            "from": turn.action,
+            "context_status": turn.context_status,
+        }
+        turn.state_hint = "diagnosing"
+        turn.action = "ASK_OPEN_QUESTION"
+        turn.checkpoint = None
+        turn.knowledge_card = None
+        turn.problem_card = None
+    elif force_blocking and turn.action in NONBLOCKING_ACTIONS:
         turn.debug["forced_blocking_after_action"] = turn.action
         turn.action = "ASK_OPEN_QUESTION"
         turn.knowledge_card = None
@@ -593,9 +675,18 @@ def apply_backend_action_policy(turn: TutorTurn, *, force_blocking: bool = False
 
     if original_action != turn.action:
         turn.debug.setdefault("backend_action_policy", True)
+    if original_context_status != turn.context_status:
+        turn.debug["context_status_normalized_from"] = original_context_status
 
 
-def parse_and_validate_tutor_turn(raw: str, *, force_blocking: bool = False) -> TutorTurn:
+def parse_and_validate_tutor_turn(
+    raw: str,
+    *,
+    force_blocking: bool = False,
+    current_context_status: str = "ready",
+    current_problem_text: str = "",
+    current_student_thought: str = "",
+) -> TutorTurn:
     payload = extract_json_object(raw)
     action = payload.get("action")
     if not isinstance(action, str) or action not in VALID_ACTIONS:
@@ -609,9 +700,15 @@ def parse_and_validate_tutor_turn(raw: str, *, force_blocking: bool = False) -> 
     turn.message = sanitize_visible_message(turn.message)
     if not turn.message:
         raise ValueError("message must not be empty")
+    apply_backend_action_policy(
+        turn,
+        force_blocking=force_blocking,
+        current_context_status=current_context_status,
+        current_problem_text=current_problem_text,
+        current_student_thought=current_student_thought,
+    )
     if turn.checkpoint:
         validate_checkpoint(turn.checkpoint)
-    apply_backend_action_policy(turn, force_blocking=force_blocking)
     validate_card_contract(turn)
     return turn
 
@@ -664,7 +761,13 @@ async def generate_tutor_turn(
         for attempt in range(FORMAT_RETRY_LIMIT + 1):
             raw = await chat_completion(profile, request_messages, max_tokens=profile.max_output_tokens)
             try:
-                turn = parse_and_validate_tutor_turn(raw, force_blocking=force_blocking)
+                turn = parse_and_validate_tutor_turn(
+                    raw,
+                    force_blocking=force_blocking,
+                    current_context_status=_row_value(session, "context_status", "ready"),
+                    current_problem_text=_row_value(session, "problem_text", ""),
+                    current_student_thought=_row_value(session, "student_initial_thought", ""),
+                )
             except (json.JSONDecodeError, ValidationError, ValueError) as exc:
                 parse_ok = False
                 if attempt < FORMAT_RETRY_LIMIT:
@@ -758,7 +861,13 @@ async def generate_tutor_turn_stream(
                     finish_reason = event["finish_reason"]
             raw = "".join(raw_parts)
             try:
-                turn_final = parse_and_validate_tutor_turn(raw, force_blocking=force_blocking)
+                turn_final = parse_and_validate_tutor_turn(
+                    raw,
+                    force_blocking=force_blocking,
+                    current_context_status=_row_value(session, "context_status", "ready"),
+                    current_problem_text=_row_value(session, "problem_text", ""),
+                    current_student_thought=_row_value(session, "student_initial_thought", ""),
+                )
             except (json.JSONDecodeError, ValidationError, ValueError) as exc:
                 parse_ok = False
                 if emitted_message_parts:
@@ -780,6 +889,12 @@ async def generate_tutor_turn_stream(
                     missing_suffix = turn_final.message[len(emitted_message) :]
                     if missing_suffix:
                         yield ("message_delta", missing_suffix)
+                elif turn_final.message != emitted_message:
+                    # Backend context/action guards may replace a model message
+                    # after the raw stream was shown. Reset the transient text so
+                    # the user never keeps a message that violates final policy.
+                    yield ("message_reset", "")
+                    yield ("message_delta", turn_final.message)
             yield ("turn", turn_final)
             return
         raise LlmProviderError("模型未生成有效的教学结果")
