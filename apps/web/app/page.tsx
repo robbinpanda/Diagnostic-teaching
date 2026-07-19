@@ -12,25 +12,20 @@ import { LearningCardPrintView } from "../components/LearningCardPrintView";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import { MessageTimeline } from "../components/workspace/MessageTimeline";
 import { SessionSidebar } from "../components/workspace/SessionSidebar";
-import { StudyCardSidebar, type StudyCardFilter } from "../components/workspace/StudyCardSidebar";
+import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
 import { TutorComposer } from "../components/workspace/TutorComposer";
+import { useModelProfiles } from "../hooks/useModelProfiles";
 import { useSessionRuntime } from "../hooks/useSessionRuntime";
+import { useStudyCards } from "../hooks/useStudyCards";
 import {
   acceptStudentMessage,
   analyzeProblemImage,
   answerCheckpoint,
-  deleteAllCards,
   deleteAllSessions,
-  deleteCard,
-  deleteModelProfile,
   deleteSession,
   dismissKnowledgeCardAndContinue,
-  fetchCards,
-  fetchProfiles,
   fetchSession,
   fetchSessionHistory,
-  modelProfileLabel,
-  ModelProfile,
   saveCard,
   startSession,
   SessionHistoryItem,
@@ -43,23 +38,13 @@ type LearningCardPrintJob = {
 };
 
 export default function Home() {
-  const [profiles, setProfiles] = useState<ModelProfile[]>([]);
-  const [selectedProfileId, setSelectedProfileId] = useState("");
   const [gradeBand, setGradeBand] = useState<"junior" | "senior">("junior");
   const [input, setInput] = useState("");
-  const [viewingCard, setViewingCard] = useState<StudyCard | null>(null);
-  const [cards, setCards] = useState<StudyCard[]>([]);
-  const [cardFilter, setCardFilter] = useState<StudyCardFilter>("all");
   const [historyItems, setHistoryItems] = useState<SessionHistoryItem[]>([]);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [openSessionBusyId, setOpenSessionBusyId] = useState("");
   const [deleteSessionBusyId, setDeleteSessionBusyId] = useState("");
   const [deleteAllSessionsBusy, setDeleteAllSessionsBusy] = useState(false);
-  const [deleteAllCardsBusy, setDeleteAllCardsBusy] = useState(false);
-  const [deleteBusyId, setDeleteBusyId] = useState("");
-  const [cardBusyId, setCardBusyId] = useState("");
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingProfile, setEditingProfile] = useState<ModelProfile | null>(null);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [learningCardExportOpen, setLearningCardExportOpen] = useState(false);
@@ -98,26 +83,51 @@ export default function Home() {
     streamBusy,
     workflow
   } = runtime;
+  const profilesState = useModelProfiles({
+    activeSessionId: sessionId,
+    onError: runtime.setError,
+    onClearError: runtime.clearError
+  });
+  const cardsState = useStudyCards({
+    onError: runtime.setError,
+    onClearError: runtime.clearError
+  });
+  const {
+    profiles,
+    selectedProfileId,
+    setSelectedProfileId,
+    selectedProfile,
+    multimodalProfiles,
+    dialogOpen,
+    closeProfileDialog,
+    editingProfile,
+    deleteBusyId,
+    refreshProfiles,
+    openProfileDialog,
+    deleteSelectedProfile
+  } = profilesState;
+  const {
+    cards,
+    filteredCards,
+    filter: cardFilter,
+    setFilter: setCardFilter,
+    viewingCard,
+    setViewingCard,
+    cardBusyId,
+    deleteAllCardsBusy,
+    refreshCards,
+    upsertCard,
+    deleteCard: handleDeleteCard,
+    deleteAllCards: handleDeleteAllCards
+  } = cardsState;
   const startBusy = workflow.mode === "composer" && workflow.activity === "start";
   const imageBusy = workflow.mode === "composer" && workflow.activity === "image";
   const sessionNavigationBusy = workflow.mode === "composer" && workflow.activity !== "idle";
   const stopBusy = workflow.mode === "run" && workflow.phase === "stopping";
 
-  const selectedProfile = useMemo(
-    () => profiles.find((profile) => profile.id === selectedProfileId),
-    [profiles, selectedProfileId]
-  );
-  const multimodalProfiles = useMemo(
-    () => profiles.filter((profile) => profile.is_multimodal),
-    [profiles]
-  );
   const activeHistory = useMemo(
     () => historyItems.find((item) => item.session_id === sessionId),
     [historyItems, sessionId]
-  );
-  const filteredCards = useMemo(
-    () => cards.filter((card) => cardFilter === "all" || card.card_type === cardFilter),
-    [cards, cardFilter]
   );
 
   useEffect(() => {
@@ -136,7 +146,7 @@ export default function Home() {
 
   useEffect(() => {
     if (activeCard) setViewingCard(null);
-  }, [activeCard]);
+  }, [activeCard, setViewingCard]);
 
   useEffect(() => {
     if (!learningCardPrintJob) return;
@@ -160,31 +170,6 @@ export default function Home() {
       window.removeEventListener("afterprint", handleAfterPrint);
     };
   }, [learningCardPrintJob]);
-
-  async function refreshProfiles(selectId?: string) {
-    try {
-      const nextProfiles = await fetchProfiles();
-      setProfiles(nextProfiles);
-      const desiredId = selectId ?? selectedProfileId;
-      if (desiredId && nextProfiles.some((profile) => profile.id === desiredId)) {
-        setSelectedProfileId(desiredId);
-      } else if (nextProfiles.length === 1) {
-        setSelectedProfileId(nextProfiles[0].id);
-      } else if (!nextProfiles.some((profile) => profile.id === selectedProfileId)) {
-        setSelectedProfileId("");
-      }
-    } catch (nextError) {
-      runtime.setError(nextError instanceof Error ? nextError.message : "模型列表加载失败");
-    }
-  }
-
-  async function refreshCards() {
-    try {
-      setCards(await fetchCards());
-    } catch (nextError) {
-      runtime.setError(nextError instanceof Error ? nextError.message : "学习卡片加载失败");
-    }
-  }
 
   async function refreshHistory() {
     setHistoryBusy(true);
@@ -443,7 +428,7 @@ export default function Home() {
       } else {
         saved = await saveCard(cardToSave.id, sessionId);
       }
-      setCards((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
+      upsertCard(saved);
       runtime.completeCardSave();
       if (cardToSave.card_type === "knowledge_card") await runtime.runStream(sessionId);
     } catch (nextError) {
@@ -451,54 +436,9 @@ export default function Home() {
     }
   }
 
-  async function handleDeleteCard(card: StudyCard) {
-    if (cardBusyId || !window.confirm(`删除卡片“${card.content.title}”？删除后无法恢复。`)) return;
-    setCardBusyId(card.id);
-    runtime.clearError();
-    try {
-      await deleteCard(card.id);
-      setCards((current) => current.filter((item) => item.id !== card.id));
-      setViewingCard((current) => current?.id === card.id ? null : current);
-    } catch (nextError) {
-      runtime.setError(nextError instanceof Error ? nextError.message : "删除学习卡片失败");
-    } finally {
-      setCardBusyId("");
-    }
-  }
-
-  async function handleDeleteAllCards() {
-    if (!window.confirm("清空全部学习卡片？会话、消息和日志会保留。")) return;
-    setDeleteAllCardsBusy(true);
-    runtime.clearError();
-    try {
-      await deleteAllCards();
-      setCards([]);
-      setViewingCard(null);
-    } catch (nextError) {
-      runtime.setError(nextError instanceof Error ? nextError.message : "清空学习卡片失败");
-    } finally {
-      setDeleteAllCardsBusy(false);
-    }
-  }
-
   function handleLearningCardExport(selectedCards: StudyCard[], layout: LearningCardExportLayout) {
     setLearningCardExportOpen(false);
     setLearningCardPrintJob({ cards: selectedCards, layout });
-  }
-
-  async function handleDeleteProfile() {
-    if (!selectedProfile || selectedProfile.managed || sessionId) return;
-    if (!window.confirm(`删除模型配置“${modelProfileLabel(selectedProfile)}”？`)) return;
-    setDeleteBusyId(selectedProfile.id);
-    runtime.clearError();
-    try {
-      await deleteModelProfile(selectedProfile.id);
-      await refreshProfiles();
-    } catch (nextError) {
-      runtime.setError(nextError instanceof Error ? nextError.message : "删除模型配置失败");
-    } finally {
-      setDeleteBusyId("");
-    }
   }
 
   return (
@@ -557,11 +497,8 @@ export default function Home() {
           onImageFile={(file) => void handleImageFile(file)}
           onGradeBandChange={setGradeBand}
           onProfileChange={setSelectedProfileId}
-          onEditProfile={() => {
-            setEditingProfile(selectedProfile ?? null);
-            setDialogOpen(true);
-          }}
-          onDeleteProfile={() => void handleDeleteProfile()}
+          onEditProfile={openProfileDialog}
+          onDeleteProfile={() => void deleteSelectedProfile()}
           onStop={() => void runtime.stopStream()}
         />
       </section>
@@ -584,7 +521,7 @@ export default function Home() {
       <ModelConfigDialog
         open={dialogOpen}
         profile={editingProfile}
-        onClose={() => setDialogOpen(false)}
+        onClose={closeProfileDialog}
         onSaved={(profileId) => refreshProfiles(profileId)}
       />
       <CheckpointModal checkpoint={checkpoint} onChoose={handleCheckpoint} busy={workflow.mode === "checkpoint" && workflow.phase === "submitting"} />
