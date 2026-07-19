@@ -23,7 +23,6 @@ from app.services.input_acceptance import (
 )
 from app.storage.repositories import RunStateConflict
 
-
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 MAX_NONBLOCKING_ACTIONS = 3

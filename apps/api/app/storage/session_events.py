@@ -9,7 +9,6 @@ from typing import Any
 
 from app.storage.database import Database
 
-
 SESSION_EVENT_SCHEMA_VERSION = 1
 DEFAULT_EVENT_HISTORY_LIMIT = 100
 MAX_EVENT_HISTORY_LIMIT = 200

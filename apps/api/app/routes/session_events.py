@@ -15,7 +15,6 @@ from app.storage.session_events import (
     event_from_row,
 )
 
-
 router = APIRouter(prefix="/api/sessions", tags=["session-events"])
 EVENT_STREAM_POLL_SECONDS = 0.1
 EVENT_STREAM_KEEPALIVE_SECONDS = 15.0

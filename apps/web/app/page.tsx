@@ -8,7 +8,6 @@ import {
   ChevronRight,
   ClipboardCheck,
   FileDown,
-  ImageUp,
   Loader2,
   MessageSquarePlus,
   Paperclip,
@@ -153,6 +152,8 @@ export default function Home() {
     refreshHistory();
     if (window.innerWidth <= 1120) setRightOpen(false);
     if (window.innerWidth <= 760) setLeftOpen(false);
+    // Initial bootstrap only; later refreshes are triggered by explicit mutations.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

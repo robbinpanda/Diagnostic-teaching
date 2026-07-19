@@ -6,7 +6,6 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 
-
 SQLITE_BUSY_TIMEOUT_MS = 5_000
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"

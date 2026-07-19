@@ -8,7 +8,6 @@ from typing import Any, Literal
 
 import httpx
 
-
 OPENCODE_MODELS_URL = "https://models.dev/api.json"
 OPENCODE_FREE_TAG = "opencodefree"
 OPENCODE_PUBLIC_API_KEY = "public"

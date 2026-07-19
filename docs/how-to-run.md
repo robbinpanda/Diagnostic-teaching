@@ -6,7 +6,7 @@
 
 ```bat
 conda create -n ai4edu-tutor python=3.11
-conda run -n ai4edu-tutor python -m pip install -r apps/api/requirements.txt
+conda run -n ai4edu-tutor python -m pip install -r apps/api/requirements-dev.txt
 npm --prefix apps/web install
 ```
 
@@ -56,6 +56,21 @@ cd apps\web
 npm test
 npm exec tsc -- --noEmit
 ```
+
+提交代码前还应执行完整工程门禁：
+
+```bat
+cd apps\api
+python -m ruff check .
+python -m pytest -q
+
+cd ..\web
+npm run lint
+npm run typecheck
+npm test
+```
+
+GitHub Actions 会在每次 push 和 pull request 时于 Windows runner 上重复执行以上检查。
 
 ## 启动
 

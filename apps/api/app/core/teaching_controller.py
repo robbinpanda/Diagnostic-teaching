@@ -14,7 +14,6 @@ from app.core.streaming import MessageStreamExtractor
 from app.llm.provider import LlmProfile, LlmProviderError, chat_completion, chat_stream_completion
 from app.storage.session_logger import SessionLogger
 
-
 BLOCKING_ACTIONS = {"ASK_OPEN_QUESTION", "ASK_MULTIPLE_CHOICE"}
 NONBLOCKING_ACTIONS = {"EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE", "RESPOND_TO_CHECKPOINT"}
 TERMINAL_ACTIONS = {"SUMMARIZE"}
@@ -833,7 +832,6 @@ async def generate_tutor_turn_stream(
     messages = build_messages(session, history, nonblocking_streak=nonblocking_streak, force_blocking=force_blocking)
     started = time.perf_counter()
     raw = ""
-    finish_reason: str | None = None
     used_fallback = False
     parse_ok = True
     error: str | None = None
@@ -857,8 +855,6 @@ async def generate_tutor_turn_stream(
                     if inc:
                         emitted_message_parts.append(inc)
                         yield ("message_delta", inc)
-                if event.get("finish_reason"):
-                    finish_reason = event["finish_reason"]
             raw = "".join(raw_parts)
             try:
                 turn_final = parse_and_validate_tutor_turn(

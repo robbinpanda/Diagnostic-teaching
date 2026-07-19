@@ -1,12 +1,9 @@
 import asyncio
 
-import pytest
-
-from app.llm import provider
 from app.core.streaming import MessageStreamExtractor
+from app.llm import provider
 from app.llm.provider import (
     LlmProfile,
-    LlmProviderError,
     _anthropic_response_events,
     anthropic_messages_url,
     anthropic_request_payload,
