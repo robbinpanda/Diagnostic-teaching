@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+import sqlite3
+
+from app.storage.repository_utils import now_iso
+
+
+class StudyCardRepositoryMixin:
+    def get_card(self, card_id: str) -> sqlite3.Row:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM study_cards WHERE id = ?",
+                (card_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(card_id)
+        return row
+
+    def list_cards(
+        self,
+        session_id: str | None = None,
+        *,
+        include_pending: bool = False,
+    ) -> list[sqlite3.Row]:
+        clauses: list[str] = []
+        params: list[str] = []
+        if session_id is not None:
+            clauses.append("live_session_id = ?")
+            params.append(session_id)
+        if not include_pending:
+            clauses.append("saved_at IS NOT NULL")
+        where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self.db.connect() as conn:
+            return conn.execute(
+                f"""
+                SELECT * FROM study_cards
+                {where_clause}
+                ORDER BY created_at DESC, rowid DESC
+                """,
+                params,
+            ).fetchall()
+
+    def latest_pending_card(self, session_id: str) -> sqlite3.Row | None:
+        with self.db.connect() as conn:
+            return conn.execute(
+                """
+                SELECT * FROM study_cards
+                WHERE session_id = ? AND saved_at IS NULL
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT 1
+                """,
+                (session_id,),
+            ).fetchone()
+
+    def save_card(self, card_id: str, *, session_id: str) -> sqlite3.Row:
+        ts = now_iso()
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM study_cards WHERE id = ?",
+                (card_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(card_id)
+            if row["live_session_id"] != session_id:
+                raise PermissionError(card_id)
+            if row["saved_at"] is None:
+                conn.execute(
+                    "UPDATE study_cards SET saved_at = ? WHERE id = ?",
+                    (ts, card_id),
+                )
+                conn.execute(
+                    "UPDATE sessions SET updated_at = ? WHERE id = ?",
+                    (ts, session_id),
+                )
+                self.events.append_in_transaction(
+                    conn,
+                    session_id,
+                    [
+                        (
+                            "card.saved",
+                            {
+                                "card_id": card_id,
+                                "card_type": row["card_type"],
+                                "source_action_id": row["source_action_id"],
+                                "source_message_id": row["source_message_id"],
+                                "saved_at": ts,
+                            },
+                        )
+                    ],
+                )
+            return conn.execute(
+                "SELECT * FROM study_cards WHERE id = ?",
+                (card_id,),
+            ).fetchone()
+
+    def delete_card(self, card_id: str) -> None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT saved_at FROM study_cards WHERE id = ?",
+                (card_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(card_id)
+            if row["saved_at"] is None:
+                raise PermissionError(card_id)
+            conn.execute("DELETE FROM study_cards WHERE id = ?", (card_id,))
+
+    def delete_all_cards(self) -> None:
+        """Delete saved and pending study cards without deleting sessions."""
+        with self.db.connect() as conn:
+            conn.execute("DELETE FROM study_cards")
