@@ -1,0 +1,133 @@
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 1120px) {
+  .appShell,
+  .appShell.rightClosed {
+    grid-template-columns: 238px minmax(0, 1fr);
+  }
+
+  .appShell.leftClosed,
+  .appShell.leftClosed.rightClosed {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+
+  .cardSidebar {
+    position: fixed;
+    inset: 0 0 0 auto;
+    z-index: 12;
+    width: min(310px, 88vw);
+    box-shadow: -12px 0 32px rgba(28, 29, 26, 0.12);
+    transform: translateX(0);
+    transition: transform 180ms ease;
+  }
+
+  .rightClosed .cardSidebar {
+    visibility: visible;
+    opacity: 1;
+    transform: translateX(105%);
+  }
+}
+
+@media (max-width: 760px) {
+  .appShell,
+  .appShell.leftClosed,
+  .appShell.rightClosed,
+  .appShell.leftClosed.rightClosed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sessionSidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 13;
+    width: min(270px, 88vw);
+    box-shadow: 12px 0 32px rgba(28, 29, 26, 0.12);
+    transform: translateX(0);
+    transition: transform 180ms ease;
+  }
+
+  .leftClosed .sessionSidebar {
+    visibility: visible;
+    opacity: 1;
+    transform: translateX(-105%);
+  }
+
+  .messageColumn {
+    padding: 24px 16px 34px;
+  }
+
+  .composerDock {
+    width: calc(100% - 20px);
+    padding-bottom: 8px;
+  }
+
+  .composerActions select {
+    max-width: 112px;
+  }
+
+  .composerHint {
+    display: none;
+  }
+
+  .cardBackdrop {
+    place-items: end center;
+    padding: 12px;
+  }
+
+  .studyCardDialog {
+    max-height: 92vh;
+  }
+}
+
+@media (max-width: 480px) {
+  .conversationHeader {
+    padding: 0 9px;
+  }
+
+  .conversationTitle span,
+  .thinkingStatus {
+    display: none;
+  }
+
+  .welcomeState {
+    min-height: calc(100vh - 330px);
+  }
+
+  .chatMessage.student .messageBody {
+    max-width: 94%;
+  }
+
+  .composerActions select:last-of-type {
+    max-width: 96px;
+  }
+
+  .toolButton.danger {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .exportDialogBackdrop {
+    padding: 12px;
+  }
+
+  .knowledgeExportDialog {
+    max-height: calc(100vh - 24px);
+  }
+
+  .knowledgeExportCardList,
+  .knowledgeExportLayouts {
+    grid-template-columns: 1fr;
+  }
+
+  .knowledgeExportFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .knowledgeExportFooter > div {
+    justify-content: flex-end;
+  }
+}

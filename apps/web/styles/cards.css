@@ -1,0 +1,516 @@
+.cardSidebar {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 14px 12px 12px;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.cardSidebarHeader {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 0 4px;
+}
+
+.cardSidebarHeader > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.cardSidebarHeader strong {
+  font-size: 14px;
+}
+
+.cardSidebarHeader span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.cardFilters {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  border-radius: 10px;
+  padding: 3px;
+  background: #ecece8;
+}
+
+.cardFilters button {
+  min-height: 29px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 10px;
+}
+
+.cardFilters button.active {
+  color: var(--ink);
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(27, 28, 25, 0.08);
+  font-weight: 600;
+}
+
+.cardList {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 7px;
+}
+
+.cardItem {
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 0;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.cardItem:hover {
+  grid-template-columns: minmax(0, 1fr) 32px;
+  border-color: var(--line-strong);
+}
+
+.cardOpenButton {
+  min-width: 0;
+  border: 0;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
+}
+
+.cardIcon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+}
+
+.cardIcon.knowledge {
+  color: #2b745a;
+  background: #e4f2eb;
+}
+
+.cardIcon.problem {
+  color: #8b6428;
+  background: #f8edda;
+}
+
+.cardText {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.cardText strong {
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardText small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.cardDeleteButton {
+  width: 28px;
+  height: 28px;
+  align-self: center;
+  border-radius: 7px;
+  color: #9a736d;
+  background: transparent;
+}
+
+.cardDeleteButton:hover:not(:disabled) {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.cardEmpty {
+  min-height: 160px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.clearCardsButton {
+  min-height: 35px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: #7d5b56;
+  background: #ffffff;
+  font-size: 10px;
+}
+
+.clearCardsButton:hover:not(:disabled) {
+  border-color: #e8c9c5;
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.cardSidebarActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.exportCardsButton {
+  min-height: 35px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--accent-strong);
+  background: #ffffff;
+  font-size: 10px;
+}
+
+.exportCardsButton:hover:not(:disabled) {
+  border-color: #a8d9d1;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+.exportDialogBackdrop {
+  background: rgba(20, 30, 35, 0.5);
+}
+
+.knowledgeExportDialog {
+  width: min(880px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 28px 90px rgba(20, 30, 35, 0.28);
+}
+
+.knowledgeExportHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 22px 17px;
+  border-bottom: 1px solid var(--line);
+}
+
+.knowledgeExportHeader h2 {
+  margin: 5px 0 4px;
+  font-size: 22px;
+}
+
+.knowledgeExportHeader p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.knowledgeExportKicker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.dialogIconButton {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: #edf2f2;
+  color: #33434a;
+}
+
+.dialogIconButton:hover {
+  background: #dde7e6;
+  color: var(--accent-strong);
+}
+
+.knowledgeExportBody {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 20px;
+  padding: 20px 22px 24px;
+}
+
+.knowledgeExportSection {
+  display: grid;
+  gap: 12px;
+}
+
+.knowledgeExportSectionHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.knowledgeExportSectionHeader h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.knowledgeExportSectionHeader span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.textButton {
+  border: 0;
+  padding: 6px 2px;
+  background: transparent;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.knowledgeExportCardList {
+  max-height: 248px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding-right: 3px;
+}
+
+.knowledgeExportCardOption {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 22px 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.knowledgeExportCardOption:hover,
+.knowledgeExportCardOption.selected,
+.knowledgeExportCardOption:focus-within {
+  border-color: #8ecfc5;
+  background: #f3fbf9;
+}
+
+.knowledgeExportCardOption input,
+.knowledgeExportLayout input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.knowledgeExportCheckbox {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #b8c5c7;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.knowledgeExportCardOption.selected .knowledgeExportCheckbox {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.knowledgeExportCardIcon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: #dff5f1;
+  color: var(--accent-strong);
+}
+
+.knowledgeExportCardIcon.problem {
+  background: #fff1d6;
+  color: #9a651b;
+}
+
+.knowledgeExportCardCopy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.knowledgeExportCardCopy strong,
+.knowledgeExportCardSummary,
+.knowledgeExportCardSummary small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledgeExportCardCopy strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.knowledgeExportCardSummary {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.knowledgeExportCardSummary em {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: #e8f5f2;
+  color: var(--accent-strong);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.knowledgeExportCardIcon.problem + .knowledgeExportCardCopy .knowledgeExportCardSummary em {
+  background: #fff0d2;
+  color: #8b5a16;
+}
+
+.knowledgeExportCardSummary small {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.knowledgeExportEmpty {
+  padding: 22px;
+  border: 1px dashed #cbd6d6;
+  border-radius: 10px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.knowledgeExportLayouts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.knowledgeExportLayout {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 11px;
+  row-gap: 3px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.knowledgeExportLayout:hover,
+.knowledgeExportLayout.selected,
+.knowledgeExportLayout:focus-within {
+  border-color: var(--accent);
+  background: #f3fbf9;
+  box-shadow: 0 0 0 2px rgba(15, 139, 141, 0.08);
+}
+
+.knowledgeExportLayout strong {
+  align-self: end;
+  color: #26363d;
+  font-size: 13px;
+}
+
+.knowledgeExportLayout small {
+  grid-column: 2;
+  align-self: start;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.layoutPreview {
+  grid-row: 1 / span 2;
+  height: 54px;
+  display: flex;
+  gap: 3px;
+  padding: 5px;
+  border: 1px solid #aebdbf;
+  border-radius: 3px;
+  background: #ffffff;
+}
+
+.layoutPreview i {
+  flex: 1;
+  border-radius: 1px;
+  background: repeating-linear-gradient(to bottom, #9eb2b4 0 2px, transparent 2px 5px);
+}
+
+.knowledgeExportHint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.knowledgeExportFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 22px;
+  border-top: 1px solid var(--line);
+  background: #f8faf9;
+}
+
+.knowledgeExportFooter > span {
+  max-width: 470px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.knowledgeExportFooter > div {
+  display: flex;
+  gap: 8px;
+}
+
+.knowledgeCardPrintRoot {
+  display: none;
+}

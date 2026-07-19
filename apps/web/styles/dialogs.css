@@ -1,0 +1,495 @@
+/* Shared dialogs */
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(25, 26, 23, 0.38);
+  backdrop-filter: blur(3px);
+}
+
+.modelDialog,
+.checkpointDialog,
+.studyCardDialog {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}
+
+.modelDialog {
+  width: min(680px, 100%);
+  padding: 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.dialogHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dialogHeader h2 {
+  font-size: 17px;
+}
+
+.dialogHeader p,
+.dialogStatus,
+.checkpointHint,
+.cardEmptyLine {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.dialogHeader p {
+  margin-top: 5px;
+}
+
+.modelDialog label {
+  display: grid;
+  gap: 6px;
+  color: #42423e;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.modelDialog input,
+.modelDialog select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  outline: none;
+  padding: 0 10px;
+  color: var(--ink);
+  background: #ffffff;
+  font-size: 12px;
+}
+
+.modelDialog input:focus,
+.modelDialog select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.twoColumnFields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.checkboxLabel {
+  display: flex !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.checkboxLabel input {
+  width: auto;
+  min-height: auto;
+}
+
+.modelEntriesSection {
+  display: grid;
+  gap: 9px;
+}
+
+.modelEntriesHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modelEntriesHeader > div {
+  display: grid;
+  gap: 3px;
+}
+
+.modelEntriesHeader strong {
+  color: #42423e;
+  font-size: 11px;
+}
+
+.modelEntriesHeader span,
+.modelTestMessage {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.modelAddButton,
+.modelRemoveButton {
+  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #555550;
+  background: #f5f5f2;
+}
+
+.modelAddButton {
+  min-height: 32px;
+  gap: 5px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.modelRemoveButton {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.modelAddButton:hover:not(:disabled),
+.modelRemoveButton:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.modelEntryList {
+  display: grid;
+  gap: 8px;
+}
+
+.modelEntryCard {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #fafaf8;
+}
+
+.modelEntryTop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.modelTestIcon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--faint);
+}
+
+.modelTestIcon.success,
+.modelTestMessage.success {
+  color: var(--accent);
+}
+
+.modelTestIcon.error,
+.modelTestMessage.error {
+  color: var(--danger);
+}
+
+.modelCapabilityToggle {
+  color: #60605b !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+}
+
+.modelTestMessage {
+  overflow-wrap: anywhere;
+}
+
+.primaryButton,
+.secondaryButton,
+.iconButton {
+  min-height: 38px;
+  border: 0;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  white-space: nowrap;
+}
+
+.primaryButton {
+  color: #ffffff;
+  background: #252623;
+  font-weight: 600;
+}
+
+.primaryButton:hover:not(:disabled) {
+  background: var(--accent);
+}
+
+.secondaryButton,
+.iconButton {
+  color: #4e4e4a;
+  background: #efefec;
+}
+
+.iconButton {
+  width: 38px;
+  padding: 0;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.checkpointBackdrop {
+  place-items: center;
+  background: rgba(25, 26, 23, 0.22);
+}
+
+.checkpointDialog {
+  width: min(470px, 100%);
+  padding: 22px;
+}
+
+.checkpointKicker,
+.studyCardKicker {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.checkpointDialog h2 {
+  margin: 10px 0 16px;
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.optionList {
+  display: grid;
+  gap: 8px;
+}
+
+.optionButton {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  color: var(--ink);
+  background: #ffffff;
+  text-align: left;
+}
+
+.optionButton:hover {
+  border-color: #aacdbf;
+  background: var(--accent-soft);
+}
+
+.optionBadge {
+  width: 27px;
+  height: 27px;
+  flex: 0 0 27px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--accent);
+  background: #edf1ee;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.optionText {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.checkpointHint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 13px;
+}
+
+.cardBackdrop {
+  place-items: center end;
+  padding-right: clamp(20px, 5vw, 72px);
+  background: rgba(25, 26, 23, 0.28);
+}
+
+.studyCardDialog {
+  width: min(680px, 100%);
+  border-top: 4px solid var(--accent);
+}
+
+.studyCardDialog.problemCard {
+  border-top-color: #ba8332;
+}
+
+.studyCardHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 21px 22px 16px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(8px);
+}
+
+.studyCardHeader h2 {
+  margin-top: 7px;
+  font-size: 21px;
+  line-height: 1.45;
+}
+
+.problemCard .studyCardKicker {
+  color: #8a6228;
+}
+
+.cardCloseButton {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  border: 0;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: #555650;
+  background: #efefec;
+}
+
+.studyCardBody {
+  display: grid;
+  gap: 12px;
+  padding: 18px 21px 24px;
+}
+
+.studyCardBody section {
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 15px;
+  line-height: 1.7;
+  background: #ffffff;
+}
+
+.studyCardBody section h3 {
+  margin: 0 0 7px;
+  color: #474842;
+  font-size: 12px;
+}
+
+.studyCardBody .cardLeadSection {
+  display: grid;
+  gap: 5px;
+  border-color: #bfdfd2;
+  background: #eef7f2;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.problemCard .studyCardBody .cardLeadSection {
+  border-color: #ead8b6;
+  background: #fbf6ea;
+}
+
+.cardLeadSection > span:first-child {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.cardTextList,
+.cardStepList {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 12px;
+}
+
+.cardTextList li + li,
+.cardStepList li + li {
+  margin-top: 7px;
+}
+
+.cardStepList li strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.studyCardBody .cardConnection,
+.studyCardBody .cardFinalAnswer {
+  border-color: #abd7c6;
+  background: #edf7f2;
+}
+
+.problemCard .studyCardBody .cardFinalAnswer {
+  border-color: #dfc28a;
+  background: #fbf3e2;
+}
+
+.problemStepList {
+  display: grid;
+  gap: 9px;
+  padding: 0;
+  list-style: none;
+}
+
+.problemStepList > li {
+  margin: 0;
+  border-radius: 9px;
+  padding: 11px;
+  background: var(--panel);
+}
+
+.problemStepTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.problemStepTitle > span {
+  width: 23px;
+  height: 23px;
+  flex: 0 0 23px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  background: #b47c2c;
+  font-size: 10px;
+}
+
+.stepReason {
+  margin: 6px 0 0;
+  color: #5d5e58;
+  font-size: 11px;
+}
+
+.stepResult {
+  margin-top: 6px;
+  border-left: 3px solid #bd8737;
+  padding: 7px 9px;
+  background: #fcf6e9;
+  font-size: 12px;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
