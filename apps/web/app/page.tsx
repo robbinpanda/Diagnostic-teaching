@@ -1,25 +1,7 @@
 "use client";
 
-import {
-  ArrowUp,
-  BookOpen,
-  Bot,
-  ChevronLeft,
-  ChevronRight,
-  ClipboardCheck,
-  FileDown,
-  Loader2,
-  MessageSquarePlus,
-  Paperclip,
-  Pencil,
-  Plus,
-  Square,
-  Trash2,
-  X
-} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckpointModal } from "../components/CheckpointModal";
-import { MathText } from "../components/MathText";
 import { ModelConfigDialog } from "../components/ModelConfigDialog";
 import { StudyCardModal } from "../components/StudyCardModal";
 import {
@@ -27,6 +9,11 @@ import {
   type LearningCardExportLayout
 } from "../components/LearningCardExportDialog";
 import { LearningCardPrintView } from "../components/LearningCardPrintView";
+import { ConversationHeader } from "../components/workspace/ConversationHeader";
+import { MessageTimeline } from "../components/workspace/MessageTimeline";
+import { SessionSidebar } from "../components/workspace/SessionSidebar";
+import { StudyCardSidebar, type StudyCardFilter } from "../components/workspace/StudyCardSidebar";
+import { TutorComposer } from "../components/workspace/TutorComposer";
 import { useSessionRuntime } from "../hooks/useSessionRuntime";
 import {
   acceptStudentMessage,
@@ -55,19 +42,6 @@ type LearningCardPrintJob = {
   layout: LearningCardExportLayout;
 };
 
-const ACTION_LABELS: Record<string, string> = {
-  ASK_OPEN_QUESTION: "开放提问",
-  ASK_MULTIPLE_CHOICE: "选择检查点",
-  EXPLAIN_LOCAL: "局部讲解",
-  EXPLAIN_PRINCIPLE: "原理讲解",
-  RESPOND_TO_CHECKPOINT: "检查点反馈",
-  SUMMARIZE: "总结"
-};
-
-function teachingActionLabel(action: string) {
-  return ACTION_LABELS[action] ?? action;
-}
-
 export default function Home() {
   const [profiles, setProfiles] = useState<ModelProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState("");
@@ -75,7 +49,7 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [viewingCard, setViewingCard] = useState<StudyCard | null>(null);
   const [cards, setCards] = useState<StudyCard[]>([]);
-  const [cardFilter, setCardFilter] = useState<"all" | "knowledge_card" | "problem_card">("all");
+  const [cardFilter, setCardFilter] = useState<StudyCardFilter>("all");
   const [historyItems, setHistoryItems] = useState<SessionHistoryItem[]>([]);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [openSessionBusyId, setOpenSessionBusyId] = useState("");
@@ -530,229 +504,82 @@ export default function Home() {
   return (
     <>
     <main className={`appShell ${leftOpen ? "leftOpen" : "leftClosed"} ${rightOpen ? "rightOpen" : "rightClosed"}`}>
-      <aside className="sessionSidebar">
-        <div className="sidebarBrand">
-          <div className="brandGlyph"><Bot size={19} /></div>
-          <strong>析题</strong>
-          <button className="plainIconButton sidebarCollapse" type="button" onClick={() => setLeftOpen(false)} aria-label="收起会话栏">
-            <ChevronLeft size={18} />
-          </button>
-        </div>
-
-        <button className="newChatButton" type="button" onClick={clearCurrentSessionState} disabled={sessionNavigationBusy}>
-          <MessageSquarePlus size={18} />
-          新建答疑
-        </button>
-
-        <div className="sidebarSectionHeader">
-          <span>对话</span>
-          <button
-            className="plainIconButton"
-            type="button"
-            onClick={handleDeleteAllSessions}
-            disabled={deleteAllSessionsBusy || streamBusy || historyItems.length === 0}
-            title="清空全部会话"
-          >
-            {deleteAllSessionsBusy ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
-          </button>
-        </div>
-
-        <div className="sessionList">
-          {historyBusy && historyItems.length === 0 && <div className="sidebarEmpty"><Loader2 size={16} className="spin" /> 正在读取会话</div>}
-          {!historyBusy && historyItems.length === 0 && <div className="sidebarEmpty">还没有会话</div>}
-          {historyItems.map((item) => (
-            <div className={`sessionRow ${sessionId === item.session_id ? "active" : ""}`} key={item.session_id}>
-              <button
-                className="sessionEntry"
-                type="button"
-                onClick={() => handleOpenSession(item.session_id)}
-                disabled={Boolean(openSessionBusyId) || sessionNavigationBusy}
-              >
-                <strong><MathText text={item.title || "未命名题目"} className="titleMathText" /></strong>
-                <span>{item.message_count} 条消息 · {new Date(item.updated_at).toLocaleDateString("zh-CN")}</span>
-              </button>
-              <button
-                className="sessionDeleteButton"
-                type="button"
-                onClick={() => handleDeleteSession(item)}
-                disabled={Boolean(deleteSessionBusyId) || streamBusy}
-                aria-label={`删除会话：${item.title}`}
-              >
-                {deleteSessionBusyId === item.session_id || openSessionBusyId === item.session_id
-                  ? <Loader2 size={14} className="spin" />
-                  : <Trash2 size={14} />}
-              </button>
-            </div>
-          ))}
-        </div>
-
-      </aside>
+      <SessionSidebar
+        historyItems={historyItems}
+        activeSessionId={sessionId}
+        historyBusy={historyBusy}
+        openSessionBusyId={openSessionBusyId}
+        deleteSessionBusyId={deleteSessionBusyId}
+        deleteAllSessionsBusy={deleteAllSessionsBusy}
+        sessionNavigationBusy={sessionNavigationBusy}
+        streamBusy={streamBusy}
+        onCollapse={() => setLeftOpen(false)}
+        onNewChat={clearCurrentSessionState}
+        onOpenSession={handleOpenSession}
+        onDeleteSession={handleDeleteSession}
+        onDeleteAllSessions={handleDeleteAllSessions}
+      />
 
       <section className="conversationPanel">
-        <header className="conversationHeader">
-          {!leftOpen && (
-            <button className="plainIconButton" type="button" onClick={() => setLeftOpen(true)} aria-label="展开会话栏">
-              <ChevronRight size={18} />
-            </button>
-          )}
-          <div className="conversationTitle">
-            <strong><MathText text={activeHistory?.title || "新答疑"} className="titleMathText" /></strong>
-            <span>{sessionId ? `${gradeBand === "junior" ? "初中" : "高中"}数学 · ${selectedProfile ? modelProfileLabel(selectedProfile) : "原模型不可用"}` : "先发题目，再告诉我你想到哪一步"}</span>
-          </div>
-          {streamBusy && <span className="thinkingStatus"><Loader2 size={14} className="spin" /> 正在思考</span>}
-          <button className="plainIconButton cardPanelToggle" type="button" onClick={() => setRightOpen((value) => !value)} aria-label="切换卡片栏">
-            <BookOpen size={18} />
-          </button>
-        </header>
+        <ConversationHeader
+          leftOpen={leftOpen}
+          title={activeHistory?.title || "新答疑"}
+          sessionId={sessionId}
+          gradeBand={gradeBand}
+          selectedProfile={selectedProfile}
+          streamBusy={streamBusy}
+          onExpandLeft={() => setLeftOpen(true)}
+          onToggleCards={() => setRightOpen((value) => !value)}
+        />
 
-        <div className="messageViewport">
-          <div className="messageColumn">
-            {messages.length === 0 && (
-              <div className="welcomeState">
-                <div className="welcomeGlyph"><Bot size={30} /></div>
-                <h1>从你卡住的地方开始</h1>
-                <p>在下方一次输入题目和你想到哪一步，也可以先只发题目。信息不完整时，我会继续追问。</p>
-                <div className="welcomeExamples">
-                  <span>题目：已知……求……</span>
-                  <span>我的思路：我做到……但不懂……</span>
-                </div>
-              </div>
-            )}
+        <MessageTimeline messages={messages} messageEndRef={messageEndRef} />
 
-            {messages.map((message) => (
-              <article className={`chatMessage ${message.role}`} key={message.id}>
-                <div className="messageAvatar">
-                  {message.role === "assistant" ? <Bot size={17} /> : message.role === "student" ? "你" : "·"}
-                </div>
-                <div className="messageBody">
-                  {message.imageUrl && <img className="messageImage" src={message.imageUrl} alt="学生上传的题目" />}
-                  <div className="messageText"><MathText text={message.text} /></div>
-                  {message.role === "assistant" && message.action && (
-                    <span className="actionTag" title={`教学 action：${message.action}`}>{teachingActionLabel(message.action)}</span>
-                  )}
-                </div>
-              </article>
-            ))}
-            <div ref={messageEndRef} />
-          </div>
-        </div>
-
-        <div className="composerDock">
-          {error && <div className="inlineError"><span>{error}</span><button type="button" onClick={runtime.clearError}><X size={15} /></button></div>}
-          {!sessionId && originalProblemImage && (
-            <div className="attachmentContext">
-              <img src={originalProblemImage} alt="已读取的题目图片" />
-              <div><strong>题目图片已读取</strong><span>原图会随每轮答疑发送给多模态模型</span></div>
-              <button type="button" onClick={() => runtime.updateDraft({ originalProblemImage: null, problemText: "" })} aria-label="移除图片"><X size={15} /></button>
-            </div>
-          )}
-          <div className="composerCard">
-            <textarea
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  void handleSend();
-                }
-              }}
-              disabled={composerBlocked}
-              placeholder={sessionId ? "继续说说你的想法…" : "输入题目和你想到哪一步，或上传题目图片…"}
-              rows={3}
-            />
-            <div className="composerToolbar">
-              <div className="composerActions">
-                <input
-                  ref={imageInputRef}
-                  className="hiddenFileInput"
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  onChange={(event) => void handleImageFile(event.target.files?.[0])}
-                />
-                <button
-                  className="toolButton"
-                  type="button"
-                  onClick={() => imageInputRef.current?.click()}
-                  disabled={composerBlocked || Boolean(sessionId)}
-                  title="上传题目图片"
-                >
-                  {imageBusy ? <Loader2 size={17} className="spin" /> : <Paperclip size={17} />}
-                </button>
-                <select value={gradeBand} onChange={(event) => setGradeBand(event.target.value as typeof gradeBand)} disabled={Boolean(sessionId) || composerBlocked} aria-label="年级">
-                  <option value="junior">初中</option>
-                  <option value="senior">高中</option>
-                </select>
-                <select value={selectedProfileId} onChange={(event) => setSelectedProfileId(event.target.value)} disabled={Boolean(sessionId) || composerBlocked} aria-label="答疑模型">
-                  <option value="">选择模型</option>
-                  {profiles.map((profile) => <option key={profile.id} value={profile.id}>{modelProfileLabel(profile)}</option>)}
-                </select>
-                <button
-                  className="toolButton"
-                  type="button"
-                  onClick={() => { setEditingProfile(selectedProfile ?? null); setDialogOpen(true); }}
-                  title={selectedProfile?.managed ? "查看模型配置" : selectedProfile ? "修改模型配置" : "添加模型配置"}
-                >
-                  {selectedProfile ? <Pencil size={16} /> : <Plus size={16} />}
-                </button>
-                {selectedProfile && !selectedProfile.managed && !sessionId && (
-                  <button className="toolButton danger" type="button" onClick={handleDeleteProfile} disabled={Boolean(deleteBusyId)} title="删除模型配置">
-                    {deleteBusyId ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
-                  </button>
-                )}
-              </div>
-              <button
-                className="sendButton"
-                type="button"
-                onClick={streamBusy ? () => void runtime.stopStream() : handleSend}
-                disabled={streamBusy ? stopBusy : composerBlocked || !input.trim()}
-                aria-label={streamBusy ? "停止生成" : "发送"}
-                title={streamBusy ? "停止生成" : "发送"}
-              >
-                {streamBusy ? (stopBusy ? <Loader2 size={18} className="spin" /> : <Square size={14} />) : startBusy ? <Loader2 size={18} className="spin" /> : <ArrowUp size={19} />}
-              </button>
-            </div>
-          </div>
-          <p className="composerHint">Enter 发送 · Shift + Enter 换行 · 开始答疑前需同时识别题目与当前思路</p>
-        </div>
+        <TutorComposer
+          error={error}
+          sessionId={sessionId}
+          originalProblemImage={originalProblemImage}
+          input={input}
+          composerBlocked={composerBlocked}
+          imageInputRef={imageInputRef}
+          imageBusy={imageBusy}
+          gradeBand={gradeBand}
+          selectedProfileId={selectedProfileId}
+          selectedProfile={selectedProfile}
+          profiles={profiles}
+          deleteBusyId={deleteBusyId}
+          streamBusy={streamBusy}
+          stopBusy={stopBusy}
+          startBusy={startBusy}
+          onClearError={runtime.clearError}
+          onRemoveImage={() => runtime.updateDraft({ originalProblemImage: null, problemText: "" })}
+          onInputChange={setInput}
+          onSend={() => void handleSend()}
+          onImageFile={(file) => void handleImageFile(file)}
+          onGradeBandChange={setGradeBand}
+          onProfileChange={setSelectedProfileId}
+          onEditProfile={() => {
+            setEditingProfile(selectedProfile ?? null);
+            setDialogOpen(true);
+          }}
+          onDeleteProfile={() => void handleDeleteProfile()}
+          onStop={() => void runtime.stopStream()}
+        />
       </section>
 
-      <aside className="cardSidebar">
-        <div className="cardSidebarHeader">
-          <div><strong>知识卡片</strong><span>{cards.length} 张已归档</span></div>
-          <button className="plainIconButton" type="button" onClick={() => setRightOpen(false)} aria-label="收起卡片栏"><ChevronRight size={18} /></button>
-        </div>
-        <div className="cardFilters" aria-label="筛选学习卡片">
-          <button type="button" className={cardFilter === "all" ? "active" : ""} onClick={() => setCardFilter("all")}>全部</button>
-          <button type="button" className={cardFilter === "knowledge_card" ? "active" : ""} onClick={() => setCardFilter("knowledge_card")}>知识</button>
-          <button type="button" className={cardFilter === "problem_card" ? "active" : ""} onClick={() => setCardFilter("problem_card")}>题目</button>
-        </div>
-        <div className="cardList">
-          {filteredCards.length === 0 && <div className="cardEmpty"><BookOpen size={21} /><span>还没有卡片</span></div>}
-          {filteredCards.map((card) => (
-            <div className="cardItem" key={card.id}>
-              <button className="cardOpenButton" type="button" onClick={() => setViewingCard(card)}>
-                <span className={`cardIcon ${card.card_type === "knowledge_card" ? "knowledge" : "problem"}`}>
-                  {card.card_type === "knowledge_card" ? <BookOpen size={16} /> : <ClipboardCheck size={16} />}
-                </span>
-                <span className="cardText"><strong><MathText text={card.content.title} /></strong><small>{card.card_type === "knowledge_card" ? "知识卡片" : "题目卡片"}</small></span>
-              </button>
-              <button className="cardDeleteButton" type="button" onClick={() => handleDeleteCard(card)} disabled={Boolean(cardBusyId)} aria-label={`删除卡片：${card.content.title}`}>
-                {cardBusyId === card.id ? <Loader2 size={14} className="spin" /> : <Trash2 size={14} />}
-              </button>
-            </div>
-          ))}
-        </div>
-        <div className="cardSidebarActions">
-          <button className="exportCardsButton" type="button" onClick={() => setLearningCardExportOpen(true)} disabled={cards.length === 0}>
-            <FileDown size={15} />
-            导出卡片
-          </button>
-          <button className="clearCardsButton" type="button" onClick={handleDeleteAllCards} disabled={deleteAllCardsBusy || composerBlocked || cards.length === 0}>
-            {deleteAllCardsBusy ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
-            清空卡片
-          </button>
-        </div>
-      </aside>
+      <StudyCardSidebar
+        cards={cards}
+        filteredCards={filteredCards}
+        filter={cardFilter}
+        cardBusyId={cardBusyId}
+        deleteAllCardsBusy={deleteAllCardsBusy}
+        composerBlocked={composerBlocked}
+        onCollapse={() => setRightOpen(false)}
+        onFilterChange={setCardFilter}
+        onOpenCard={setViewingCard}
+        onDeleteCard={handleDeleteCard}
+        onExport={() => setLearningCardExportOpen(true)}
+        onDeleteAllCards={handleDeleteAllCards}
+      />
 
       <ModelConfigDialog
         open={dialogOpen}
