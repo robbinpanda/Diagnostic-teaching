@@ -137,27 +137,6 @@ export async function fetchProfiles(): Promise<ModelProfile[]> {
   return payload.profiles;
 }
 
-export async function createModelProfile(input: {
-  display_name: string;
-  provider: "openai" | "openai_compatible" | "anthropic" | "local_demo";
-  base_url: string;
-  api_key: string;
-  model: string;
-  tags: string[];
-  timeout_ms: number;
-  temperature: number;
-  max_output_tokens: number;
-  is_multimodal: boolean;
-}) {
-  const response = await fetch(`${API_BASE}/api/model-profiles`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input)
-  });
-  if (!response.ok) throw new Error(await response.text());
-  return response.json();
-}
-
 export async function updateModelProfile(
   profileId: string,
   input: {
@@ -240,28 +219,6 @@ export async function deleteModelProfile(profileId: string) {
   if (!response.ok) throw new Error(await response.text());
 }
 
-export async function createSession(input: {
-  grade_band: "junior" | "senior";
-  subject: "math";
-  model_profile_id: string;
-  problem_text: string;
-  student_initial_thought: string;
-  problem_image_data_url?: string | null;
-}) {
-  const response = await fetch(`${API_BASE}/api/sessions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input)
-  });
-  if (!response.ok) throw new Error(await response.text());
-  return response.json() as Promise<{
-    session_id: string;
-    state_hint: string;
-    context_status: "need_problem" | "need_thought" | "ready";
-    model_profile_id: string;
-  }>;
-}
-
 export async function startSession(input: {
   session_id: string;
   client_message_id: string;
@@ -327,16 +284,6 @@ export async function deleteAllSessions() {
     method: "DELETE"
   });
   if (!response.ok) throw new Error(await response.text());
-}
-
-export async function restoreSession(input: { session_id: string; model_profile_id: string }): Promise<RestoredSession> {
-  const response = await fetch(`${API_BASE}/api/sessions/restore`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input)
-  });
-  if (!response.ok) throw new Error(await response.text());
-  return response.json();
 }
 
 export async function answerCheckpoint(input: {

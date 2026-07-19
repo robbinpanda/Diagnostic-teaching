@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from app.core.schemas import TutorCheckpoint, TutorTurn
 from app.core.streaming import MessageStreamExtractor
-from app.llm.provider import LlmProfile, LlmProviderError, chat_completion, chat_stream_completion
+from app.llm.provider import LlmProfile, LlmProviderError, chat_stream_completion
 from app.storage.session_logger import SessionLogger
 
 BLOCKING_ACTIONS = {"ASK_OPEN_QUESTION", "ASK_MULTIPLE_CHOICE"}
@@ -737,76 +737,6 @@ def build_format_retry_messages(
             "content": retry_instruction,
         },
     ]
-
-
-async def generate_tutor_turn(
-    profile: LlmProfile,
-    session: Row,
-    history: list[Row],
-    *,
-    logger: SessionLogger | None = None,
-    nonblocking_streak: int = 0,
-    force_blocking: bool = False,
-) -> TutorTurn:
-    messages = build_messages(session, history, nonblocking_streak=nonblocking_streak, force_blocking=force_blocking)
-    started = time.perf_counter()
-    raw = ""
-    used_fallback = False
-    parse_ok = True
-    error: str | None = None
-    turn: TutorTurn | None = None
-    try:
-        request_messages = messages
-        for attempt in range(FORMAT_RETRY_LIMIT + 1):
-            raw = await chat_completion(profile, request_messages, max_tokens=profile.max_output_tokens)
-            try:
-                turn = parse_and_validate_tutor_turn(
-                    raw,
-                    force_blocking=force_blocking,
-                    current_context_status=_row_value(session, "context_status", "ready"),
-                    current_problem_text=_row_value(session, "problem_text", ""),
-                    current_student_thought=_row_value(session, "student_initial_thought", ""),
-                )
-            except (json.JSONDecodeError, ValidationError, ValueError) as exc:
-                parse_ok = False
-                if attempt < FORMAT_RETRY_LIMIT:
-                    used_fallback = True
-                    request_messages = build_format_retry_messages(messages, raw, exc)
-                    continue
-                raise LlmProviderError("模型连续返回不完整或不合法的 JSON，请重试") from exc
-            if attempt:
-                turn.debug["format_retry_count"] = attempt
-            parse_ok = True
-            return turn
-        raise LlmProviderError("模型未生成有效的教学结果")
-    except asyncio.CancelledError:
-        error = "generation_cancelled"
-        raise
-    except Exception as exc:
-        # 不吞 LLM/网络错误：交给 chat 路由的 try/except 转成 SSE error 事件
-        error = str(exc)
-        raise
-    finally:
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        if logger is not None:
-            parsed_dump: dict[str, Any] | None = None
-            try:
-                parsed_dump = turn.model_dump() if turn is not None else None
-                # 完整保留 checkpoint 的 is_correct/misconception 标签，不裁剪
-            except Exception:
-                parsed_dump = None
-            logger.log_tutor_turn(
-                session_id=session["id"],
-                model_profile_id=profile.id,
-                model=profile.model,
-                messages=messages,
-                raw_response=raw,
-                parsed_turn=parsed_dump,
-                latency_ms=latency_ms,
-                parse_ok=parse_ok,
-                used_fallback=used_fallback,
-                error=error,
-            )
 
 
 async def generate_tutor_turn_stream(
