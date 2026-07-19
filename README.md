@@ -105,21 +105,34 @@ POST /api/sessions/start 原子创建 session + 接纳首条普通消息
 
 ```txt
 apps/api   FastAPI 后端
-  app/core/teaching_controller.py    LLM 决策合同 + prompt + 流式生成器 + fallback
+  app/core/teaching_controller.py    LLM 决策合同 + prompt + 历史组装 + 流式生成编排
+  app/core/tutor_turn_parsing.py     TutorTurn 容错解析、清洗与合同校验
+  app/core/tutor_turn_policy.py      action/context 后端策略与 wait_for_student 推导
   app/core/streaming.py              增量 JSON message 解析器（打字机）
-  app/llm/provider.py                OpenAI-compatible / Anthropic 双协议流式调用
+  app/llm/provider.py                OpenAI-compatible / Anthropic 双协议流式入口
+  app/llm/local_demo_provider.py     本地演示模型与教学状态模拟
   app/llm/opencode_free_models.py    OpenCode 免费模型目录、缓存与能力解析
+  app/routes/chat.py                 chat SSE 的 HTTP 接入与 run 执行流程
+  app/services/session_stream_coordinator.py  同 session 串行、跨 session 并行与显式中断
+  app/services/input_acceptance.py   durable 输入接纳兼容门面（按输入类型分派）
   app/routes/problem_images.py       题图识别与必要题图裁剪
+  app/storage/repositories.py        SessionRepository / ModelProfileRepository 兼容门面
+  app/storage/tutor_actions.py       assistant action、checkpoint、card、event 原子事务
+  app/storage/session_*_repository.py run、历史恢复等分域仓储实现
   app/storage/session_logger.py      SessionLogger（JSONL + Markdown 诊断记录）
   migrations/                        Alembic schema revision（数据库演进唯一入口）
   app/storage/session_events.py      durable event 写入、并发 seq 与有限历史
 apps/web   Next.js 前端
+  components/workspace/              主工作区的页头、时间线、侧栏与输入区
   components/MathText.tsx            KaTeX 数学公式渲染
   hooks/useSessionRuntime.ts          session/timeline/workflow 的 React 接线
+  lib/api.ts                          分域 API client 的兼容出口
+  lib/api/                            model/session/card/chat 等协议模块
   lib/timeline.ts                     流式消息拼接与事件确定性 reducer
   lib/session-workflow.ts             composer/run/checkpoint/card 互斥状态机
   lib/stream-controller.ts            AbortController 与 session/run 隔离
   lib/stream-protocol.ts              可选 seq/after_seq 事件适配边界
+  styles/                              shell/conversation/card/dialog/print 分域样式
   tests/                               前端 reducer、取消和隔离测试
 docs       文档
 scripts    Windows 启动、关闭、调试脚本

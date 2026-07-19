@@ -31,6 +31,8 @@ SQLite schema 由 `apps/api/migrations/versions/` 下的 Alembic revision 管理
 apps/api/app/services/input_acceptance.py
 ```
 
+该文件是稳定的公共门面；首次建会话、普通消息、卡片关闭和 checkpoint 答案分别由同目录下的分域模块实现。拆分只隔离代码职责，每一种输入仍在自己的单一 `BEGIN IMMEDIATE` 事务中同时写入 `session_inputs`、业务状态和对应稳定事件。
+
 它与生成服务的边界是：
 
 ```text
@@ -91,6 +93,8 @@ Content-Type: application/json
 ```text
 apps/api/app/core/teaching_controller.py
 ```
+
+入口负责 prompt、历史消息组装与流式生成编排；TutorTurn 的容错解析位于 `tutor_turn_parsing.py`，action/context 的强制策略和 `wait_for_student` 推导位于 `tutor_turn_policy.py`。`teaching_controller.py` 继续转出这些公共函数，旧导入路径保持兼容。
 
 核心函数：
 
