@@ -4,6 +4,7 @@
     "incremental": false,
     "module": "commonjs",
     "moduleResolution": "node",
+    "jsx": "react-jsx",
     "noEmit": false,
     "outDir": "./dist/test",
     "rootDir": "."
@@ -14,7 +15,13 @@
     "lib/stream-controller.ts",
     "lib/stream-protocol.ts",
     "lib/timeline.ts",
-    "tests/**/*.test.ts"
+    "components/MathText.tsx",
+    "components/workspace/ConversationHeader.tsx",
+    "components/workspace/MessageTimeline.tsx",
+    "components/workspace/SessionSidebar.tsx",
+    "components/workspace/StudyCardSidebar.tsx",
+    "tests/**/*.test.ts",
+    "tests/**/*.test.tsx"
   ],
   "exclude": ["node_modules", ".next"]
 }
