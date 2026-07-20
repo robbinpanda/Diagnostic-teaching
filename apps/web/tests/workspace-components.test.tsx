@@ -136,11 +136,13 @@ test("model picker exposes image capability and batch management controls", () =
       canManage
       deleteBusy={false}
       onChange={() => {}}
+      onAdd={() => {}}
       onDelete={async () => true}
     />
   );
 
   assert.match(picker, /支持上传图片/);
+  assert.match(picker, /新增模型/);
   assert.match(picker, /管理/);
   assert.match(picker, /aria-haspopup="listbox"/);
   assert.match(picker, /style="width:430px"/);
@@ -148,6 +150,7 @@ test("model picker exposes image capability and batch management controls", () =
   const conversationStyles = readFileSync(resolve(__dirname, "../../../styles/conversation.css"), "utf8");
   const pickerSource = readFileSync(resolve(__dirname, "../../../components/workspace/ModelProfilePicker.tsx"), "utf8");
   assert.match(pickerSource, /删除选中/);
+  assert.match(pickerSource, /MAX_BATCH_DELETE_PROFILES = 20/);
   assert.match(pickerSource, /aria-multiselectable/);
   assert.match(conversationStyles, /\.modelPickerCurrentLabel\s*\{[^}]*text-overflow:\s*ellipsis;/);
   assert.match(conversationStyles, /\.modelPicker\s*\{[^}]*max-width:/);

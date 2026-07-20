@@ -80,3 +80,14 @@ test("stream errors return to composer and allow a recovery run", () => {
   assert.equal(state.mode, "run");
   assert.equal(state.error, null);
 });
+
+test("a background run does not take ownership of the foreground workflow", () => {
+  const state = sessionWorkflowReducer(createSessionWorkflowState(), {
+    type: "run_started",
+    sessionId: "background-session",
+    runId: "background-run",
+    foreground: false
+  });
+
+  assert.deepEqual(state, createSessionWorkflowState());
+});

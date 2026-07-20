@@ -49,8 +49,13 @@ export function useModelProfiles({ activeSessionId, onError, onClearError }: Opt
     }
   }, [onError, selectedProfileId]);
 
-  function openProfileDialog() {
+  function openSelectedProfileDialog() {
     setEditingProfile(selectedProfile ?? null);
+    setDialogOpen(true);
+  }
+
+  function openNewProfileDialog() {
+    setEditingProfile(null);
     setDialogOpen(true);
   }
 
@@ -96,7 +101,8 @@ export function useModelProfiles({ activeSessionId, onError, onClearError }: Opt
     editingProfile,
     deleteBusy,
     refreshProfiles,
-    openProfileDialog,
+    openNewProfileDialog,
+    openSelectedProfileDialog,
     deleteProfiles
   };
 }

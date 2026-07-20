@@ -106,7 +106,8 @@ export default function Home() {
     editingProfile,
     deleteBusy,
     refreshProfiles,
-    openProfileDialog,
+    openNewProfileDialog,
+    openSelectedProfileDialog,
     deleteProfiles
   } = profilesState;
   const {
@@ -564,7 +565,8 @@ export default function Home() {
           onImageFile={(file) => void handleImageFile(file)}
           onGradeBandChange={setGradeBand}
           onProfileChange={setSelectedProfileId}
-          onEditProfile={openProfileDialog}
+          onAddProfile={openNewProfileDialog}
+          onEditProfile={openSelectedProfileDialog}
           onDeleteProfiles={deleteProfiles}
           onStop={() => void runtime.stopStream()}
         />

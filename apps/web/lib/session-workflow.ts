@@ -28,7 +28,7 @@ export type SessionWorkflowAction =
   | { type: "session_loaded"; pendingCheckpoint?: Checkpoint | null; pendingCard?: StudyCard | null; now: number }
   | { type: "composer_task_started"; activity: "start" | "image" }
   | { type: "composer_task_finished" }
-  | { type: "run_started"; sessionId: string; runId: string }
+  | { type: "run_started"; sessionId: string; runId: string; foreground?: boolean }
   | { type: "run_stop_requested"; sessionId: string; runId: string }
   | { type: "run_finished"; sessionId: string; runId: string }
   | { type: "run_failed"; sessionId: string; runId: string; message: string }
@@ -81,6 +81,7 @@ export function sessionWorkflowReducer(
       if (state.mode !== "composer") return state;
       return createSessionWorkflowState();
     case "run_started":
+      if (action.foreground === false) return state;
       if (state.mode !== "composer" || state.activity !== "idle") return state;
       return {
         mode: "run",

@@ -216,7 +216,12 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     let receivedError = false;
 
     dispatchTimeline({ type: "run_started", sessionId: nextSessionId, runId });
-    dispatchWorkflow({ type: "run_started", sessionId: nextSessionId, runId });
+    dispatchWorkflow({
+      type: "run_started",
+      sessionId: nextSessionId,
+      runId,
+      foreground: contextRef.current.sessionId === nextSessionId
+    });
     setRunningSessionIds((current) => current.includes(nextSessionId) ? current : [...current, nextSessionId]);
 
     try {

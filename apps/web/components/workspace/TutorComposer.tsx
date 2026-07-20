@@ -28,6 +28,7 @@ type Props = {
   onImageFile: (file?: File) => void;
   onGradeBandChange: (value: "junior" | "senior") => void;
   onProfileChange: (profileId: string) => void;
+  onAddProfile: () => void;
   onEditProfile: () => void;
   onDeleteProfiles: (profileIds: string[]) => Promise<boolean>;
   onStop: () => void;
@@ -56,6 +57,7 @@ export function TutorComposer({
   onImageFile,
   onGradeBandChange,
   onProfileChange,
+  onAddProfile,
   onEditProfile,
   onDeleteProfiles,
   onStop
@@ -113,6 +115,7 @@ export function TutorComposer({
               canManage={!sessionId}
               deleteBusy={deleteBusy}
               onChange={onProfileChange}
+              onAdd={onAddProfile}
               onDelete={onDeleteProfiles}
             />
             <button

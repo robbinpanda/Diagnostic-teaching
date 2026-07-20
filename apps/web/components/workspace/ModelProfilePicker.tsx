@@ -5,6 +5,7 @@ import {
   ChevronDown,
   Image as ImageIcon,
   Loader2,
+  Plus,
   Settings2,
   Trash2,
   X
@@ -20,8 +21,11 @@ type Props = {
   canManage: boolean;
   deleteBusy: boolean;
   onChange: (profileId: string) => void;
+  onAdd: () => void;
   onDelete: (profileIds: string[]) => Promise<boolean>;
 };
+
+const MAX_BATCH_DELETE_PROFILES = 20;
 
 function pickerWidth(profile?: ModelProfile) {
   const labelLength = profile ? Array.from(modelProfileLabel(profile)).length : 8;
@@ -36,6 +40,7 @@ export function ModelProfilePicker({
   canManage,
   deleteBusy,
   onChange,
+  onAdd,
   onDelete
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -49,6 +54,14 @@ export function ModelProfilePicker({
   const deletableIds = useMemo(
     () => profiles.filter((profile) => !profile.managed).map((profile) => profile.id),
     [profiles]
+  );
+  const batchSelectableIds = useMemo(
+    () => deletableIds.slice(0, MAX_BATCH_DELETE_PROFILES),
+    [deletableIds]
+  );
+  const allBatchIdsChecked = (
+    checkedIds.length === batchSelectableIds.length
+    && batchSelectableIds.every((id) => checkedIds.includes(id))
   );
 
   useEffect(() => {
@@ -77,12 +90,14 @@ export function ModelProfilePicker({
     setCheckedIds((current) => (
       current.includes(profileId)
         ? current.filter((id) => id !== profileId)
-        : [...current, profileId]
+        : current.length >= MAX_BATCH_DELETE_PROFILES
+          ? current
+          : [...current, profileId]
     ));
   }
 
   function toggleAll() {
-    setCheckedIds((current) => current.length === deletableIds.length ? [] : deletableIds);
+    setCheckedIds(allBatchIdsChecked ? [] : batchSelectableIds);
   }
 
   async function deleteChecked() {
@@ -122,26 +137,45 @@ export function ModelProfilePicker({
 
       <div className="modelPickerMenu" hidden={!open}>
         <div className="modelPickerMenuHeader">
-          <div>
+          <div className="modelPickerHeaderCopy">
             <strong>{manageMode ? "管理模型配置" : "选择答疑模型"}</strong>
-            <span>{manageMode ? "可同时勾选多个自定义模型删除" : `${profiles.length} 个可用模型`}</span>
+            <span>{manageMode ? `可同时勾选最多 ${MAX_BATCH_DELETE_PROFILES} 个自定义模型删除` : `${profiles.length} 个可用模型`}</span>
           </div>
           {manageMode ? (
             <button className="modelPickerHeaderButton" type="button" onClick={() => { setManageMode(false); setCheckedIds([]); }}>
               <X size={14} />
               完成
             </button>
-          ) : canManage && deletableIds.length > 0 ? (
-            <button className="modelPickerHeaderButton" type="button" onClick={() => setManageMode(true)}>
-              <Settings2 size={14} />
-              管理
-            </button>
+          ) : canManage ? (
+            <div className="modelPickerHeaderActions">
+              <button
+                className="modelPickerHeaderButton"
+                type="button"
+                onClick={() => {
+                  closeMenu();
+                  onAdd();
+                }}
+              >
+                <Plus size={14} />
+                新增模型
+              </button>
+              {deletableIds.length > 0 && (
+                <button className="modelPickerHeaderButton" type="button" onClick={() => setManageMode(true)}>
+                  <Settings2 size={14} />
+                  管理
+                </button>
+              )}
+            </div>
           ) : null}
         </div>
 
         {manageMode && deletableIds.length > 1 && (
           <button className="modelPickerSelectAll" type="button" onClick={toggleAll}>
-            {checkedIds.length === deletableIds.length ? "取消全选" : `全选可删除项（${deletableIds.length}）`}
+            {allBatchIdsChecked
+              ? "取消全选"
+              : deletableIds.length > MAX_BATCH_DELETE_PROFILES
+                ? `选择前 ${MAX_BATCH_DELETE_PROFILES} 项（共 ${deletableIds.length} 项）`
+                : `全选可删除项（${deletableIds.length}）`}
           </button>
         )}
 
@@ -158,7 +192,11 @@ export function ModelProfilePicker({
                 type="button"
                 role="option"
                 aria-selected={manageMode ? checked : selected}
-                disabled={deleteBusy || (manageMode && profile.managed)}
+                disabled={
+                  deleteBusy
+                  || (manageMode && profile.managed)
+                  || (manageMode && !checked && checkedIds.length >= MAX_BATCH_DELETE_PROFILES)
+                }
                 title={label}
                 onClick={() => {
                   if (manageMode) {
