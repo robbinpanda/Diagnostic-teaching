@@ -26,7 +26,7 @@ test("cancellation aborts transport and blocks late callbacks", async () => {
     onEvent: (value) => received.push(value)
   });
 
-  controller.cancel("session-change");
+  controller.cancel("session-a", "session-change");
   emitOld?.("late");
   const result = await pending;
 
@@ -36,35 +36,102 @@ test("cancellation aborts transport and blocks late callbacks", async () => {
   if (result.status === "cancelled") assert.equal(result.reason, "session-change");
 });
 
-test("starting a new session isolates it from the superseded stream", async () => {
+test("different sessions keep streaming concurrently", async () => {
   const controller = new StreamController();
   const received: string[] = [];
-  let emitOld: ((value: string) => void) | undefined;
+  let emitA: ((value: string) => void) | undefined;
+  let emitB: ((value: string) => void) | undefined;
+  let finishA: (() => void) | undefined;
+  let finishB: (() => void) | undefined;
 
-  const oldRun = controller.start<string>({
+  const runA = controller.start<string>({
     sessionId: "session-a",
     runId: "run-a",
-    async execute(signal, emit) {
-      emitOld = emit;
-      await resolveWhenAborted(signal);
+    execute(_signal, emit) {
+      emitA = emit;
+      return new Promise<void>((resolve) => { finishA = resolve; });
     },
-    onEvent: (value) => received.push(`old:${value}`)
+    onEvent: (value) => received.push(`a:${value}`)
   });
 
-  const newRun = controller.start<string>({
+  const runB = controller.start<string>({
     sessionId: "session-b",
     runId: "run-b",
-    async execute(_signal, emit) {
-      emit("new");
+    execute(_signal, emit) {
+      emitB = emit;
+      return new Promise<void>((resolve) => { finishB = resolve; });
     },
-    onEvent: (value) => received.push(`new:${value}`)
+    onEvent: (value) => received.push(`b:${value}`)
   });
-  emitOld?.("late");
+  emitA?.("first");
+  emitB?.("second");
+  assert.deepEqual(controller.activeSessionIds.sort(), ["session-a", "session-b"]);
+  finishA?.();
+  finishB?.();
+
+  const [resultA, resultB] = await Promise.all([runA, runB]);
+  assert.equal(resultA.status, "completed");
+  assert.equal(resultB.status, "completed");
+  assert.deepEqual(received, ["a:first", "b:second"]);
+});
+
+test("a newer run only supersedes the same session", async () => {
+  const controller = new StreamController();
+  let oldSignal: AbortSignal | undefined;
+
+  const oldRun = controller.start({
+    sessionId: "session-a",
+    runId: "run-1",
+    async execute(signal) {
+      oldSignal = signal;
+      await resolveWhenAborted(signal);
+    },
+    onEvent() {}
+  });
+  const newRun = controller.start({
+    sessionId: "session-a",
+    runId: "run-2",
+    async execute() {},
+    onEvent() {}
+  });
 
   const [oldResult, newResult] = await Promise.all([oldRun, newRun]);
+  assert.equal(oldSignal?.aborted, true);
   assert.equal(oldResult.status, "cancelled");
   assert.equal(newResult.status, "completed");
-  assert.deepEqual(received, ["new:new"]);
+});
+
+test("stopping one session leaves another session connected", async () => {
+  const controller = new StreamController();
+  let signalB: AbortSignal | undefined;
+  let finishB: (() => void) | undefined;
+
+  const runA = controller.start({
+    sessionId: "session-a",
+    runId: "run-a",
+    async execute(signal) {
+      await resolveWhenAborted(signal);
+    },
+    onEvent() {}
+  });
+  const runB = controller.start({
+    sessionId: "session-b",
+    runId: "run-b",
+    execute(signal) {
+      signalB = signal;
+      return new Promise<void>((resolve) => { finishB = resolve; });
+    },
+    onEvent() {}
+  });
+
+  controller.cancel("session-a", "user");
+  assert.equal(signalB?.aborted, false);
+  assert.deepEqual(controller.activeSessionIds, ["session-b"]);
+  finishB?.();
+
+  const [resultA, resultB] = await Promise.all([runA, runB]);
+  assert.equal(resultA.status, "cancelled");
+  assert.equal(resultB.status, "completed");
 });
 
 test("a transport error clears ownership so the next run can recover", async () => {

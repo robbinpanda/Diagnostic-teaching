@@ -3,6 +3,7 @@
 import { CheckCircle2, CircleX, Loader2, Minus, Plus, PlugZap, Save, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createModelProfiles, ModelProfile, testModelProfile, updateModelProfile } from "../lib/api";
+import { mapWithConcurrency, MAX_PARALLEL_MODEL_TESTS } from "../lib/model-test-concurrency";
 
 type Props = {
   open: boolean;
@@ -96,37 +97,50 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
 
   async function handleTest() {
     setTesting(true);
-    setStatus(`正在逐个测试 ${models.length} 个模型…`);
-    let successful = 0;
-    for (const entry of models) {
-      updateModelEntry(entry.id, { testState: "testing", testMessage: "正在测试文本连接和图片能力…" });
-      try {
-        const result = await testModelProfile({
-          ...(profile ? { profile_id: profile.id } : {}),
-          provider,
-          base_url: baseUrl,
-          ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
-          model: entry.model.trim(),
-          timeout_ms: Math.min(timeoutMs, 60000),
-          max_output_tokens: maxOutputTokens,
-          probe_multimodal: true,
-          require_multimodal: entry.isMultimodal
-        });
-        if (result.ok) successful += 1;
-        updateModelEntry(entry.id, {
-          testState: result.ok ? "success" : "error",
-          testMessage: result.message,
-          isMultimodal: entry.isMultimodal || result.multimodal_ok === true
-        });
-      } catch (error) {
-        updateModelEntry(entry.id, {
-          testState: "error",
-          testMessage: error instanceof Error ? error.message : "连接测试失败"
-        });
-      }
+    setStatus(`正在并行测试 ${models.length} 个模型（最多 ${MAX_PARALLEL_MODEL_TESTS} 个同时）…`);
+    setModels((current) => current.map((entry) => ({
+      ...entry,
+      testState: "testing",
+      testMessage: "正在测试文本连接和图片能力…"
+    })));
+
+    try {
+      const outcomes = await mapWithConcurrency(
+        models,
+        MAX_PARALLEL_MODEL_TESTS,
+        async (entry) => {
+          try {
+            const result = await testModelProfile({
+              ...(profile ? { profile_id: profile.id } : {}),
+              provider,
+              base_url: baseUrl,
+              ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+              model: entry.model.trim(),
+              timeout_ms: Math.min(timeoutMs, 60000),
+              max_output_tokens: maxOutputTokens,
+              probe_multimodal: true,
+              require_multimodal: entry.isMultimodal
+            });
+            updateModelEntry(entry.id, {
+              testState: result.ok ? "success" : "error",
+              testMessage: result.message,
+              isMultimodal: result.multimodal_ok == null ? entry.isMultimodal : result.multimodal_ok
+            });
+            return result.ok;
+          } catch (error) {
+            updateModelEntry(entry.id, {
+              testState: "error",
+              testMessage: error instanceof Error ? error.message : "连接测试失败"
+            });
+            return false;
+          }
+        }
+      );
+      const successful = outcomes.filter(Boolean).length;
+      setStatus(`测试完成：${successful}/${models.length} 个模型通过。图片识别正确会勾选多模态，识别失败会取消勾选。`);
+    } finally {
+      setTesting(false);
     }
-    setStatus(`测试完成：${successful}/${models.length} 个模型通过。图片探测成功的模型已自动勾选多模态。`);
-    setTesting(false);
   }
 
   async function handleSave() {
@@ -306,7 +320,7 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
             <>
               <button className="secondaryButton" type="button" onClick={handleTest} disabled={busy || invalid}>
                 {testing ? <Loader2 size={16} className="spin" /> : <PlugZap size={16} />}
-                {models.length > 1 ? "逐个测试" : "测试连接"}
+                {models.length > 1 ? "并行测试" : "测试连接"}
               </button>
               <button className="primaryButton" type="button" onClick={handleSave} disabled={busy || invalid}>
                 {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}

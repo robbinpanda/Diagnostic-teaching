@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app.storage.database import Database, SQLITE_BUSY_TIMEOUT_MS
+from app.storage.database import SQLITE_BUSY_TIMEOUT_MS, Database
 
 
 def _create_legacy_database(path: Path) -> None:

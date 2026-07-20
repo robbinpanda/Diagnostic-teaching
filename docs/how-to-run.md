@@ -6,7 +6,7 @@
 
 ```bat
 conda create -n ai4edu-tutor python=3.11
-conda run -n ai4edu-tutor python -m pip install -r apps/api/requirements.txt
+conda run -n ai4edu-tutor python -m pip install -r apps/api/requirements-dev.txt
 npm --prefix apps/web install
 ```
 
@@ -23,7 +23,7 @@ copy .env.example .env
 | `DATABASE_URL` | `sqlite:///./data/app.db` | SQLite 文件位置 |
 | `APP_SECRET_PATH` | `./data/app-secret.key` | 模型 API key 的本地加密主密钥 |
 | `SESSION_LOG_DIR` | `./logs/sessions` | 每个 session 的 JSONL 与 Markdown 日志目录 |
-| `OPENCODE_CATALOG_REFRESH_ENABLED` | `0` | 是否从 `models.dev` 刷新 OpenCode 免费模型目录；只有开发者显式设为 `1` 才启用，Windows 安装版固定为 `0` |
+| `OPENCODE_CATALOG_REFRESH_ENABLED` | `1` | 是否从 `models.dev` 刷新 OpenCode 免费模型目录；普通本地运行默认启用，Windows 安装版固定为 `0` |
 
 进程环境变量优先于 `.env`；真实 `.env`、`data/` 和 `logs/` 都已被 Git 忽略。
 
@@ -63,6 +63,25 @@ cd apps\web
 npm test
 npm exec tsc -- --noEmit
 ```
+
+手工验证多 session 并发时，可在 session A 发送消息并看到“正在思考”后，直接从左栏新建或打开 session B，再在 B 发起生成。A 的列表项应继续显示“正在思考”，两边互不取消；重新打开 A 时会先显示 SQLite 已提交内容并继续接收其活动流。选择列表项不会自动收起左栏。点击停止只停止当前打开的 session。
+
+验证图片非阻塞流程时，上传题图后无需等待识别结束，立即点击“新建答疑”或打开右侧知识卡片。图片任务应继续在后台完成，随后以独立 session 出现在左栏；它的识别结果和首轮回复不能覆盖后来打开的新草稿。
+
+提交代码前还应执行完整工程门禁：
+
+```bat
+cd apps\api
+python -m ruff check .
+python -m pytest -q
+
+cd ..\web
+npm run lint
+npm run typecheck
+npm test
+```
+
+GitHub Actions 会在每次 push 和 pull request 时于 Windows runner 上重复执行以上检查。
 
 ## 启动
 

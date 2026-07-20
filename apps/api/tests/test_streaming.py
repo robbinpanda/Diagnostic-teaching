@@ -1,12 +1,10 @@
 import asyncio
+from dataclasses import replace
 
-import pytest
-
-from app.llm import provider
 from app.core.streaming import MessageStreamExtractor
+from app.llm import provider
 from app.llm.provider import (
     LlmProfile,
-    LlmProviderError,
     _anthropic_response_events,
     anthropic_messages_url,
     anthropic_request_payload,
@@ -33,7 +31,7 @@ def test_extractor_yields_message_segments_incrementally():
     raw_chunks = [
         '{"phase":"checking","action":"ASK_MULTIPLE_CHOICE",',
         '"message":"抓一个',
-        '点：平方项要尽量小，',
+        "点：平方项要尽量小，",
         '最好为 0。","checkpoint":null}',
     ]
     seen = ""
@@ -129,6 +127,58 @@ def test_connection_probe_uses_nihao_and_profile_token_budget(monkeypatch):
     assert consumed_after_first_chunk is False
 
 
+def test_multimodal_probe_requires_correct_visual_answer_and_uses_profile_budget(monkeypatch):
+    captured = {}
+
+    async def fake_chat_stream_completion(profile, messages, *, max_tokens=None, temperature=None):
+        captured["messages"] = messages
+        captured["max_tokens"] = max_tokens
+        captured["temperature"] = temperature
+        yield {"delta": "RED_CIRCLE|BLUE_", "finish_reason": None}
+        yield {"delta": "SQUARE", "finish_reason": None}
+        yield {"delta": "", "finish_reason": "stop"}
+
+    monkeypatch.setattr(provider, "chat_stream_completion", fake_chat_stream_completion)
+
+    async def run():
+        return await provider.test_multimodal_connection(
+            replace(_profile("openai_compatible"), max_output_tokens=8000),
+            "data:image/png;base64,dGVzdA==",
+            "RED_CIRCLE|BLUE_SQUARE",
+        )
+
+    ok, latency, message = asyncio.run(run())
+
+    assert ok is True
+    assert latency is not None
+    assert message == "图片内容识别正确"
+    assert captured["max_tokens"] == 8000
+    assert captured["temperature"] == 0
+    content = captured["messages"][0]["content"]
+    assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+def test_multimodal_probe_rejects_generic_text_reply(monkeypatch):
+    async def fake_chat_stream_completion(profile, messages, *, max_tokens=None, temperature=None):
+        yield {"delta": "OK，我可以读取图片。", "finish_reason": None}
+        yield {"delta": "", "finish_reason": "stop"}
+
+    monkeypatch.setattr(provider, "chat_stream_completion", fake_chat_stream_completion)
+
+    async def run():
+        return await provider.test_multimodal_connection(
+            _profile("openai_compatible"),
+            "data:image/png;base64,dGVzdA==",
+            "RED_CIRCLE|BLUE_SQUARE",
+        )
+
+    ok, latency, message = asyncio.run(run())
+
+    assert ok is False
+    assert latency is not None
+    assert "未正确识别测试图片" in message
+
+
 def test_anthropic_payload_moves_system_and_converts_image_data_url():
     profile = _profile("anthropic")
     payload = anthropic_request_payload(
@@ -149,7 +199,10 @@ def test_anthropic_payload_moves_system_and_converts_image_data_url():
         temperature=0.2,
     )
 
-    assert anthropic_messages_url("https://api.anthropic.com/v1") == "https://api.anthropic.com/v1/messages"
+    assert (
+        anthropic_messages_url("https://api.anthropic.com/v1")
+        == "https://api.anthropic.com/v1/messages"
+    )
     assert payload["system"] == "系统规则"
     assert payload["model"] == "local-demo"
     assert [message["role"] for message in payload["messages"]] == ["user", "assistant"]
@@ -166,9 +219,9 @@ def test_anthropic_sse_yields_text_deltas_and_stop_reason():
     class FakeResponse:
         async def aiter_lines(self):
             for line in [
-                'event: message_start',
+                "event: message_start",
                 'data: {"type":"message_start","message":{"stop_reason":null}}',
-                'event: content_block_delta',
+                "event: content_block_delta",
                 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"你"}}',
                 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"好"}}',
                 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}',

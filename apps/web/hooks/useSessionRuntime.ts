@@ -50,6 +50,7 @@ function messageId() {
 
 export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
   const [context, setContext] = useState<SessionContext>(EMPTY_SESSION_CONTEXT);
+  const [runningSessionIds, setRunningSessionIds] = useState<string[]>([]);
   const [timeline, dispatchTimeline] = useReducer(timelineReducer, undefined, () => createTimelineState());
   const [workflow, dispatchWorkflow] = useReducer(
     sessionWorkflowReducer,
@@ -72,7 +73,7 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
 
   useEffect(() => () => {
     mountedRef.current = false;
-    controllerRef.current?.cancel("unmount");
+    controllerRef.current?.cancelAll("unmount");
   }, []);
 
   function replaceContext(next: SessionContext) {
@@ -88,26 +89,27 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     role: ChatMessage["role"],
     text: string,
     action?: string,
-    imageUrl?: string | null
+    imageUrl?: string | null,
+    id = messageId()
   ) {
     dispatchTimeline({
       type: "message_added",
       sessionKey: currentSessionKey(),
-      message: { id: messageId(), role, text, action, imageUrl }
+      message: { id, role, text, action, imageUrl }
     });
   }
 
-  function cancelActiveRun(reason: StreamCancellationReason) {
-    const cancelled = controllerRef.current?.cancel(reason);
+  function cancelRun(sessionId: string, reason: StreamCancellationReason) {
+    const cancelled = controllerRef.current?.cancel(sessionId, reason);
     if (!cancelled) return null;
     dispatchWorkflow({ type: "run_stop_requested", ...cancelled });
     dispatchTimeline({ type: "run_cancelled", ...cancelled });
     dispatchWorkflow({ type: "run_finished", ...cancelled });
+    setRunningSessionIds(controllerRef.current?.activeSessionIds ?? []);
     return cancelled;
   }
 
   function prepareSessionChange() {
-    cancelActiveRun("session-change");
     dispatchWorkflow({ type: "session_reset" });
   }
 
@@ -143,7 +145,7 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
       messages: [
         ...legacyContextMessage,
         ...opened.messages.map((message, index) => ({
-          id: message.id,
+          id: message.client_message_id ? `client:${message.client_message_id}` : message.id,
           role: message.role,
           text: message.text,
           action: message.action,
@@ -160,6 +162,11 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
       pendingCard: opened.pending_card,
       now: Date.now()
     });
+    const activeRun = controllerRef.current?.currentFor(opened.session_id);
+    if (activeRun) {
+      dispatchTimeline({ type: "run_started", ...activeRun });
+      dispatchWorkflow({ type: "run_started", ...activeRun });
+    }
   }
 
   function updateDraft(patch: Partial<Omit<SessionContext, "sessionId">>) {
@@ -168,6 +175,7 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
   }
 
   function bindStartedSession(result: SessionStartResult) {
+    if (contextRef.current.sessionId) return false;
     const previousSessionKey = currentSessionKey();
     const nextContext = {
       ...contextRef.current,
@@ -182,6 +190,7 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
       previousSessionKey,
       sessionKey: nextContext.sessionId
     });
+    return true;
   }
 
   function startComposerTask(activity: "start" | "image") {
@@ -198,7 +207,7 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
   }
 
   async function runStream(nextSessionId: string, message?: string) {
-    if (!nextSessionId || contextRef.current.sessionId !== nextSessionId) return;
+    if (!nextSessionId) return;
     const runId = messageId();
     const adapter = createStreamEventAdapter({ sessionId: nextSessionId, runId });
     let receivedVisibleText = false;
@@ -208,6 +217,7 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
 
     dispatchTimeline({ type: "run_started", sessionId: nextSessionId, runId });
     dispatchWorkflow({ type: "run_started", sessionId: nextSessionId, runId });
+    setRunningSessionIds((current) => current.includes(nextSessionId) ? current : [...current, nextSessionId]);
 
     try {
       const result = await controllerRef.current!.start<SseEvent>({
@@ -277,7 +287,15 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
       dispatchTimeline({ type: "run_completed", ...result.stream });
       dispatchWorkflow({ type: "run_finished", ...result.stream });
       if (!receivedVisibleText && !receivedCheckpoint && !receivedCard && !receivedError) {
-        addMessage("system", "这一轮模型没有返回可见内容，请再说一句你的当前想法。");
+        dispatchTimeline({
+          type: "message_added",
+          sessionKey: nextSessionId,
+          message: {
+            id: messageId(),
+            role: "system",
+            text: "这一轮模型没有返回可见内容，请再说一句你的当前想法。"
+          }
+        });
       }
     } catch (error) {
       if (!mountedRef.current) return;
@@ -285,12 +303,18 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
       dispatchTimeline({ type: "run_failed", sessionId: nextSessionId, runId, message: messageText });
       dispatchWorkflow({ type: "run_failed", sessionId: nextSessionId, runId, message: messageText });
     } finally {
-      if (mountedRef.current) onRunSettledRef.current?.();
+      if (mountedRef.current) {
+        setRunningSessionIds(controllerRef.current?.activeSessionIds ?? []);
+        onRunSettledRef.current?.();
+      }
     }
   }
 
   async function stopStream() {
-    const active = controllerRef.current?.current;
+    const activeSessionId = contextRef.current.sessionId;
+    const active = activeSessionId
+      ? controllerRef.current?.currentFor(activeSessionId)
+      : null;
     if (!active) return;
     dispatchWorkflow({ type: "run_stop_requested", ...active });
     let interruptError = "";
@@ -299,7 +323,7 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     } catch (error) {
       interruptError = error instanceof Error ? error.message : "中断生成失败";
     } finally {
-      cancelActiveRun("user");
+      cancelRun(active.sessionId, "user");
     }
     if (mountedRef.current && interruptError) setError(interruptError);
   }
@@ -339,6 +363,14 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     dispatchWorkflow({ type: "error_cleared" });
   }
 
+  function isSessionActive(sessionId: string) {
+    return contextRef.current.sessionId === sessionId;
+  }
+
+  function isDraftActive() {
+    return !contextRef.current.sessionId;
+  }
+
   return {
     ...context,
     messages: timeline.messages,
@@ -347,6 +379,7 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     error: workflow.error,
     composerBlocked: isComposerBlocked(workflow),
     streamBusy: workflow.mode === "run",
+    runningSessionIds,
     checkpoint: workflow.mode === "checkpoint" ? workflow.checkpoint : null,
     checkpointStartedAt: workflow.mode === "checkpoint" ? workflow.startedAt : null,
     activeCard: workflow.mode === "card" ? workflow.card : null,
@@ -363,6 +396,8 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     failComposerTask,
     finishComposerTask,
     loadSession,
+    isDraftActive,
+    isSessionActive,
     prepareSessionChange,
     runStream,
     setError,

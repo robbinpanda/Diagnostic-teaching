@@ -10,7 +10,6 @@ from fastapi.staticfiles import StaticFiles
 
 from app.main import create_app
 
-
 DESKTOP_CONTENT_SECURITY_POLICY = "; ".join(
     (
         "default-src 'self'",

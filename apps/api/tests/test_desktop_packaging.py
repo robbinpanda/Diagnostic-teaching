@@ -19,13 +19,13 @@ def test_desktop_settings_disable_catalog_network(monkeypatch, tmp_path: Path):
     assert load_settings().opencode_catalog_refresh_enabled is False
 
 
-def test_catalog_network_refresh_requires_explicit_opt_in(monkeypatch, tmp_path: Path):
+def test_catalog_network_refresh_defaults_on_for_development(monkeypatch, tmp_path: Path):
     configure_desktop_environment(monkeypatch, tmp_path)
     monkeypatch.delenv("OPENCODE_CATALOG_REFRESH_ENABLED")
-    assert load_settings().opencode_catalog_refresh_enabled is False
-
-    monkeypatch.setenv("OPENCODE_CATALOG_REFRESH_ENABLED", "1")
     assert load_settings().opencode_catalog_refresh_enabled is True
+
+    monkeypatch.setenv("OPENCODE_CATALOG_REFRESH_ENABLED", "0")
+    assert load_settings().opencode_catalog_refresh_enabled is False
 
 
 def test_desktop_app_serves_export_and_security_headers(monkeypatch, tmp_path: Path):

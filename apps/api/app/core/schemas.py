@@ -4,7 +4,6 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl
 
-
 Provider = Literal["openai", "openai_compatible", "anthropic", "local_demo"]
 ContextStatus = Literal["need_problem", "need_thought", "ready"]
 

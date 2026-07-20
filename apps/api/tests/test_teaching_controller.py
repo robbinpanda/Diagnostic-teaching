@@ -3,8 +3,8 @@ import json
 
 import pytest
 
-from app.core.schemas import TutorCheckpoint, TutorCheckpointOption
 from app.core import teaching_controller as teaching
+from app.core.schemas import TutorCheckpoint, TutorCheckpointOption
 from app.core.teaching_controller import (
     apply_backend_action_policy,
     build_messages,

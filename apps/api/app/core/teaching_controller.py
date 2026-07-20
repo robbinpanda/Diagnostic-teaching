@@ -2,28 +2,61 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import time
 from sqlite3 import Row
 from typing import Any, AsyncIterator
 
 from pydantic import ValidationError
 
-from app.core.schemas import TutorCheckpoint, TutorTurn
+from app.core.schemas import TutorTurn
 from app.core.streaming import MessageStreamExtractor
-from app.llm.provider import LlmProfile, LlmProviderError, chat_completion, chat_stream_completion
+from app.core.tutor_turn_parsing import (
+    build_format_retry_messages,
+    extract_json_object,
+    parse_and_validate_tutor_turn,
+    recover_tutor_turn_from_raw,
+    repair_unescaped_string_field,
+    sanitize_visible_message,
+    strip_code_fence,
+)
+from app.core.tutor_turn_policy import (
+    BLOCKING_ACTIONS,
+    NONBLOCKING_ACTIONS,
+    TERMINAL_ACTIONS,
+    VALID_ACTIONS,
+    TutorTurnActionError,
+    apply_backend_action_policy,
+    validate_card_contract,
+    validate_checkpoint,
+)
+from app.llm.provider import LlmProfile, LlmProviderError, chat_stream_completion
 from app.storage.session_logger import SessionLogger
 
+__all__ = [
+    "ACTION_PROTOCOL",
+    "BLOCKING_ACTIONS",
+    "JSON_CONTRACT",
+    "NONBLOCKING_ACTIONS",
+    "SYSTEM_PROMPT",
+    "TEACHING_ACTION_DEFINITIONS",
+    "TERMINAL_ACTIONS",
+    "VALID_ACTIONS",
+    "TutorTurnActionError",
+    "apply_backend_action_policy",
+    "build_format_retry_messages",
+    "build_messages",
+    "extract_json_object",
+    "generate_tutor_turn_stream",
+    "parse_and_validate_tutor_turn",
+    "recover_tutor_turn_from_raw",
+    "repair_unescaped_string_field",
+    "sanitize_visible_message",
+    "strip_code_fence",
+    "validate_card_contract",
+    "validate_checkpoint",
+]
 
-BLOCKING_ACTIONS = {"ASK_OPEN_QUESTION", "ASK_MULTIPLE_CHOICE"}
-NONBLOCKING_ACTIONS = {"EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE", "RESPOND_TO_CHECKPOINT"}
-TERMINAL_ACTIONS = {"SUMMARIZE"}
-VALID_ACTIONS = BLOCKING_ACTIONS | NONBLOCKING_ACTIONS | TERMINAL_ACTIONS
 FORMAT_RETRY_LIMIT = 1
-
-
-class TutorTurnActionError(ValueError):
-    """The model omitted action or returned an action outside the protocol."""
 
 
 TEACHING_ACTION_DEFINITIONS = [
@@ -393,423 +426,6 @@ def render_history_message(row: Row | dict) -> dict[str, str]:
     return {"role": role, "content": json.dumps(envelope, ensure_ascii=False)}
 
 
-def extract_json_object(content: str) -> dict:
-    text = strip_code_fence(content)
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        text = text[start : end + 1]
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        repaired = repair_unescaped_string_field(text, "message")
-        if repaired != text:
-            return json.loads(repaired)
-        raise
-
-
-def strip_code_fence(content: str) -> str:
-    text = content.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?", "", text).strip()
-        text = re.sub(r"```$", "", text).strip()
-    return text
-
-
-def _decode_json_string_lenient(raw_value: str) -> str:
-    try:
-        return json.loads(f'"{raw_value}"')
-    except json.JSONDecodeError:
-        pass
-
-    def replace_escape(match: re.Match[str]) -> str:
-        escape = match.group(1)
-        if escape.startswith("u") and len(escape) == 5:
-            try:
-                return chr(int(escape[1:], 16))
-            except ValueError:
-                return "\\" + escape
-        return {
-            '"': '"',
-            "\\": "\\",
-            "/": "/",
-            "n": "\n",
-            "r": "\r",
-            "t": "\t",
-            "b": "\b",
-            "f": "\f",
-        }.get(escape, "\\" + escape)
-
-    return re.sub(r"\\(u[0-9a-fA-F]{4}|[\"\\/nrtbf])", replace_escape, raw_value)
-
-
-def repair_unescaped_string_field(text: str, field: str) -> str:
-    key_match = re.search(rf'("{re.escape(field)}"\s*:\s*)"', text, re.DOTALL)
-    if not key_match:
-        return text
-
-    value_start = key_match.end()
-    next_field = re.search(
-        r'"\s*,\s*"(?:state_hint|phase|action|message|breakpoint_description|breakpoint_confidence|checkpoint|knowledge_card|problem_card|wait_for_student|debug)"\s*:',
-        text[value_start:],
-        re.DOTALL,
-    )
-    if not next_field:
-        return text
-
-    value_end_quote = value_start + next_field.start()
-    raw_value = text[value_start:value_end_quote]
-    repaired_value = json.dumps(_decode_json_string_lenient(raw_value), ensure_ascii=False)
-    return text[: key_match.start()] + key_match.group(1) + repaired_value + text[value_end_quote + 1 :]
-
-
-def _json_string_field(text: str, field: str) -> str | None:
-    match = re.search(rf'"{re.escape(field)}"\s*:\s*"((?:\\.|[^"\\])*)"', text, re.DOTALL)
-    if match:
-        after_value = text[match.end() :].lstrip()
-        if re.match(r"^[,}\]]", after_value):
-            raw_value = match.group(1)
-            try:
-                return json.loads(f'"{raw_value}"')
-            except json.JSONDecodeError:
-                return _decode_json_string_lenient(raw_value)
-
-    raw_value = _json_string_field_lenient(text, field)
-    if raw_value is None:
-        return None
-    return raw_value
-
-
-def _json_string_field_lenient(text: str, field: str) -> str | None:
-    key_match = re.search(rf'"{re.escape(field)}"\s*:\s*"', text, re.DOTALL)
-    if not key_match:
-        return None
-    value_start = key_match.end()
-    next_field = re.search(
-        r'"\s*,\s*"(?:state_hint|phase|action|message|breakpoint_description|breakpoint_confidence|checkpoint|knowledge_card|problem_card|wait_for_student|debug)"\s*:',
-        text[value_start:],
-        re.DOTALL,
-    )
-    if next_field:
-        raw_value = text[value_start : value_start + next_field.start()]
-    else:
-        match = re.search(r'((?:\\.|[^"\\])*)"', text[value_start:], re.DOTALL)
-        if not match:
-            return None
-        raw_value = match.group(1)
-    try:
-        return json.loads(f'"{raw_value}"')
-    except json.JSONDecodeError:
-        return _decode_json_string_lenient(raw_value)
-
-
-def _json_number_field(text: str, field: str) -> float | None:
-    match = re.search(rf'"{re.escape(field)}"\s*:\s*([0-9.]+)', text)
-    if not match:
-        return None
-    try:
-        return float(match.group(1))
-    except ValueError:
-        return None
-
-
-def sanitize_visible_message(message: str) -> str:
-    clean = strip_code_fence(message).strip()
-    clean = re.sub(r"\s*来检测一下[:：]?\s*$", "。", clean)
-    clean = re.sub(r"\s*下面给你一个检查点[:：]?\s*$", "。", clean)
-    return clean.strip()
-
-
-def recover_tutor_turn_from_raw(raw: str) -> TutorTurn:
-    text = strip_code_fence(raw)
-    message = _json_string_field(text, "message")
-    if message:
-        message = sanitize_visible_message(message)
-    else:
-        looks_like_json = text.lstrip().startswith("{") or '"phase"' in text or '"state_hint"' in text or '"action"' in text
-        message = "" if looks_like_json else sanitize_visible_message(text[:800])
-
-    if not message:
-        message = "这一轮模型返回的格式不完整。我先接着当前题目往下讲：你刚才的选择已经说明等比数列中可以用中项性质，下一步要把它和方程两个根的乘积联系起来。"
-
-    action = _json_string_field(text, "action") or "EXPLAIN_LOCAL"
-    if action in {"ASK_MULTIPLE_CHOICE", "EXPLAIN_PRINCIPLE", "SUMMARIZE"}:
-        action = "EXPLAIN_LOCAL"
-    turn = TutorTurn(
-        state_hint=_json_string_field(text, "state_hint") or _json_string_field(text, "phase") or "explaining",
-        action=action,
-        message=message,
-        breakpoint_description=_json_string_field(text, "breakpoint_description"),
-        breakpoint_confidence=_json_number_field(text, "breakpoint_confidence"),
-        checkpoint=None,
-        knowledge_card=None,
-        problem_card=None,
-        debug={"parse_fallback": True},
-    )
-    apply_backend_action_policy(turn)
-    return turn
-
-
-def validate_checkpoint(checkpoint: TutorCheckpoint) -> None:
-    if len(checkpoint.options) != 3:
-        raise ValueError("checkpoint must have exactly 3 options")
-    correct = [option for option in checkpoint.options if option.is_correct]
-    if len(correct) != 1:
-        raise ValueError("checkpoint must have exactly one correct option")
-    for option in checkpoint.options:
-        if not option.is_correct and not option.misconception:
-            raise ValueError("wrong options must include misconception")
-    blocked = ["懂了吗", "听懂了吗", "跟上了吗", "理解了吗"]
-    if any(word in checkpoint.question for word in blocked):
-        raise ValueError("checkpoint question is too meta")
-
-
-def validate_card_contract(turn: TutorTurn) -> None:
-    if turn.action == "EXPLAIN_PRINCIPLE":
-        if turn.knowledge_card is None:
-            raise ValueError("EXPLAIN_PRINCIPLE requires knowledge_card")
-    elif turn.action != "EXPLAIN_LOCAL" and turn.knowledge_card is not None:
-        raise ValueError("knowledge_card is only allowed for EXPLAIN_LOCAL or EXPLAIN_PRINCIPLE")
-
-    if turn.action == "SUMMARIZE":
-        if turn.problem_card is None:
-            raise ValueError("SUMMARIZE requires problem_card")
-        step_numbers = [step.step for step in turn.problem_card.solution_steps]
-        if step_numbers != list(range(1, len(step_numbers) + 1)):
-            raise ValueError("problem_card solution_steps must be numbered from 1 without gaps")
-    elif turn.problem_card is not None:
-        raise ValueError("problem_card is only allowed for SUMMARIZE")
-
-    if turn.action != "ASK_MULTIPLE_CHOICE" and turn.checkpoint is not None:
-        raise ValueError("checkpoint is only allowed for ASK_MULTIPLE_CHOICE")
-
-
-def apply_backend_action_policy(
-    turn: TutorTurn,
-    *,
-    force_blocking: bool = False,
-    current_context_status: str = "ready",
-    current_problem_text: str = "",
-    current_student_thought: str = "",
-) -> None:
-    original_action = turn.action
-    original_context_status = turn.context_status
-    turn.problem_summary = (turn.problem_summary or "").strip() or None
-    turn.student_thought_summary = (turn.student_thought_summary or "").strip() or None
-
-    valid_context_statuses = {"need_problem", "need_thought", "ready"}
-    current_status = (
-        current_context_status
-        if current_context_status in valid_context_statuses
-        else "ready"
-    )
-    proposed_status = (
-        turn.context_status
-        if "context_status" in turn.model_fields_set
-        and turn.context_status in valid_context_statuses
-        else current_status
-    )
-    status_rank = {"need_problem": 0, "need_thought": 1, "ready": 2}
-    if status_rank[proposed_status] < status_rank[current_status]:
-        proposed_status = current_status
-
-    has_problem = bool(
-        current_status in {"need_thought", "ready"}
-        or current_problem_text.strip()
-        or turn.problem_summary
-    )
-    has_thought = bool(
-        current_status == "ready"
-        or current_student_thought.strip()
-        or turn.student_thought_summary
-    )
-    if proposed_status == "ready" and not has_problem:
-        proposed_status = "need_problem"
-    elif proposed_status == "ready" and not has_thought:
-        proposed_status = "need_thought"
-    elif proposed_status == "need_thought" and not has_problem:
-        proposed_status = "need_problem"
-    turn.context_status = proposed_status
-
-    if turn.action not in VALID_ACTIONS:
-        turn.debug["invalid_action"] = turn.action
-        turn.action = "EXPLAIN_LOCAL"
-
-    if turn.checkpoint and turn.action != "ASK_MULTIPLE_CHOICE":
-        turn.debug["action_corrected_for_checkpoint"] = turn.action
-        turn.action = "ASK_MULTIPLE_CHOICE"
-
-    if turn.action == "ASK_MULTIPLE_CHOICE" and not turn.checkpoint:
-        turn.debug["checkpoint_missing_for_multiple_choice"] = True
-        turn.action = "EXPLAIN_LOCAL"
-
-    if turn.context_status != "ready":
-        if turn.action != "ASK_OPEN_QUESTION" or not re.search(r"[？?]\s*$", turn.message):
-            turn.message = (
-                "请把你想解决的完整题目发给我，可以直接粘贴文字，也可以上传题目图片。你现在想解决的是哪道题？"
-                if turn.context_status == "need_problem"
-                else "这道题你已经试过什么、想到哪一步，或者具体卡在哪里？完全没思路也可以直接说。"
-            )
-        turn.debug["context_action_guard"] = {
-            "from": turn.action,
-            "context_status": turn.context_status,
-        }
-        turn.state_hint = "diagnosing"
-        turn.action = "ASK_OPEN_QUESTION"
-        turn.checkpoint = None
-        turn.knowledge_card = None
-        turn.problem_card = None
-    elif force_blocking and turn.action in NONBLOCKING_ACTIONS:
-        turn.debug["forced_blocking_after_action"] = turn.action
-        turn.action = "ASK_OPEN_QUESTION"
-        turn.knowledge_card = None
-        turn.problem_card = None
-        if not re.search(r"[？?]\s*$", turn.message):
-            turn.message = turn.message.rstrip("。！？!?") + "。你先说说：这一步你觉得下一步应该做什么？"
-
-    turn.wait_for_student = turn.action in BLOCKING_ACTIONS
-    if turn.action == "ASK_MULTIPLE_CHOICE" and not turn.checkpoint:
-        turn.wait_for_student = False
-    if turn.action in TERMINAL_ACTIONS:
-        turn.wait_for_student = False
-
-    if original_action != turn.action:
-        turn.debug.setdefault("backend_action_policy", True)
-    if original_context_status != turn.context_status:
-        turn.debug["context_status_normalized_from"] = original_context_status
-
-
-def parse_and_validate_tutor_turn(
-    raw: str,
-    *,
-    force_blocking: bool = False,
-    current_context_status: str = "ready",
-    current_problem_text: str = "",
-    current_student_thought: str = "",
-) -> TutorTurn:
-    payload = extract_json_object(raw)
-    action = payload.get("action")
-    if not isinstance(action, str) or action not in VALID_ACTIONS:
-        allowed = "|".join(sorted(VALID_ACTIONS))
-        raise TutorTurnActionError(
-            f"action must be one of {allowed}; received {action!r}"
-        )
-    turn = TutorTurn.model_validate(payload)
-    if turn.knowledge_card is not None and action not in {"EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE"}:
-        raise ValueError("knowledge_card is only allowed for EXPLAIN_LOCAL or EXPLAIN_PRINCIPLE")
-    turn.message = sanitize_visible_message(turn.message)
-    if not turn.message:
-        raise ValueError("message must not be empty")
-    apply_backend_action_policy(
-        turn,
-        force_blocking=force_blocking,
-        current_context_status=current_context_status,
-        current_problem_text=current_problem_text,
-        current_student_thought=current_student_thought,
-    )
-    if turn.checkpoint:
-        validate_checkpoint(turn.checkpoint)
-    validate_card_contract(turn)
-    return turn
-
-
-def build_format_retry_messages(
-    messages: list[dict[str, Any]],
-    raw: str,
-    error: Exception,
-) -> list[dict[str, Any]]:
-    if isinstance(error, TutorTurnActionError):
-        retry_instruction = (
-            "你刚才返回的 action 不对：action 缺失，或不在允许的 action 列表中。"
-            f"action 必须且只能是以下值之一：{'、'.join(sorted(VALID_ACTIONS))}。"
-            "请修正 action，并重新生成本轮完整 TutorTurn JSON。"
-            "只输出一个完整 JSON 对象，不要解释、不要 Markdown，也不要省略任何必需字段。"
-        )
-    else:
-        retry_instruction = (
-            "你刚才的输出不是完整、合法且满足合同的 JSON。请重新生成本轮结果。"
-            "只输出一个完整 JSON 对象，不要解释、不要 Markdown，也不要省略任何必需字段。"
-        )
-    return [
-        *messages,
-        {"role": "assistant", "content": raw},
-        {
-            "role": "user",
-            "content": retry_instruction,
-        },
-    ]
-
-
-async def generate_tutor_turn(
-    profile: LlmProfile,
-    session: Row,
-    history: list[Row],
-    *,
-    logger: SessionLogger | None = None,
-    nonblocking_streak: int = 0,
-    force_blocking: bool = False,
-) -> TutorTurn:
-    messages = build_messages(session, history, nonblocking_streak=nonblocking_streak, force_blocking=force_blocking)
-    started = time.perf_counter()
-    raw = ""
-    used_fallback = False
-    parse_ok = True
-    error: str | None = None
-    turn: TutorTurn | None = None
-    try:
-        request_messages = messages
-        for attempt in range(FORMAT_RETRY_LIMIT + 1):
-            raw = await chat_completion(profile, request_messages, max_tokens=profile.max_output_tokens)
-            try:
-                turn = parse_and_validate_tutor_turn(
-                    raw,
-                    force_blocking=force_blocking,
-                    current_context_status=_row_value(session, "context_status", "ready"),
-                    current_problem_text=_row_value(session, "problem_text", ""),
-                    current_student_thought=_row_value(session, "student_initial_thought", ""),
-                )
-            except (json.JSONDecodeError, ValidationError, ValueError) as exc:
-                parse_ok = False
-                if attempt < FORMAT_RETRY_LIMIT:
-                    used_fallback = True
-                    request_messages = build_format_retry_messages(messages, raw, exc)
-                    continue
-                raise LlmProviderError("模型连续返回不完整或不合法的 JSON，请重试") from exc
-            if attempt:
-                turn.debug["format_retry_count"] = attempt
-            parse_ok = True
-            return turn
-        raise LlmProviderError("模型未生成有效的教学结果")
-    except asyncio.CancelledError:
-        error = "generation_cancelled"
-        raise
-    except Exception as exc:
-        # 不吞 LLM/网络错误：交给 chat 路由的 try/except 转成 SSE error 事件
-        error = str(exc)
-        raise
-    finally:
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        if logger is not None:
-            parsed_dump: dict[str, Any] | None = None
-            try:
-                parsed_dump = turn.model_dump() if turn is not None else None
-                # 完整保留 checkpoint 的 is_correct/misconception 标签，不裁剪
-            except Exception:
-                parsed_dump = None
-            logger.log_tutor_turn(
-                session_id=session["id"],
-                model_profile_id=profile.id,
-                model=profile.model,
-                messages=messages,
-                raw_response=raw,
-                parsed_turn=parsed_dump,
-                latency_ms=latency_ms,
-                parse_ok=parse_ok,
-                used_fallback=used_fallback,
-                error=error,
-            )
-
-
 async def generate_tutor_turn_stream(
     profile: LlmProfile,
     session: Row,
@@ -833,7 +449,6 @@ async def generate_tutor_turn_stream(
     messages = build_messages(session, history, nonblocking_streak=nonblocking_streak, force_blocking=force_blocking)
     started = time.perf_counter()
     raw = ""
-    finish_reason: str | None = None
     used_fallback = False
     parse_ok = True
     error: str | None = None
@@ -857,8 +472,6 @@ async def generate_tutor_turn_stream(
                     if inc:
                         emitted_message_parts.append(inc)
                         yield ("message_delta", inc)
-                if event.get("finish_reason"):
-                    finish_reason = event["finish_reason"]
             raw = "".join(raw_parts)
             try:
                 turn_final = parse_and_validate_tutor_turn(

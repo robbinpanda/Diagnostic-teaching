@@ -9,7 +9,7 @@
 
 前端已提供“添加模型配置”按钮。用户填写一套供应商名称、`base_url` 和 `api_key` 后，可以通过 Model name 旁的加号一次加入多个模型；保存后每个 model name 仍是独立 profile，session 继续绑定到具体 profile。
 
-应用可像 OpenCode 一样读取 `https://models.dev/api.json`：在 `opencode` provider 中保留未废弃、输入价格为 0 且协议受本项目支持的模型。它们会自动成为 SQLite 中的只读托管 profile，名称统一为 `opencodefree-<model-id>`，无需用户填写 API key。为了把默认联网范围限制在 LLM API，所有运行形态默认只使用随包内置快照、不请求 `models.dev`；只有开发者显式设置 `OPENCODE_CATALOG_REFRESH_ENABLED=1` 才开启目录刷新，Windows 安装版固定为 `0`。
+应用可像 OpenCode 一样读取 `https://models.dev/api.json`：在 `opencode` provider 中保留未废弃、输入价格为 0 且协议受本项目支持的模型。它们会自动成为 SQLite 中的只读托管 profile，名称统一为 `opencodefree-<model-id>`，无需用户填写 API key。普通本地运行默认同步在线目录；Windows 安装版固定设置 `OPENCODE_CATALOG_REFRESH_ENABLED=0`，只使用随包内置快照、不请求 `models.dev`。
 
 但不建议把这些内容写进 `.env`。更合适的 MVP 方案是：
 
@@ -82,7 +82,7 @@ OpenCode 托管免费模型可从同一个设置入口查看，但供应商、Ba
 
 ### 4.2 OpenCode 免费模型同步
 
-实现与 OpenCode 源码的无密钥路径一致：目录来自 `models.dev/api.json`，无账户时使用公共值 `public`，只保留 `cost.input == 0` 的模型；本项目再排除 `alpha/deprecated` 和当前不支持的协议。默认完全跳过目录网络任务并使用最近磁盘缓存或内置快照；显式设置 `OPENCODE_CATALOG_REFRESH_ENABLED=1` 后，启动时立即在线刷新，并每 60 分钟刷新一次。Windows 安装版固定禁用刷新，但用户选择托管免费模型时仍会把答疑请求发送到其 LLM API 地址。
+实现与 OpenCode 源码的无密钥路径一致：目录来自 `models.dev/api.json`，无账户时使用公共值 `public`，只保留 `cost.input == 0` 的模型；本项目再排除 `alpha/deprecated` 和当前不支持的协议。普通本地运行启动时立即在线刷新，并每 60 分钟刷新一次；设置 `OPENCODE_CATALOG_REFRESH_ENABLED=0` 后改用最近磁盘缓存或内置快照。Windows 安装版固定禁用刷新，但用户选择托管免费模型时仍会把答疑请求发送到其 LLM API 地址。
 
 2026-07-19 内置快照如下；在线目录变化后会自动增删托管项：
 
@@ -100,8 +100,8 @@ OpenCode 官方说明这些免费端点中的部分请求可能被记录并用�
 
 按钮：
 
-1. “逐个测试”：不保存；每个 model name 先发短文本验证连通性，再发送 `apps/api/app/assets/multimodal-probe.png` 探测图片请求。每行显示绿色勾或红色叉。
-2. 未勾选多模态时，图片探测成功会自动勾选；图片探测失败但文本连接成功时仍作为文本模型通过。若用户已手动勾选多模态，图片探测失败则该模型测试失败。
+1. “并行测试”：不保存；同一供应商配置中的 model name 最多四项同时测试，每项先发短文本验证连通性，再发送后端即时生成的两组随机颜色/图形挑战。先完成的行先显示结果；只有模型返回与图片一致的顺序才算图片探测成功，仅接受图片参数、忽略图片后返回 `OK` 或其他文字不算通过。
+2. 未勾选多模态时，图片内容识别正确会自动勾选；图片探测失败但文本连接成功时仍作为文本模型通过。若用户已手动勾选多模态，图片探测失败则该模型测试失败并取消多模态勾选，避免继续误存为图片模型。
 3. 新增时“保存 N 个模型”：后端以一个事务创建所有 profile，并默认选中第一项。
 4. 编辑时“保存修改”：更新当前具体 profile 并保持选中。
 
@@ -181,13 +181,13 @@ POST /api/model-profiles/test
   "message": "连接成功；图片探测通过",
   "multimodal_ok": true,
   "multimodal_latency_ms": 1520,
-  "multimodal_message": "图片请求成功"
+  "multimodal_message": "图片内容识别正确"
 }
 ```
 
-`latency_ms` 记录文本测试从发起请求到收到第一个非空可见文本 chunk 的首字延迟（TTFT），不等待完整回复结束。前端传 `probe_multimodal=true` 时，后端会把内置 PNG 作为 `image_url` 再请求一次；`require_multimodal=true` 表示图片探测失败应让整项测试失败。
+`latency_ms` 记录文本测试从发起请求到收到第一个非空可见文本 chunk 的首字延迟（TTFT），不等待完整回复结束。前端传 `probe_multimodal=true` 时，后端会即时生成两个随机排列的 PNG 视觉挑战作为 `image_url` 再请求一次，并校验完整回复中的颜色、形状和顺序；图片探测的 `max_tokens` 沿用模型配置并保证至少 1024、最多 8192，避免推理模型在输出可见答案前被原先固定的 128 token 截断。`require_multimodal=true` 表示图片探测失败应让整项测试失败。
 
-文本和图片探测都使用极短 prompt，避免明显成本。内置图片不含用户数据、API key 或业务题目。
+文本和图片探测都使用极短 prompt，避免明显成本。随机挑战图只含纯色几何图形，不含用户数据、API key 或业务题目。
 
 编辑已有配置时可同时提交 `profile_id` 并省略 `api_key`，后端会使用已加密保存的 key 完成测试。
 

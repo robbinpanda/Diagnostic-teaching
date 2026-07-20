@@ -53,6 +53,6 @@ def load_settings() -> Settings:
         session_log_dir=session_log_dir,
         opencode_catalog_refresh_enabled=_boolean_from_env(
             os.getenv("OPENCODE_CATALOG_REFRESH_ENABLED"),
-            False,
+            True,
         ),
     )

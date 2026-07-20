@@ -4,7 +4,7 @@ from io import BytesIO
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from PIL import Image
+from PIL import Image, ImageColor
 
 from app.core.schemas import ModelProfileCreate
 from app.llm.opencode_free_models import (
@@ -105,7 +105,9 @@ def test_builtin_opencode_models_have_expected_multimodal_checkbox():
 def test_managed_opencode_profiles_sync_into_sqlite_and_cannot_be_changed(tmp_path: Path):
     app = create_app()
     app.state.db = Database(tmp_path / "app.db")
-    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
     managed = (
         OpenCodeFreeModel(
             model="vision-free",
@@ -139,7 +141,9 @@ def test_managed_opencode_profiles_sync_into_sqlite_and_cannot_be_changed(tmp_pa
 def test_delete_model_profile_endpoint_hides_profile(tmp_path: Path):
     app = create_app()
     app.state.db = Database(tmp_path / "app.db")
-    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
     client = TestClient(app)
 
     created = client.post(
@@ -170,7 +174,9 @@ def test_delete_model_profile_endpoint_hides_profile(tmp_path: Path):
 def test_update_model_profile_changes_editable_fields_and_can_replace_key(tmp_path: Path):
     app = create_app()
     app.state.db = Database(tmp_path / "app.db")
-    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
     client = TestClient(app)
 
     created = client.post(
@@ -212,7 +218,9 @@ def test_update_model_profile_changes_editable_fields_and_can_replace_key(tmp_pa
 def test_batch_create_adds_multiple_models_for_one_supplier(tmp_path: Path):
     app = create_app()
     app.state.db = Database(tmp_path / "app.db")
-    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
     client = TestClient(app)
 
     response = client.post(
@@ -243,7 +251,9 @@ def test_batch_create_adds_multiple_models_for_one_supplier(tmp_path: Path):
 def test_batch_create_rejects_duplicate_model_names(tmp_path: Path):
     app = create_app()
     app.state.db = Database(tmp_path / "app.db")
-    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
     client = TestClient(app)
 
     response = client.post(
@@ -266,7 +276,9 @@ def test_batch_create_rejects_duplicate_model_names(tmp_path: Path):
 def test_problem_image_analysis_requires_multimodal_profile(tmp_path: Path):
     app = create_app()
     app.state.db = Database(tmp_path / "app.db")
-    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
     client = TestClient(app)
 
     created = client.post(
@@ -296,7 +308,9 @@ def test_problem_image_analysis_requires_multimodal_profile(tmp_path: Path):
 def test_problem_image_analysis_local_demo_extracts_problem_text(tmp_path: Path):
     app = create_app()
     app.state.db = Database(tmp_path / "app.db")
-    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
     client = TestClient(app)
 
     created = client.post(
@@ -339,21 +353,27 @@ def test_image_analysis_prompt_forbids_inferring_student_work_from_answer():
 
 def test_image_analysis_prompt_requires_katex_and_complete_visible_markings():
     assert "可直接交给 KaTeX" in IMAGE_ANALYSIS_PROMPT
-    assert "所有数学变量、数字关系、公式、方程、不等式、几何符号都放在 `$...$` 中" in IMAGE_ANALYSIS_PROMPT
+    assert (
+        "所有数学变量、数字关系、公式、方程、不等式、几何符号都放在 `$...$` 中"
+        in IMAGE_ANALYSIS_PROMPT
+    )
     assert "不要把多行有效过程压缩" in IMAGE_ANALYSIS_PROMPT
     assert "勾、叉、圈、划线、得分、改错痕迹或批语" in IMAGE_ANALYSIS_PROMPT
     assert "就必须记录" in IMAGE_ANALYSIS_PROMPT
 
 
 def test_answer_only_summary_adds_only_visible_answer_and_grading_trace():
-    assert build_student_summary(
-        {
-            "student_work_summary": "",
-            "answer_text": "x=2",
-            "correctness": "incorrect",
-            "mistake_summary": "移项时符号错误",
-        }
-    ) == "学生写出的答案：x=2\n图片中的批改痕迹：移项时符号错误"
+    assert (
+        build_student_summary(
+            {
+                "student_work_summary": "",
+                "answer_text": "x=2",
+                "correctness": "incorrect",
+                "mistake_summary": "移项时符号错误",
+            }
+        )
+        == "学生写出的答案：x=2\n图片中的批改痕迹：移项时符号错误"
+    )
 
 
 def test_student_summary_keeps_only_visible_process_and_answer():
@@ -385,10 +405,14 @@ def test_student_summary_keeps_explicit_red_pen_cross_without_inventing_reason()
     )
 
 
-def test_text_only_image_result_does_not_crop_even_if_model_returns_bbox(tmp_path: Path, monkeypatch):
+def test_text_only_image_result_does_not_crop_even_if_model_returns_bbox(
+    tmp_path: Path, monkeypatch
+):
     app = create_app()
     app.state.db = Database(tmp_path / "app.db")
-    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
     client = TestClient(app)
 
     created = client.post(
@@ -441,7 +465,9 @@ def test_text_only_image_result_does_not_crop_even_if_model_returns_bbox(tmp_pat
 def test_edit_connection_test_uses_saved_api_key_when_input_is_blank(tmp_path: Path, monkeypatch):
     app = create_app()
     app.state.db = Database(tmp_path / "app.db")
-    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
     client = TestClient(app)
     created = client.post(
         "/api/model-profiles",
@@ -482,19 +508,24 @@ def test_edit_connection_test_uses_saved_api_key_when_input_is_blank(tmp_path: P
 def test_connection_test_probes_and_reports_multimodal_support(tmp_path: Path, monkeypatch):
     app = create_app()
     app.state.db = Database(tmp_path / "app.db")
-    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
     client = TestClient(app)
     captured = {}
 
     async def fake_test_connection(profile):
         return True, 11, "文本连接成功"
 
-    async def fake_test_multimodal_connection(profile, image_data_url):
+    async def fake_test_multimodal_connection(profile, image_data_url, expected_answer):
         captured["image_data_url"] = image_data_url
+        captured["expected_answer"] = expected_answer
         return True, 17, "图片请求成功"
 
     monkeypatch.setattr(model_profiles, "test_connection", fake_test_connection)
-    monkeypatch.setattr(model_profiles, "test_multimodal_connection", fake_test_multimodal_connection)
+    monkeypatch.setattr(
+        model_profiles, "test_multimodal_connection", fake_test_multimodal_connection
+    )
     response = client.post(
         "/api/model-profiles/test",
         json={
@@ -513,22 +544,55 @@ def test_connection_test_probes_and_reports_multimodal_support(tmp_path: Path, m
     assert payload["multimodal_latency_ms"] == 17
     assert "图片探测通过" in payload["message"]
     assert captured["image_data_url"].startswith("data:image/png;base64,")
+    assert len(captured["expected_answer"].split("|")) == 2
+
+
+def test_multimodal_probe_challenge_matches_generated_image():
+    image_data_url, expected_answer = model_profiles.multimodal_probe_challenge()
+
+    assert image_data_url.startswith("data:image/png;base64,")
+    tokens = expected_answer.split("|")
+    assert len(tokens) == 2
+    assert len({token.split("_", 1)[0] for token in tokens}) == 2
+    assert len({token.split("_", 1)[1] for token in tokens}) == 2
+    assert {token.split("_", 1)[0] for token in tokens} <= {"RED", "BLUE", "YELLOW", "GREEN"}
+    assert {token.split("_", 1)[1] for token in tokens} <= {
+        "CIRCLE",
+        "SQUARE",
+        "TRIANGLE",
+        "DIAMOND",
+    }
+
+    encoded = image_data_url.split(",", 1)[1]
+    with Image.open(BytesIO(base64.b64decode(encoded))) as image:
+        assert image.size == (480, 240)
+        expected_colors = {
+            token: ImageColor.getrgb(color)
+            for token, color in model_profiles.MULTIMODAL_PROBE_COLORS
+        }
+        for index, token in enumerate(tokens):
+            color_token = token.split("_", 1)[0]
+            assert image.getpixel((index * 240 + 120, 120)) == expected_colors[color_token]
 
 
 def test_required_multimodal_probe_failure_marks_test_failed(tmp_path: Path, monkeypatch):
     app = create_app()
     app.state.db = Database(tmp_path / "app.db")
-    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
     client = TestClient(app)
 
     async def fake_test_connection(profile):
         return True, 11, "文本连接成功"
 
-    async def fake_test_multimodal_connection(profile, image_data_url):
+    async def fake_test_multimodal_connection(profile, image_data_url, expected_answer):
         return False, 9, "模型不接受 image_url"
 
     monkeypatch.setattr(model_profiles, "test_connection", fake_test_connection)
-    monkeypatch.setattr(model_profiles, "test_multimodal_connection", fake_test_multimodal_connection)
+    monkeypatch.setattr(
+        model_profiles, "test_multimodal_connection", fake_test_multimodal_connection
+    )
     response = client.post(
         "/api/model-profiles/test",
         json={
@@ -551,17 +615,21 @@ def test_required_multimodal_probe_failure_marks_test_failed(tmp_path: Path, mon
 def test_optional_multimodal_probe_failure_keeps_text_model_available(tmp_path: Path, monkeypatch):
     app = create_app()
     app.state.db = Database(tmp_path / "app.db")
-    app.state.model_profiles = ModelProfileRepository(app.state.db, SecretBox(tmp_path / "secret.key"))
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
     client = TestClient(app)
 
     async def fake_test_connection(profile):
         return True, 8, "文本连接成功"
 
-    async def fake_test_multimodal_connection(profile, image_data_url):
+    async def fake_test_multimodal_connection(profile, image_data_url, expected_answer):
         return False, 7, "模型不接受 image_url"
 
     monkeypatch.setattr(model_profiles, "test_connection", fake_test_connection)
-    monkeypatch.setattr(model_profiles, "test_multimodal_connection", fake_test_multimodal_connection)
+    monkeypatch.setattr(
+        model_profiles, "test_multimodal_connection", fake_test_multimodal_connection
+    )
     response = client.post(
         "/api/model-profiles/test",
         json={

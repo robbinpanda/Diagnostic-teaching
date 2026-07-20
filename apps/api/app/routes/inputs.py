@@ -16,7 +16,6 @@ from app.services.input_acceptance import (
     InputWorkflowConflictError,
 )
 
-
 router = APIRouter(prefix="/api/sessions", tags=["session-inputs"])
 
 

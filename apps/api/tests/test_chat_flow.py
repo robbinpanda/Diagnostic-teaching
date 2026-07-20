@@ -1,5 +1,5 @@
-import json
 import asyncio
+import json
 import sqlite3
 from pathlib import Path
 
@@ -8,12 +8,12 @@ from fastapi.testclient import TestClient
 
 from app.core.schemas import ModelProfileCreate, SessionCreate, TutorTurn
 from app.main import create_app
+from app.routes import chat as chat_routes
+from app.routes.chat import SessionStreamCoordinator
 from app.storage.database import Database
 from app.storage.repositories import ModelProfileRepository, SessionRepository
 from app.storage.security import SecretBox
 from app.storage.session_logger import SessionLogger
-from app.routes import chat as chat_routes
-from app.routes.chat import SessionStreamCoordinator
 
 
 def _bootstrap_app(tmp_path: Path) -> tuple[TestClient, str]:
@@ -48,8 +48,8 @@ def _bootstrap_app(tmp_path: Path) -> tuple[TestClient, str]:
 def _parse_sse_events(body: str) -> list[tuple[str, dict]]:
     events = []
     for part in body.split("\n\n"):
-        event_line = next((l for l in part.split("\n") if l.startswith("event:")), None)
-        data_line = next((l for l in part.split("\n") if l.startswith("data:")), None)
+        event_line = next((line for line in part.split("\n") if line.startswith("event:")), None)
+        data_line = next((line for line in part.split("\n") if line.startswith("data:")), None)
         if event_line and data_line:
             events.append(
                 (event_line.replace("event:", "").strip(), json.loads(data_line.replace("data:", "").strip()))

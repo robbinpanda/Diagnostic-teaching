@@ -1,0 +1,348 @@
+.messageViewport {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.messageColumn {
+  width: min(820px, 100%);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 30px 28px 42px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.welcomeState {
+  min-height: calc(100vh - 320px);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  padding: 36px 20px;
+  text-align: center;
+}
+
+.welcomeGlyph {
+  width: 58px;
+  height: 58px;
+  border-radius: 20px;
+}
+
+.welcomeState h1 {
+  margin-top: 3px;
+  font-size: clamp(22px, 3vw, 30px);
+  font-weight: 580;
+  letter-spacing: -0.02em;
+}
+
+.welcomeState p {
+  max-width: 540px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.welcomeExamples {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 5px;
+}
+
+.welcomeExamples span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 10px;
+  color: #62625e;
+  background: var(--panel);
+  font-size: 11px;
+}
+
+.chatMessage {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+
+.messageAvatar {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--accent);
+  background: var(--panel);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.messageBody {
+  min-width: 0;
+  display: grid;
+  gap: 9px;
+  padding: 4px 0;
+  line-height: 1.75;
+}
+
+.chatMessage.student {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: end;
+}
+
+.chatMessage.student .messageAvatar {
+  display: none;
+}
+
+.chatMessage.student .messageBody {
+  width: fit-content;
+  max-width: min(650px, 88%);
+  border-radius: 16px 16px 4px 16px;
+  padding: 11px 14px;
+  background: #f0f0ed;
+}
+
+.chatMessage.system {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+}
+
+.chatMessage.system .messageAvatar {
+  display: none;
+}
+
+.chatMessage.system .messageBody {
+  border: 1px solid #eadfb8;
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: #705c21;
+  background: #fcf8e9;
+  font-size: 12px;
+}
+
+.messageText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 14px;
+}
+
+.messageImage {
+  width: min(360px, 100%);
+  max-height: 300px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  object-fit: contain;
+  background: #ffffff;
+}
+
+.actionTag {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: #6e7771;
+  background: #f0f3f1;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.mathText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mathInline {
+  display: inline;
+  overflow: visible;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.mathDisplay {
+  display: block;
+  max-width: 100%;
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+.mathDisplay .katex-display {
+  margin: 0;
+}
+
+.titleMathText,
+.titleMathText .mathDisplay,
+.titleMathText .katex-display {
+  display: inline;
+  margin: 0;
+  overflow: visible;
+  white-space: nowrap;
+}
+
+.composerDock {
+  width: min(860px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 0 0 14px;
+  display: grid;
+  gap: 7px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #ffffff 24px);
+  z-index: 2;
+}
+
+.composerCard {
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  padding: 11px;
+  background: #ffffff;
+  box-shadow: 0 6px 24px rgba(28, 29, 26, 0.09);
+}
+
+.composerCard textarea {
+  width: 100%;
+  min-height: 60px;
+  max-height: 180px;
+  resize: none;
+  border: 0;
+  outline: none;
+  padding: 2px 4px 8px;
+  color: var(--ink);
+  background: transparent;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.composerCard textarea::placeholder {
+  color: #969691;
+}
+
+.composerToolbar,
+.composerActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.composerToolbar {
+  justify-content: space-between;
+}
+
+.composerActions {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.toolButton {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: 9px;
+  color: #5d5d59;
+  background: transparent;
+}
+
+.toolButton.danger {
+  color: #9d5c55;
+}
+
+.toolButton.danger:hover:not(:disabled) {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.composerActions select {
+  width: auto;
+  max-width: 160px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  outline: none;
+  padding: 0 24px 0 9px;
+  color: #565652;
+  background: var(--panel);
+  font-size: 11px;
+}
+
+.sendButton {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 50%;
+  color: #ffffff;
+  background: #232421;
+}
+
+.sendButton:hover:not(:disabled) {
+  background: var(--accent);
+}
+
+.composerHint {
+  color: var(--faint);
+  font-size: 9px;
+  text-align: center;
+}
+
+.hiddenFileInput {
+  display: none;
+}
+
+.inlineError,
+.attachmentContext {
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+.inlineError {
+  justify-content: space-between;
+  color: var(--danger);
+  background: var(--danger-soft);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.inlineError button,
+.attachmentContext button {
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+  border-radius: 7px;
+  color: inherit;
+  background: transparent;
+}
+
+.attachmentContext {
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.attachmentContext img {
+  width: 38px;
+  height: 38px;
+  border-radius: 7px;
+  object-fit: cover;
+}
+
+.attachmentContext div {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
+
+.attachmentContext strong {
+  font-size: 11px;
+}
+
+.attachmentContext span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -1,8 +1,8 @@
 # 上下文、Session 恢复与诊断日志
 
-版本：v1.3
+版本：v1.4
 
-日期：2026-07-19
+日期：2026-07-20
 
 适用项目：诊断式数学答疑 MVP
 
@@ -30,6 +30,8 @@ SQLite schema 由 `apps/api/migrations/versions/` 下的 Alembic revision 管理
 ```text
 apps/api/app/services/input_acceptance.py
 ```
+
+该文件是稳定的公共门面；首次建会话、普通消息、卡片关闭和 checkpoint 答案分别由同目录下的分域模块实现。拆分只隔离代码职责，每一种输入仍在自己的单一 `BEGIN IMMEDIATE` 事务中同时写入 `session_inputs`、业务状态和对应稳定事件。
 
 它与生成服务的边界是：
 
@@ -91,6 +93,8 @@ Content-Type: application/json
 ```text
 apps/api/app/core/teaching_controller.py
 ```
+
+入口负责 prompt、历史消息组装与流式生成编排；TutorTurn 的容错解析位于 `tutor_turn_parsing.py`，action/context 的强制策略和 `wait_for_student` 推导位于 `tutor_turn_policy.py`。`teaching_controller.py` 继续转出这些公共函数，旧导入路径保持兼容。
 
 核心函数：
 
@@ -446,7 +450,11 @@ useSessionRuntime
   -> timeline.ts               message 拼接、reset/final 校准、重复与迟到事件规则
 ```
 
-切换会话、新建答疑或页面卸载时，controller 会 abort 当前 `streamChat`，并使旧 run 的回调失效。用户点击停止时，前端先调用 session interrupt 接口，让后端把 run 原子落为 `interrupted` 并取消 provider，再收束本地 fetch。timeline reducer 还会校验 event 的 session id 与本地 run id，因此即使旧异步回调迟到，也不能写入新 session。停止时仅移除尚未 `message_done` 的临时 assistant 片段；已经完成的 action 和学生消息保留，SQLite 仍是重新打开会话时的唯一权威来源。
+controller 以 session id 为键保存多条活动 `streamChat`。切换会话或新建答疑只改变当前视图，不 abort 原 session 的 fetch；同一 session 的新 run 只 supersede 自己的旧 run，不同 session 可继续并发。用户点击停止时，前端只针对当前 session 调用 interrupt 接口，让后端把对应 run 原子落为 `interrupted` 并取消 provider，再收束该 session 的本地 fetch；页面卸载才统一取消全部本地连接。
+
+timeline reducer 仍校验 event 的 session id 与本地 run id，因此后台流和迟到回调不能写入当前打开的另一个 session。重新打开仍在生成的 session 时，页面先读取 SQLite 快照恢复已提交 action，再依据 controller 中该 session 的活动 run 接收后续事件；切换期间遗漏的半截字符不作为恢复依据，最终 `decision` 或下次 SQLite 快照负责校准完整内容。显式停止时仅移除尚未 `message_done` 的临时 assistant 片段；已经完成的 action 和学生消息保留，SQLite 仍是重新打开会话时的唯一权威来源。
+
+图片任务同样与视图解耦：文件选择时先生成稳定的 session id 和 `client_message_id`，随后读取图片、视觉识别、`POST /api/sessions/start` 与首轮生成都使用这组身份。用户在中途新建/打开其他对话或浏览卡片不会取消任务；回调只有在发起任务的视图 token 仍有效时才绑定当前草稿，否则只在后台创建 session、刷新历史并继续生成。
 
 chat 流与 durable change feed 的边界如下：
 

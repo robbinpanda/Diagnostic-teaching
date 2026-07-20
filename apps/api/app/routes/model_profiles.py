@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import base64
 import json
+import random
 import time
-from functools import lru_cache
-from pathlib import Path
+from io import BytesIO
 
 from fastapi import APIRouter, HTTPException, Request, Response
+from PIL import Image, ImageDraw
 
 from app.core.schemas import (
     ModelProfileBatchCreate,
@@ -23,13 +24,84 @@ from app.llm.provider import LlmProfile, test_connection, test_multimodal_connec
 from app.storage.repositories import host_from_url
 
 router = APIRouter(prefix="/api/model-profiles", tags=["model profiles"])
-MULTIMODAL_PROBE_IMAGE = Path(__file__).resolve().parents[1] / "assets" / "multimodal-probe.png"
+MULTIMODAL_PROBE_COLORS = (
+    ("RED", "#ef4444"),
+    ("BLUE", "#2563eb"),
+    ("YELLOW", "#facc15"),
+    ("GREEN", "#16a34a"),
+)
+MULTIMODAL_PROBE_SHAPES = ("CIRCLE", "SQUARE", "TRIANGLE", "DIAMOND")
+MULTIMODAL_PROBE_ITEM_COUNT = 2
 
 
-@lru_cache(maxsize=1)
-def multimodal_probe_data_url() -> str:
-    encoded = base64.b64encode(MULTIMODAL_PROBE_IMAGE.read_bytes()).decode("ascii")
-    return f"data:image/png;base64,{encoded}"
+def multimodal_probe_challenge() -> tuple[str, str]:
+    """Build an unpredictable visual challenge so a text-only model cannot guess it."""
+    colors = list(MULTIMODAL_PROBE_COLORS)
+    shapes = list(MULTIMODAL_PROBE_SHAPES)
+    secure_random = random.SystemRandom()
+    secure_random.shuffle(colors)
+    secure_random.shuffle(shapes)
+    colors = colors[:MULTIMODAL_PROBE_ITEM_COUNT]
+    shapes = shapes[:MULTIMODAL_PROBE_ITEM_COUNT]
+
+    width, height = 480, 240
+    image = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(image)
+    cell_width = width // len(shapes)
+    expected_tokens: list[str] = []
+    for index, ((color_token, color_value), shape) in enumerate(zip(colors, shapes, strict=True)):
+        left = index * cell_width + 45
+        right = (index + 1) * cell_width - 45
+        top = 45
+        bottom = height - 45
+        center_x = (left + right) // 2
+        center_y = (top + bottom) // 2
+        half_size = min(right - left, bottom - top) // 2
+        if shape == "CIRCLE":
+            draw.ellipse(
+                (
+                    center_x - half_size,
+                    center_y - half_size,
+                    center_x + half_size,
+                    center_y + half_size,
+                ),
+                fill=color_value,
+            )
+        elif shape == "SQUARE":
+            draw.rectangle(
+                (
+                    center_x - half_size,
+                    center_y - half_size,
+                    center_x + half_size,
+                    center_y + half_size,
+                ),
+                fill=color_value,
+            )
+        elif shape == "TRIANGLE":
+            draw.polygon(
+                (
+                    (center_x, center_y - half_size),
+                    (center_x - half_size, center_y + half_size),
+                    (center_x + half_size, center_y + half_size),
+                ),
+                fill=color_value,
+            )
+        else:
+            draw.polygon(
+                (
+                    (center_x, center_y - half_size),
+                    (center_x - half_size, center_y),
+                    (center_x, center_y + half_size),
+                    (center_x + half_size, center_y),
+                ),
+                fill=color_value,
+            )
+        expected_tokens.append(f"{color_token}_{shape}")
+
+    buffer = BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}", "|".join(expected_tokens)
 
 
 def to_public(row) -> ModelProfilePublic:
@@ -102,13 +174,17 @@ def create_profiles_batch(
 
 
 @router.patch("/{profile_id}", response_model=ModelProfilePublic)
-def update_profile(profile_id: str, payload: ModelProfileUpdate, request: Request) -> ModelProfilePublic:
+def update_profile(
+    profile_id: str, payload: ModelProfileUpdate, request: Request
+) -> ModelProfilePublic:
     try:
         row = request.app.state.model_profiles.update(profile_id, payload)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="模型配置不存在") from exc
     except PermissionError as exc:
-        raise HTTPException(status_code=409, detail="OpenCode 免费模型由目录自动同步，不能手动修改") from exc
+        raise HTTPException(
+            status_code=409, detail="OpenCode 免费模型由目录自动同步，不能手动修改"
+        ) from exc
     return to_public(row)
 
 
@@ -119,12 +195,16 @@ def delete_profile(profile_id: str, request: Request) -> Response:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="模型配置不存在") from exc
     except PermissionError as exc:
-        raise HTTPException(status_code=409, detail="OpenCode 免费模型由目录自动同步，不能手动删除") from exc
+        raise HTTPException(
+            status_code=409, detail="OpenCode 免费模型由目录自动同步，不能手动删除"
+        ) from exc
     return Response(status_code=204)
 
 
 @router.post("/test", response_model=ModelProfileTestResponse)
-async def test_profile(payload: ModelProfileTestRequest, request: Request) -> ModelProfileTestResponse:
+async def test_profile(
+    payload: ModelProfileTestRequest, request: Request
+) -> ModelProfileTestResponse:
     started = time.perf_counter()
     api_key = payload.api_key
     profile_id = "unsaved"
@@ -154,9 +234,11 @@ async def test_profile(payload: ModelProfileTestRequest, request: Request) -> Mo
     multimodal_latency: int | None = None
     multimodal_message: str | None = None
     if ok and payload.probe_multimodal:
+        probe_image_data_url, expected_answer = multimodal_probe_challenge()
         multimodal_ok, multimodal_latency, multimodal_message = await test_multimodal_connection(
             profile,
-            multimodal_probe_data_url(),
+            probe_image_data_url,
+            expected_answer,
         )
         if multimodal_ok:
             message = f"{message}；图片探测通过"

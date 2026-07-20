@@ -7,7 +7,6 @@ from fastapi import APIRouter, HTTPException, Request, Response
 
 from app.core.schemas import StudyCardListResponse, StudyCardPublic, StudyCardSaveRequest
 
-
 router = APIRouter(prefix="/api/cards", tags=["cards"])
 
 

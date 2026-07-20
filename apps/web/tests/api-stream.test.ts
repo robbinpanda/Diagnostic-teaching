@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { streamChat } from "../lib/api";
+import { modelProfileLabel, streamChat } from "../lib/api";
+
+test("model labels use the intended middle-dot separator", () => {
+  assert.equal(
+    modelProfileLabel({ display_name: "火山方舟", model: "deepseek-v4-pro" }),
+    "火山方舟 · deepseek-v4-pro"
+  );
+  assert.equal(
+    modelProfileLabel({ display_name: "opencodefree-mimo", model: "mimo", managed: true }),
+    "opencodefree-mimo"
+  );
+});
 
 test("streamChat forwards AbortSignal to fetch", async () => {
   const originalFetch = globalThis.fetch;
