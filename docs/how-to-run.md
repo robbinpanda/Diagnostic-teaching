@@ -23,8 +23,15 @@ copy .env.example .env
 | `DATABASE_URL` | `sqlite:///./data/app.db` | SQLite 文件位置 |
 | `APP_SECRET_PATH` | `./data/app-secret.key` | 模型 API key 的本地加密主密钥 |
 | `SESSION_LOG_DIR` | `./logs/sessions` | 每个 session 的 JSONL 与 Markdown 日志目录 |
+| `OPENCODE_CATALOG_REFRESH_ENABLED` | `0` | 是否从 `models.dev` 刷新 OpenCode 免费模型目录；只有开发者显式设为 `1` 才启用，Windows 安装版固定为 `0` |
 
 进程环境变量优先于 `.env`；真实 `.env`、`data/` 和 `logs/` 都已被 Git 忽略。
+
+## Windows 10/11 安装版
+
+发布给普通用户时使用 `dist/windows/installer/` 下的 NSIS 安装包。安装版已包含 Electron、静态前端和 FastAPI/Python sidecar，不要求用户安装本页“首次安装”中的开发依赖。应用只监听随机 `127.0.0.1` 端口，数据写入当前用户的 `%APPDATA%\DiagnosticTeaching\`，退出时会请求 sidecar 正常关闭。
+
+构建命令、安装步骤、联网边界和签名注意事项见 `docs/windows-installer.md`。
 
 ## 数据库迁移与 Windows 本地行为
 

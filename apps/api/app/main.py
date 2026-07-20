@@ -32,13 +32,18 @@ async def lifespan(app: FastAPI):
             app.state.model_profiles.sync_opencode_free_models(models)
             await asyncio.sleep(CATALOG_REFRESH_SECONDS)
 
-    refresh_task = asyncio.create_task(refresh_opencode_free_models())
+    refresh_task = (
+        asyncio.create_task(refresh_opencode_free_models())
+        if app.state.settings.opencode_catalog_refresh_enabled
+        else None
+    )
     try:
         yield
     finally:
-        refresh_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await refresh_task
+        if refresh_task is not None:
+            refresh_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await refresh_task
 
 
 def create_app() -> FastAPI:

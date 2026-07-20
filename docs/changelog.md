@@ -2,6 +2,17 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v2.2 — 2026-07-20
+
+### Windows 10/11 安装包
+
+- 新增 Electron + NSIS 桌面壳，参考 OpenCode 的 `electron-builder` 结构，以 per-user、无需管理员权限的安装方式生成 x64 安装包、桌面快捷方式和开始菜单入口。
+- Next.js 改为静态导出；PyInstaller 把 FastAPI、Python 运行时、Alembic migrations 与图片资源封装为 sidecar。终端用户无需安装 Node.js、Python、Conda 或 SQLite。
+- 桌面主进程为每次运行分配随机 `127.0.0.1` 端口，等待健康检查后再显示窗口；单实例运行，退出时通过一次性 token 请求 sidecar 正常停机，超时才强制结束。
+- 安装版数据、API key 加密主密钥和日志写入当前用户应用数据目录，升级/卸载默认不删除业务数据。
+- 渲染进程关闭 Node 集成、启用 sandbox/CSP、拒绝权限、外部导航和非本机请求；所有运行形态默认关闭 `models.dev` 目录刷新，安装版固定禁用，且不包含登录、遥测或自动更新，默认运行时外网仅由模型连接测试和 LLM 调用产生。
+- 新增 `scripts/build-windows-installer.ps1`、独立桌面依赖、PyInstaller spec、桌面静态服务安全头测试和完整构建/安装文档。
+
 ## v2.1 — 2026-07-19
 
 ### 取消前置 intake，改为正式会话内语义收集

@@ -2,14 +2,14 @@
 
 方案版本：v0.3
 文档状态：现行实现说明
-最后核对：2026-07-19
+最后核对：2026-07-20
 适用项目：诊断式数学答疑 MVP
 
 ## 1. 结论
 
 前端已提供“添加模型配置”按钮。用户填写一套供应商名称、`base_url` 和 `api_key` 后，可以通过 Model name 旁的加号一次加入多个模型；保存后每个 model name 仍是独立 profile，session 继续绑定到具体 profile。
 
-应用还会像 OpenCode 一样读取 `https://models.dev/api.json`：在 `opencode` provider 中保留未废弃、输入价格为 0 且协议受本项目支持的模型。它们会自动成为 SQLite 中的只读托管 profile，名称统一为 `opencodefree-<model-id>`，无需用户填写 API key。
+应用可像 OpenCode 一样读取 `https://models.dev/api.json`：在 `opencode` provider 中保留未废弃、输入价格为 0 且协议受本项目支持的模型。它们会自动成为 SQLite 中的只读托管 profile，名称统一为 `opencodefree-<model-id>`，无需用户填写 API key。为了把默认联网范围限制在 LLM API，所有运行形态默认只使用随包内置快照、不请求 `models.dev`；只有开发者显式设置 `OPENCODE_CATALOG_REFRESH_ENABLED=1` 才开启目录刷新，Windows 安装版固定为 `0`。
 
 但不建议把这些内容写进 `.env`。更合适的 MVP 方案是：
 
@@ -82,7 +82,7 @@ OpenCode 托管免费模型可从同一个设置入口查看，但供应商、Ba
 
 ### 4.2 OpenCode 免费模型同步
 
-实现与 OpenCode 源码的无密钥路径一致：目录来自 `models.dev/api.json`，无账户时使用公共值 `public`，只保留 `cost.input == 0` 的模型；本项目再排除 `alpha/deprecated` 和当前不支持的协议。应用启动时先使用最近磁盘缓存或内置快照，随后立即在线刷新，并每 60 分钟刷新一次。
+实现与 OpenCode 源码的无密钥路径一致：目录来自 `models.dev/api.json`，无账户时使用公共值 `public`，只保留 `cost.input == 0` 的模型；本项目再排除 `alpha/deprecated` 和当前不支持的协议。默认完全跳过目录网络任务并使用最近磁盘缓存或内置快照；显式设置 `OPENCODE_CATALOG_REFRESH_ENABLED=1` 后，启动时立即在线刷新，并每 60 分钟刷新一次。Windows 安装版固定禁用刷新，但用户选择托管免费模型时仍会把答疑请求发送到其 LLM API 地址。
 
 2026-07-19 内置快照如下；在线目录变化后会自动增删托管项：
 

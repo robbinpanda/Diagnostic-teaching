@@ -1,0 +1,47 @@
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from app.core.config import load_settings
+from app.desktop import create_desktop_app
+
+
+def configure_desktop_environment(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'desktop.db'}")
+    monkeypatch.setenv("APP_SECRET_PATH", str(tmp_path / "desktop.key"))
+    monkeypatch.setenv("SESSION_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("OPENCODE_CATALOG_REFRESH_ENABLED", "0")
+
+
+def test_desktop_settings_disable_catalog_network(monkeypatch, tmp_path: Path):
+    configure_desktop_environment(monkeypatch, tmp_path)
+
+    assert load_settings().opencode_catalog_refresh_enabled is False
+
+
+def test_catalog_network_refresh_requires_explicit_opt_in(monkeypatch, tmp_path: Path):
+    configure_desktop_environment(monkeypatch, tmp_path)
+    monkeypatch.delenv("OPENCODE_CATALOG_REFRESH_ENABLED")
+    assert load_settings().opencode_catalog_refresh_enabled is False
+
+    monkeypatch.setenv("OPENCODE_CATALOG_REFRESH_ENABLED", "1")
+    assert load_settings().opencode_catalog_refresh_enabled is True
+
+
+def test_desktop_app_serves_export_and_security_headers(monkeypatch, tmp_path: Path):
+    configure_desktop_environment(monkeypatch, tmp_path)
+    web_root = tmp_path / "web"
+    web_root.mkdir()
+    (web_root / "index.html").write_text("<html><body>desktop-ready</body></html>", encoding="utf-8")
+
+    with TestClient(create_desktop_app(web_root)) as client:
+        health = client.get("/api/health")
+        page = client.get("/")
+        shutdown = client.post("/api/desktop/shutdown")
+
+    assert health.json() == {"ok": True}
+    assert page.status_code == 200
+    assert "desktop-ready" in page.text
+    assert page.headers["content-security-policy"].startswith("default-src 'self'")
+    assert page.headers["x-content-type-options"] == "nosniff"
+    assert shutdown.status_code == 404

@@ -1,0 +1,37 @@
+appId: cn.ai4edu.diagnostic-teaching
+productName: 诊断式数学答疑
+artifactName: Diagnostic-Teaching-Setup-${version}-${arch}.${ext}
+
+directories:
+  output: ../../dist/windows/installer
+
+asar: true
+electronDist: node_modules/electron/dist
+
+files:
+  - src/main.cjs
+  - package.json
+
+extraResources:
+  - from: ../../dist/windows/api
+    to: api
+  - from: ../web/out
+    to: web
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  requestedExecutionLevel: asInvoker
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+  shortcutName: 诊断式数学答疑
+  uninstallDisplayName: 诊断式数学答疑

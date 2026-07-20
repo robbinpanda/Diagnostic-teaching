@@ -17,6 +17,7 @@ class Settings:
     database_path: Path
     secret_path: Path
     session_log_dir: Path
+    opencode_catalog_refresh_enabled: bool
 
 
 def _sqlite_path_from_url(value: str | None, root: Path) -> Path:
@@ -27,6 +28,12 @@ def _sqlite_path_from_url(value: str | None, root: Path) -> Path:
         path = Path(raw_path)
         return path if path.is_absolute() else root / path
     return root / value
+
+
+def _boolean_from_env(value: str | None, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
 
 
 def load_settings() -> Settings:
@@ -44,4 +51,8 @@ def load_settings() -> Settings:
         database_path=database_path,
         secret_path=secret_path,
         session_log_dir=session_log_dir,
+        opencode_catalog_refresh_enabled=_boolean_from_env(
+            os.getenv("OPENCODE_CATALOG_REFRESH_ENABLED"),
+            False,
+        ),
     )

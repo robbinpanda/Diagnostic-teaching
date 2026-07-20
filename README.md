@@ -10,13 +10,19 @@ context_status + problem/thought summary + state_hint + action + message + break
 
 后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、标注每条 AI 消息对应的教学 action、弹出检查点并把学生选择回传给模型。
 
-当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、OpenAI-compatible / Anthropic 双协议加密模型配置、自动同步的 OpenCode 免费模型、检查点选择题、跨 session 的全局知识卡片/题目卡片库、学习卡片 PDF 多排版导出、SQLite 历史会话与删除、按 session 严格递增的 durable events 与断线重放 SSE，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
+当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、OpenAI-compatible / Anthropic 双协议加密模型配置、OpenCode 免费模型、Windows 10/11 安装包、检查点选择题、跨 session 的全局知识卡片/题目卡片库、学习卡片 PDF 多排版导出、SQLite 历史会话与删除、按 session 严格递增的 durable events 与断线重放 SSE，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
 
 SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 revision；旧版无 Alembic 标记的数据库会在保留业务数据的前提下建立迁移基线。每条应用连接启用 foreign keys、WAL 与 5 秒 busy timeout，具体约束、备份和 Windows 本地运行行为见 `docs/database.md`。
 
 前端会话运行态由 timeline reducer、互斥 workflow 状态机和可取消 stream controller 管理。切换会话、新建答疑或页面卸载会中止当前 HTTP 流；点击停止会先调用服务端 interrupt，再收束本地 fetch。每个 chat 事件同时绑定 session id 与本地 run id，旧流不能写入后来打开的 session。高频 `message_delta/message_reset` 没有 durable seq；稳定业务边界由独立的 session-events SSE 提供严格递增的 `seq` 和断线重放。
 
-模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name，并可选择 OpenAI-compatible chat completions 或 Anthropic Messages 协议。每个模型独立设置是否多模态；连接测试会逐模型显示成功或失败，并用内置样例图自动探测未勾选模型的图片能力。用户配置显示为“供应商名称 · model name”；OpenCode 托管免费模型显示为 `opencodefree-<model-id>`，由 `models.dev` 目录同步协议与图片能力，设置弹窗中的多模态复选框只读展示真实元数据。
+模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name，并可选择 OpenAI-compatible chat completions 或 Anthropic Messages 协议。每个模型独立设置是否多模态；连接测试会逐模型显示成功或失败，并用内置样例图自动探测未勾选模型的图片能力。用户配置显示为“供应商名称 · model name”；OpenCode 托管免费模型显示为 `opencodefree-<model-id>`。所有运行形态默认使用随包快照、不请求目录服务；开发者只有显式设置 `OPENCODE_CATALOG_REFRESH_ENABLED=1` 才会从 `models.dev` 更新目录。
+
+## Windows 安装版
+
+Windows 10/11 x64 用户可直接运行 NSIS 安装包，无需预装 Node.js、Python、Conda 或数据库。Electron 启动随包 FastAPI sidecar，在随机 `127.0.0.1` 端口同源加载静态前端；会话、日志和加密密钥保存在当前 Windows 用户的应用数据目录，卸载默认保留数据。
+
+安装版没有登录、遥测、自动更新或外部页面跳转。渲染进程只能访问本机 sidecar；sidecar 关闭 `models.dev` 刷新，运行时外网请求只会发生在用户测试或使用已配置的 LLM API 时。构建、安装、数据位置和签名说明见 `docs/windows-installer.md`。
 
 前置 intake 已取消。第一条消息通过 `POST /api/sessions/start` 在一个 SQLite 事务中创建正式 session、写入 `session_inputs` 并保存 `STUDENT_RESPONSE`；客户端提供稳定的 session id 与 `client_message_id`，响应丢失后重试不会创建重复会话。题目和学生思路由正式答疑模型按完整对话语义提取，不能按消息顺序猜测；`context_status=need_problem|need_thought` 时后端强制只允许 `ASK_OPEN_QUESTION`，两项明确后进入 `ready`。学生明确说“完全没思路”属于有效思路状态。图片识别结果可作为 session 的初始语义摘要，原图仍会保留并绑定多模态模型。
 
@@ -121,6 +127,7 @@ apps/web   Next.js 前端
   lib/stream-controller.ts            AbortController 与 session/run 隔离
   lib/stream-protocol.ts              可选 seq/after_seq 事件适配边界
   tests/                               前端 reducer、取消和隔离测试
+apps/desktop Electron 主进程、NSIS 配置与 PyInstaller spec
 docs       文档
 scripts    Windows 启动、关闭、调试脚本
 config     模型配置预设示例

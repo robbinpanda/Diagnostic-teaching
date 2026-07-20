@@ -1,0 +1,17 @@
+{
+  "name": "diagnostic-teaching-desktop",
+  "productName": "诊断式数学答疑",
+  "version": "0.3.0",
+  "private": true,
+  "description": "诊断式数学答疑 Windows 桌面客户端",
+  "main": "src/main.cjs",
+  "author": "ai4edu",
+  "license": "UNLICENSED",
+  "scripts": {
+    "package:win": "electron-builder --win nsis --x64 --config electron-builder.yml"
+  },
+  "devDependencies": {
+    "electron": "42.3.3",
+    "electron-builder": "26.15.2"
+  }
+}
