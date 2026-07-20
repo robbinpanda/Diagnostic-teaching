@@ -1,9 +1,9 @@
 "use client";
 
-import { ArrowUp, Loader2, Paperclip, Pencil, Plus, Square, Trash2, X } from "lucide-react";
+import { ArrowUp, Loader2, Paperclip, Pencil, Plus, Square, X } from "lucide-react";
 import type { RefObject } from "react";
 import type { ModelProfile } from "../../lib/api";
-import { modelProfileLabel } from "../../lib/api";
+import { ModelProfilePicker } from "./ModelProfilePicker";
 
 type Props = {
   error: string | null;
@@ -17,7 +17,7 @@ type Props = {
   selectedProfileId: string;
   selectedProfile?: ModelProfile;
   profiles: ModelProfile[];
-  deleteBusyId: string;
+  deleteBusy: boolean;
   streamBusy: boolean;
   stopBusy: boolean;
   startBusy: boolean;
@@ -29,7 +29,7 @@ type Props = {
   onGradeBandChange: (value: "junior" | "senior") => void;
   onProfileChange: (profileId: string) => void;
   onEditProfile: () => void;
-  onDeleteProfile: () => void;
+  onDeleteProfiles: (profileIds: string[]) => Promise<boolean>;
   onStop: () => void;
 };
 
@@ -45,7 +45,7 @@ export function TutorComposer({
   selectedProfileId,
   selectedProfile,
   profiles,
-  deleteBusyId,
+  deleteBusy,
   streamBusy,
   stopBusy,
   startBusy,
@@ -57,7 +57,7 @@ export function TutorComposer({
   onGradeBandChange,
   onProfileChange,
   onEditProfile,
-  onDeleteProfile,
+  onDeleteProfiles,
   onStop
 }: Props) {
   return (
@@ -106,10 +106,15 @@ export function TutorComposer({
               <option value="junior">初中</option>
               <option value="senior">高中</option>
             </select>
-            <select value={selectedProfileId} onChange={(event) => onProfileChange(event.target.value)} disabled={Boolean(sessionId) || composerBlocked} aria-label="答疑模型">
-              <option value="">选择模型</option>
-              {profiles.map((profile) => <option key={profile.id} value={profile.id}>{modelProfileLabel(profile)}</option>)}
-            </select>
+            <ModelProfilePicker
+              profiles={profiles}
+              selectedProfileId={selectedProfileId}
+              disabled={Boolean(sessionId) || composerBlocked}
+              canManage={!sessionId}
+              deleteBusy={deleteBusy}
+              onChange={onProfileChange}
+              onDelete={onDeleteProfiles}
+            />
             <button
               className="toolButton"
               type="button"
@@ -118,11 +123,6 @@ export function TutorComposer({
             >
               {selectedProfile ? <Pencil size={16} /> : <Plus size={16} />}
             </button>
-            {selectedProfile && !selectedProfile.managed && !sessionId && (
-              <button className="toolButton danger" type="button" onClick={onDeleteProfile} disabled={Boolean(deleteBusyId)} title="删除模型配置">
-                {deleteBusyId ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
-              </button>
-            )}
           </div>
           <button
             className="sendButton"

@@ -1,8 +1,8 @@
 # AI 模型配置说明
 
-方案版本：v0.3
+方案版本：v0.4
 文档状态：现行实现说明
-最后核对：2026-07-19
+最后核对：2026-07-20
 适用项目：诊断式数学答疑 MVP
 
 ## 1. 结论
@@ -57,6 +57,9 @@ SESSION_LOG_DIR=./logs/sessions
 3. 如果没有可用模型，显示“添加模型配置”。
 4. 创建答疑 session 前必须有 `model_profile_id`。
 5. 用户添加的模型显示为“供应商名称 · model name”，例如“火山方舟 · doubao-seed-1-6”；托管免费模型直接显示为 `opencodefree-<model-id>`。
+6. 选择器根据当前名称长度自适应宽度，并设置视口上限；超长名称以省略号显示，完整名称保留在悬停提示中。
+7. `is_multimodal=true` 的模型在当前选择和选项中显示“支持上传图片”，便于上传前识别图片能力。
+8. 点击“管理”进入复选模式，可同时勾选最多 20 个自定义模型并批量删除；OpenCode 托管模型只读且不可勾选。
 
 “添加模型配置”弹窗字段：
 
@@ -72,7 +75,7 @@ SESSION_LOG_DIR=./logs/sessions
 
 当前 UI 不开放标签编辑，保存时固定写入 `math` 标签；后端 API 仍支持 `tags` 字段。
 
-OpenCode 托管免费模型可从同一个设置入口查看，但供应商、Base URL、model name、公共凭据、运行参数和多模态复选框均为只读。多模态复选框读取目录中的 `modalities.input`；存在 `image` 才勾选，不在模型下拉或聊天页额外显示能力徽标。
+OpenCode 托管免费模型可从同一个设置入口查看，但供应商、Base URL、model name、公共凭据、运行参数和多模态复选框均为只读。多模态复选框读取目录中的 `modalities.input`；存在 `image` 才勾选，并在模型选择器显示“支持上传图片”。
 
 ### 4.1 双协议调用
 
@@ -271,7 +274,31 @@ PATCH /api/model-profiles/{profile_id}
 9. `is_multimodal`，是否支持图片识别
 10. `api_key`，仅在用户重新输入时替换
 
-### 5.6 删除模型配置
+### 5.6 批量删除模型配置
+
+```http
+POST /api/model-profiles/batch-delete
+```
+
+请求：
+
+```json
+{
+  "profile_ids": ["prof_first", "prof_second"]
+}
+```
+
+响应：
+
+```json
+{
+  "deleted_profile_ids": ["prof_first", "prof_second"]
+}
+```
+
+一次最多提交 20 个唯一 ID。后端在一个 `BEGIN IMMEDIATE` 事务中先验证全部配置均存在且不是托管模型，再统一软删除；任一项不存在或不可删除时整批回滚，不会留下部分成功状态。
+
+### 5.7 删除单个模型配置（兼容接口）
 
 ```http
 DELETE /api/model-profiles/{profile_id}
@@ -282,6 +309,7 @@ DELETE /api/model-profiles/{profile_id}
 1. 当前实现始终软删除：写入 `enabled = false` 和 `deleted_at`，不硬删除数据库行。
 2. 新建答疑时不再展示已删除模型。
 3. 历史日志仍保留 `model_profile_id`、`provider`、`model` 等非密钥信息。
+4. 托管模型不能手动删除；单删和批量删除均返回 `409`。
 
 ## 6. SQLite 表设计
 

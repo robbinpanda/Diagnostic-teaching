@@ -12,6 +12,8 @@ from PIL import Image, ImageDraw
 from app.core.schemas import (
     ModelProfileBatchCreate,
     ModelProfileBatchCreateResponse,
+    ModelProfileBatchDelete,
+    ModelProfileBatchDeleteResponse,
     ModelProfileCreate,
     ModelProfileCreateResponse,
     ModelProfileListResponse,
@@ -171,6 +173,24 @@ def create_profiles_batch(
     ]
     rows = request.app.state.model_profiles.create_many(profiles)
     return ModelProfileBatchCreateResponse(profiles=[to_public(row) for row in rows])
+
+
+@router.post("/batch-delete", response_model=ModelProfileBatchDeleteResponse)
+def delete_profiles_batch(
+    payload: ModelProfileBatchDelete,
+    request: Request,
+) -> ModelProfileBatchDeleteResponse:
+    if len(set(payload.profile_ids)) != len(payload.profile_ids):
+        raise HTTPException(status_code=400, detail="批量删除列表中不能包含重复的模型配置")
+    try:
+        deleted_ids = request.app.state.model_profiles.soft_delete_many(payload.profile_ids)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="模型配置不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=409, detail="OpenCode 免费模型由目录自动同步，不能手动删除"
+        ) from exc
+    return ModelProfileBatchDeleteResponse(deleted_profile_ids=deleted_ids)
 
 
 @router.patch("/{profile_id}", response_model=ModelProfilePublic)

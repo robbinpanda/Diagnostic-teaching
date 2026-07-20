@@ -67,6 +67,15 @@
     max-width: 112px;
   }
 
+  .modelPicker {
+    max-width: min(360px, calc(100vw - 126px));
+  }
+
+  .modelPickerMenu {
+    right: 0;
+    left: auto;
+  }
+
   .composerHint {
     display: none;
   }
@@ -99,11 +108,15 @@
     max-width: 94%;
   }
 
-  .composerActions select:last-of-type {
+  .composerActions select {
     max-width: 96px;
   }
 
-  .toolButton.danger {
+  .modelPicker {
+    max-width: calc(100vw - 92px);
+  }
+
+  .modelCapabilityBadge.compact {
     display: none;
   }
 }

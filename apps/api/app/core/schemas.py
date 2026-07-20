@@ -92,6 +92,14 @@ class ModelProfileBatchCreateResponse(BaseModel):
     profiles: list[ModelProfilePublic]
 
 
+class ModelProfileBatchDelete(BaseModel):
+    profile_ids: list[str] = Field(min_length=1, max_length=20)
+
+
+class ModelProfileBatchDeleteResponse(BaseModel):
+    deleted_profile_ids: list[str]
+
+
 class ModelProfileCreateResponse(BaseModel):
     id: str
     display_name: str

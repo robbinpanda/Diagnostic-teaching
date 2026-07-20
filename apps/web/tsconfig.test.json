@@ -19,6 +19,7 @@
     "components/MathText.tsx",
     "components/workspace/ConversationHeader.tsx",
     "components/workspace/MessageTimeline.tsx",
+    "components/workspace/ModelProfilePicker.tsx",
     "components/workspace/SessionSidebar.tsx",
     "components/workspace/StudyCardSidebar.tsx",
     "tests/**/*.test.ts",

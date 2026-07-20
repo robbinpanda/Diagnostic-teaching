@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import {
-  deleteModelProfile,
+  deleteModelProfiles,
   fetchProfiles,
   modelProfileLabel,
   type ModelProfile
@@ -19,7 +19,7 @@ export function useModelProfiles({ activeSessionId, onError, onClearError }: Opt
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ModelProfile | null>(null);
-  const [deleteBusyId, setDeleteBusyId] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId),
@@ -54,20 +54,36 @@ export function useModelProfiles({ activeSessionId, onError, onClearError }: Opt
     setDialogOpen(true);
   }
 
-  const deleteSelectedProfile = useCallback(async () => {
-    if (!selectedProfile || selectedProfile.managed || activeSessionId) return;
-    if (!window.confirm(`删除模型配置“${modelProfileLabel(selectedProfile)}”？`)) return;
-    setDeleteBusyId(selectedProfile.id);
+  const deleteProfiles = useCallback(async (profileIds: string[]) => {
+    if (activeSessionId || profileIds.length === 0) return false;
+    const selectedProfiles = profileIds
+      .map((profileId) => profiles.find((profile) => profile.id === profileId))
+      .filter((profile): profile is ModelProfile => Boolean(profile));
+    if (
+      selectedProfiles.length !== profileIds.length
+      || selectedProfiles.some((profile) => profile.managed)
+    ) {
+      onError("所选模型中包含不可删除的配置，请刷新后重试");
+      return false;
+    }
+    const names = selectedProfiles.map(modelProfileLabel);
+    const prompt = names.length === 1
+      ? `删除模型配置“${names[0]}”？`
+      : `确认删除选中的 ${names.length} 个模型配置？\n\n${names.map((name) => `• ${name}`).join("\n")}`;
+    if (!window.confirm(prompt)) return false;
+    setDeleteBusy(true);
     onClearError();
     try {
-      await deleteModelProfile(selectedProfile.id);
+      await deleteModelProfiles(profileIds);
       await refreshProfiles();
+      return true;
     } catch (error) {
       onError(error instanceof Error ? error.message : "删除模型配置失败");
+      return false;
     } finally {
-      setDeleteBusyId("");
+      setDeleteBusy(false);
     }
-  }, [activeSessionId, onClearError, onError, refreshProfiles, selectedProfile]);
+  }, [activeSessionId, onClearError, onError, profiles, refreshProfiles]);
 
   return {
     profiles,
@@ -78,9 +94,9 @@ export function useModelProfiles({ activeSessionId, onError, onClearError }: Opt
     dialogOpen,
     closeProfileDialog: () => setDialogOpen(false),
     editingProfile,
-    deleteBusyId,
+    deleteBusy,
     refreshProfiles,
     openProfileDialog,
-    deleteSelectedProfile
+    deleteProfiles
   };
 }

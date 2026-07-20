@@ -5,6 +5,7 @@ import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import { MessageTimeline } from "../components/workspace/MessageTimeline";
+import { ModelProfilePicker } from "../components/workspace/ModelProfilePicker";
 import { SessionSidebar } from "../components/workspace/SessionSidebar";
 import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
 import type { ModelProfile, SessionHistoryItem } from "../lib/api";
@@ -117,4 +118,37 @@ test("scrolling grid lists keep intrinsic row heights", () => {
   assert.match(cardStyles, /\.cardList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.knowledgeExportBody\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.knowledgeExportCardList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
+});
+
+test("model picker exposes image capability and batch management controls", () => {
+  const visionProfile: ModelProfile = {
+    ...profile,
+    id: "profile-vision-with-a-long-name",
+    display_name: "视觉模型供应商",
+    model: "vision-model-with-a-very-long-version-name",
+    is_multimodal: true
+  };
+  const picker = renderToStaticMarkup(
+    <ModelProfilePicker
+      profiles={[profile, visionProfile]}
+      selectedProfileId={visionProfile.id}
+      disabled={false}
+      canManage
+      deleteBusy={false}
+      onChange={() => {}}
+      onDelete={async () => true}
+    />
+  );
+
+  assert.match(picker, /支持上传图片/);
+  assert.match(picker, /管理/);
+  assert.match(picker, /aria-haspopup="listbox"/);
+  assert.match(picker, /style="width:430px"/);
+
+  const conversationStyles = readFileSync(resolve(__dirname, "../../../styles/conversation.css"), "utf8");
+  const pickerSource = readFileSync(resolve(__dirname, "../../../components/workspace/ModelProfilePicker.tsx"), "utf8");
+  assert.match(pickerSource, /删除选中/);
+  assert.match(pickerSource, /aria-multiselectable/);
+  assert.match(conversationStyles, /\.modelPickerCurrentLabel\s*\{[^}]*text-overflow:\s*ellipsis;/);
+  assert.match(conversationStyles, /\.modelPicker\s*\{[^}]*max-width:/);
 });

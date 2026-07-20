@@ -89,3 +89,13 @@ export async function deleteModelProfile(profileId: string) {
   });
   if (!response.ok) throw await responseError(response);
 }
+
+export async function deleteModelProfiles(profileIds: string[]) {
+  const response = await fetch(`${API_BASE}/api/model-profiles/batch-delete`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ profile_ids: profileIds })
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<{ deleted_profile_ids: string[] }>;
+}

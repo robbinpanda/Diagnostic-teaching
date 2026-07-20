@@ -104,10 +104,10 @@ export default function Home() {
     dialogOpen,
     closeProfileDialog,
     editingProfile,
-    deleteBusyId,
+    deleteBusy,
     refreshProfiles,
     openProfileDialog,
-    deleteSelectedProfile
+    deleteProfiles
   } = profilesState;
   const {
     cards,
@@ -553,7 +553,7 @@ export default function Home() {
           selectedProfileId={selectedProfileId}
           selectedProfile={selectedProfile}
           profiles={profiles}
-          deleteBusyId={deleteBusyId}
+          deleteBusy={deleteBusy}
           streamBusy={streamBusy}
           stopBusy={stopBusy}
           startBusy={startBusy}
@@ -565,7 +565,7 @@ export default function Home() {
           onGradeBandChange={setGradeBand}
           onProfileChange={setSelectedProfileId}
           onEditProfile={openProfileDialog}
-          onDeleteProfile={() => void deleteSelectedProfile()}
+          onDeleteProfiles={deleteProfiles}
           onStop={() => void runtime.stopStream()}
         />
       </section>
