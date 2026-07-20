@@ -11,6 +11,7 @@
   },
   "include": [
     "lib/api.ts",
+    "lib/model-test-concurrency.ts",
     "lib/session-workflow.ts",
     "lib/stream-controller.ts",
     "lib/stream-protocol.ts",

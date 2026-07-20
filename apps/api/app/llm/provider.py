@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -112,23 +113,67 @@ async def test_connection(profile: LlmProfile) -> tuple[bool, int | None, str]:
 async def test_multimodal_connection(
     profile: LlmProfile,
     image_data_url: str,
+    expected_answer: str,
 ) -> tuple[bool, int | None, str]:
     if profile.provider == "local_demo":
-        return True, 1, "本地演示模型接受图片请求"
-    return await _test_messages(
+        return True, 1, "本地演示模型支持图片输入"
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        "读取图片中从左到右的两个彩色图形，只返回两项，格式为 "
+                        "COLOR_SHAPE|COLOR_SHAPE。"
+                        "颜色只能使用 RED/BLUE/YELLOW/GREEN，形状只能使用 "
+                        "CIRCLE/SQUARE/TRIANGLE/DIAMOND。不要解释；看不到图片就回复 UNREADABLE。"
+                    ),
+                },
+                {"type": "image_url", "image_url": {"url": image_data_url}},
+            ],
+        }
+    ]
+    started = time.perf_counter()
+    latency: int | None = None
+    chunks: list[str] = []
+    probe_max_tokens = min(max(profile.max_output_tokens, 1024), 8192)
+    stream = chat_stream_completion(
         profile,
-        [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "请确认你能读取这张测试图片，只回复 OK。"},
-                    {"type": "image_url", "image_url": {"url": image_data_url}},
-                ],
-            }
-        ],
-        success_prefix="图片请求成功，模型已开始回复",
-        max_tokens=128,
+        messages,
+        max_tokens=probe_max_tokens,
+        temperature=0,
     )
+    try:
+        async for event in stream:
+            delta = event.get("delta") or ""
+            if not delta:
+                continue
+            if latency is None and delta.strip():
+                latency = int((time.perf_counter() - started) * 1000)
+            chunks.append(delta)
+        response_text = "".join(chunks).strip()
+        if not response_text:
+            raise LlmProviderError("模型没有返回可见内容")
+        actual_answer = _extract_multimodal_probe_answer(response_text)
+        if actual_answer != expected_answer:
+            preview = response_text.replace("\n", " ")[:120]
+            return False, latency, f"模型返回了文字，但未正确识别测试图片：{preview}"
+        return True, latency, "图片内容识别正确"
+    except Exception as exc:  # pragma: no cover - exact provider errors vary
+        elapsed = int((time.perf_counter() - started) * 1000)
+        return False, latency if latency is not None else elapsed, str(exc)
+    finally:
+        await stream.aclose()
+
+
+def _extract_multimodal_probe_answer(content: str) -> str:
+    pairs = re.findall(
+        r"\b(RED|BLUE|YELLOW|GREEN)\s*[_-]\s*(CIRCLE|SQUARE|TRIANGLE|DIAMOND)\b",
+        content.upper(),
+    )
+    return "|".join(f"{color}_{shape}" for color, shape in pairs)
 
 
 async def _test_messages(
@@ -217,7 +262,9 @@ async def analyze_problem_image(profile: LlmProfile, image_data_url: str) -> str
     )
 
 
-def _assert_nonempty(content: str, finish_reason: str | None, max_tokens: int | None = None) -> None:
+def _assert_nonempty(
+    content: str, finish_reason: str | None, max_tokens: int | None = None
+) -> None:
     if not content:
         if finish_reason == "length":
             token_hint = f"={max_tokens}" if max_tokens is not None else ""
@@ -324,12 +371,16 @@ async def _openai_chat_stream_completion(
                     if choice.get("finish_reason"):
                         finish_reason = choice["finish_reason"]
                 if not saw_any_data:
-                    raise LlmProviderError("模型流式响应中没有任何 data 事件，请确认 base_url/模型配置")
+                    raise LlmProviderError(
+                        "模型流式响应中没有任何 data 事件，请确认 base_url/模型配置"
+                    )
                 if not saw_content:
                     _assert_nonempty("", finish_reason, requested_max_tokens)
                 yield {"delta": "", "finish_reason": finish_reason}
     except httpx.TimeoutException as exc:
-        raise LlmProviderError("模型流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置") from exc
+        raise LlmProviderError(
+            "模型流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置"
+        ) from exc
     except httpx.HTTPError as exc:
         raise LlmProviderError(f"模型请求异常：{str(exc) or exc.__class__.__name__}") from exc
 
@@ -373,9 +424,13 @@ async def _anthropic_stream_completion(
                 async for event in _anthropic_response_events(response, requested_max_tokens):
                     yield event
     except httpx.TimeoutException as exc:
-        raise LlmProviderError("Anthropic 流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置") from exc
+        raise LlmProviderError(
+            "Anthropic 流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置"
+        ) from exc
     except httpx.HTTPError as exc:
-        raise LlmProviderError(f"Anthropic 模型请求异常：{str(exc) or exc.__class__.__name__}") from exc
+        raise LlmProviderError(
+            f"Anthropic 模型请求异常：{str(exc) or exc.__class__.__name__}"
+        ) from exc
 
 
 def anthropic_request_payload(
@@ -466,7 +521,9 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
         event_type = event.get("type")
         if event_type == "error":
             error = event.get("error")
-            message = error.get("message") if isinstance(error, dict) else str(error or "unknown error")
+            message = (
+                error.get("message") if isinstance(error, dict) else str(error or "unknown error")
+            )
             raise LlmProviderError(f"Anthropic 流式响应错误：{message}")
         text = ""
         if event_type == "content_block_start":
@@ -490,5 +547,7 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
     if not saw_any_data:
         raise LlmProviderError("Anthropic 流式响应中没有任何 data 事件，请确认 base_url/模型配置")
     if not saw_content:
-        _assert_nonempty("", "length" if finish_reason == "max_tokens" else finish_reason, requested_max_tokens)
+        _assert_nonempty(
+            "", "length" if finish_reason == "max_tokens" else finish_reason, requested_max_tokens
+        )
     yield {"delta": "", "finish_reason": finish_reason}

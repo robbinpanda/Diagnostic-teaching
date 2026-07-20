@@ -143,6 +143,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   display: grid;
+  grid-auto-rows: max-content;
   align-content: start;
   gap: 3px;
   padding-right: 2px;
@@ -191,6 +192,9 @@
 }
 
 .sessionEntry > span {
+  display: flex;
+  align-items: center;
+  gap: 3px;
   color: var(--muted);
   font-size: 10px;
 }

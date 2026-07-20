@@ -1,7 +1,7 @@
 # 答疑状态机与 LLM 主导流程
 
-版本：v1.3
-日期：2026-07-19
+版本：v1.4
+日期：2026-07-20
 适用项目：诊断式数学答疑 MVP
 
 本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行上下文收集与教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作，同时判断 `context_status` 并提供可靠的新语义摘要；后端在上下文未 ready 时只允许开放提问，ready 后再根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop。`EXPLAIN_PRINCIPLE` 必须产生 `knowledge_card`，`EXPLAIN_LOCAL` 可按知识复用价值选择产生 `knowledge_card`，`SUMMARIZE` 必须产生 `problem_card`。**
@@ -287,9 +287,11 @@ checkpoint answer 会在原子事务中依次追加 `checkpoint.completed` 和�
 
 `GET /api/sessions/{session_id}/events/stream` 用 `after_seq` 或 `Last-Event-ID` 先补齐遗漏事件再持续订阅。同一 session 的 `seq` 严格递增；客户端重复收到相同 `seq` 时只应用一次。这个 change feed 不改变六个教学 action，也不让模型控制 `wait_for_student`。完整合同见 `docs/session-events.md`。
 
-前端不再直接在页面组件里拼接这些事件。原始 SSE 先被适配为绑定 `sessionId + runId` 的事件，再进入 timeline reducer；composer、run、checkpoint、card 则由一个判别联合状态机保证互斥。当前确定性规则为：
+前端不再直接在页面组件里拼接这些事件。原始 SSE 先被适配为绑定 `sessionId + runId` 的事件，再进入 timeline reducer；composer、run、checkpoint、card 则由一个判别联合状态机保证当前视图内互斥。stream controller 按 session 保存独立的 `AbortController`，因此不同 session 可以在同一浏览器标签页中并行生成。当前确定性规则为：
 
-- 事件的 session 或 run 与当前运行不匹配时忽略；切换 session、新建答疑和页面卸载会 abort 当前 fetch，显式停止则先请求服务端 interrupt，再收束本地 fetch。
+- 事件的 session 或 run 与当前视图不匹配时不会修改当前 timeline；切换 session 或新建答疑只换视图，不 abort 其他 session 的 fetch。重新打开仍在生成的 session 时，先加载 SQLite 快照，再按该 session 的本地活动 run 重新接收后续事件。
+- 同一 session 启动新 run 时只 supersede 该 session 的旧 fetch；不同 session 不互相取消。显式停止只对当前打开的 session 先请求服务端 interrupt，再收束对应本地 fetch；页面卸载才取消全部本地连接。
+- 图片上传在选择文件时预分配 session id，并把读图、识别、建会话与首轮生成绑定到该 id。用户切走、新建答疑或查看卡片后，原任务继续在后台完成；异步回调通过视图 token 和 session id 隔离，不能覆盖后来的草稿或会话。
 - `decision` 负责用后端最终 message/action 校准当前气泡；`message_reset` 只重置当前未完成 action 的重试拼接；`message_done` 后同 action 的迟到 delta/decision/reset 不再修改已完成消息。
 - checkpoint/card 采用 first-wins，同 ID 重复通知不重复打开交互；error 终止当前 run，但保留进入下一次 run 的恢复路径。
 - session-events SSE 已通过 `id`/`seq` 重放稳定业务边界；chat SSE 的高频 delta 仍可能不带身份。reducer 会去重已有序号并记录缺口，未带 id/seq 的 delta 严格按到达顺序拼接，不能据此声称字符流 exactly-once。

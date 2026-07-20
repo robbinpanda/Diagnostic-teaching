@@ -14,9 +14,9 @@ context_status + problem/thought summary + state_hint + action + message + break
 
 SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 revision；旧版无 Alembic 标记的数据库会在保留业务数据的前提下建立迁移基线。每条应用连接启用 foreign keys、WAL 与 5 秒 busy timeout，具体约束、备份和 Windows 本地运行行为见 `docs/database.md`。
 
-前端会话运行态由 timeline reducer、互斥 workflow 状态机和可取消 stream controller 管理。切换会话、新建答疑或页面卸载会中止当前 HTTP 流；点击停止会先调用服务端 interrupt，再收束本地 fetch。每个 chat 事件同时绑定 session id 与本地 run id，旧流不能写入后来打开的 session。高频 `message_delta/message_reset` 没有 durable seq；稳定业务边界由独立的 session-events SSE 提供严格递增的 `seq` 和断线重放。
+前端会话运行态由 timeline reducer、互斥 workflow 状态机和按 session 隔离的 stream controller 管理。切换会话或新建答疑只切换当前视图，不会关闭其他 session 的 HTTP 流；多个 session 可以同时生成，同一 session 的新 run 仍只会替换该 session 的旧 run。点击停止只中断当前打开的 session，页面卸载才统一收束所有本地流。每个 chat 事件同时绑定 session id 与本地 run id，后台流不能写入后来打开的 session；重新打开仍在生成的 session 时，页面从 SQLite 快照恢复已提交内容并重新接回该 session 的活动流。高频 `message_delta/message_reset` 没有 durable seq；稳定业务边界由独立的 session-events SSE 提供严格递增的 `seq` 和断线重放。
 
-模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name，并可选择 OpenAI-compatible chat completions 或 Anthropic Messages 协议。每个模型独立设置是否多模态；连接测试会逐模型显示成功或失败，并用内置样例图自动探测未勾选模型的图片能力。用户配置显示为“供应商名称 · model name”；OpenCode 托管免费模型显示为 `opencodefree-<model-id>`，由 `models.dev` 目录同步协议与图片能力，设置弹窗中的多模态复选框只读展示真实元数据。
+模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name，并可选择 OpenAI-compatible chat completions 或 Anthropic Messages 协议。多个 model name 的连接测试最多四项并行执行，每个模型独立显示成功或失败并设置是否多模态；图片能力使用每次随机排列的颜色/图形挑战验证模型是否真正读懂图片，而不是只判断请求是否返回文字。用户配置显示为“供应商名称 · model name”；OpenCode 托管免费模型显示为 `opencodefree-<model-id>`，由 `models.dev` 目录同步协议与图片能力，设置弹窗中的多模态复选框只读展示真实元数据。
 
 前置 intake 已取消。第一条消息通过 `POST /api/sessions/start` 在一个 SQLite 事务中创建正式 session、写入 `session_inputs` 并保存 `STUDENT_RESPONSE`；客户端提供稳定的 session id 与 `client_message_id`，响应丢失后重试不会创建重复会话。题目和学生思路由正式答疑模型按完整对话语义提取，不能按消息顺序猜测；`context_status=need_problem|need_thought` 时后端强制只允许 `ASK_OPEN_QUESTION`，两项明确后进入 `ready`。学生明确说“完全没思路”属于有效思路状态。图片识别结果可作为 session 的初始语义摘要，原图仍会保留并绑定多模态模型。
 
@@ -24,7 +24,9 @@ SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 re
 
 Checkpoint answer 也进入 `session_inputs`，并由数据库唯一约束保证每个 checkpoint 只成功回答一次：相同选项重试返回第一次的结果，不同选项重试返回 `409 CHECKPOINT_ANSWER_CONFLICT`。知识卡片关闭后的继续命令使用 `CARD_DISMISSED_CONTINUE`，卡片归档与控制命令在同一事务落库后才触发生成。事件重放由 `session_events` 承担，生成中断与重启遗留清理由 `session_runs` 承担，两者不混入输入接纳服务。
 
-左侧会话栏直接从 SQLite 读取并通过 `GET /api/sessions/{session_id}` 打开原 session，不会仅因查看而复制记录；原有 `POST /api/sessions/restore` 仍保留给需要显式创建实验分支的调用方。左侧可清空全部会话和 session 日志，右侧可清空全部卡片；两项操作都需要二次确认，且互不删除对方保留的数据。
+左侧会话栏直接从 SQLite 读取并通过 `GET /api/sessions/{session_id}` 打开原 session，不会仅因查看而复制记录；选择某个 session 后会话栏保持展开，只有用户主动点击收起按钮或初次进入窄屏布局时才收起。原有 `POST /api/sessions/restore` 仍保留给需要显式创建实验分支的调用方。左侧可清空全部会话和 session 日志，右侧可清空全部卡片；两项操作都需要二次确认，且互不删除对方保留的数据。
+
+图片上传、视觉识别、正式建会话和首轮生成绑定同一个预分配 session id。任务开始后用户可以立即新建或打开其他对话，也可以浏览已归档学习卡片；原图片任务会在后台继续，建会话成功后自动出现在左侧列表并标注“正在思考”。异步结果只回写发起任务的 session，不会覆盖用户后来打开的新答疑草稿。
 
 每次 `POST /api/chat/stream` 现在都有持久化 `run_id` 和递增 `attempt`，状态依次为 `queued -> running -> completed`，异常或中断则进入 `failed / interrupted`。同一 session 的 run 按进入顺序串行，不同 session 可并行；`GET /api/sessions/{session_id}/run` 可查询活动或最新 run，`POST /api/sessions/{session_id}/interrupt` 会显式取消 provider 请求和后续 bounded loop，空闲或重复中断是幂等 no-op。浏览器仅停止读取不会伪装成显式中断，而会记录为结构化 `failed/client_disconnected`。
 
@@ -130,7 +132,7 @@ apps/web   Next.js 前端
   lib/api/                            model/session/card/chat 等协议模块
   lib/timeline.ts                     流式消息拼接与事件确定性 reducer
   lib/session-workflow.ts             composer/run/checkpoint/card 互斥状态机
-  lib/stream-controller.ts            AbortController 与 session/run 隔离
+  lib/stream-controller.ts            按 session 保存 AbortController、支持跨 session 并发与定向停止
   lib/stream-protocol.ts              可选 seq/after_seq 事件适配边界
   styles/                              shell/conversation/card/dialog/print 分域样式
   tests/                               前端 reducer、取消和隔离测试

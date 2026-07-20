@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
@@ -75,8 +77,7 @@ test("workspace sidebars render active sessions and filtered cards", () => {
       openSessionBusyId=""
       deleteSessionBusyId=""
       deleteAllSessionsBusy={false}
-      sessionNavigationBusy={false}
-      streamBusy={false}
+      runningSessionIds={["session-a"]}
       onCollapse={() => {}}
       onNewChat={() => {}}
       onOpenSession={() => {}}
@@ -86,6 +87,7 @@ test("workspace sidebars render active sessions and filtered cards", () => {
   );
   assert.match(sessions, /sessionRow active/);
   assert.match(sessions, /3 条消息/);
+  assert.match(sessions, /正在思考/);
 
   const cards = renderToStaticMarkup(
     <StudyCardSidebar
@@ -105,4 +107,14 @@ test("workspace sidebars render active sessions and filtered cards", () => {
   );
   assert.match(cards, /1 张已归档/);
   assert.match(cards, /知识卡片/);
+});
+
+test("scrolling grid lists keep intrinsic row heights", () => {
+  const shellStyles = readFileSync(resolve(__dirname, "../../../styles/shell.css"), "utf8");
+  const cardStyles = readFileSync(resolve(__dirname, "../../../styles/cards.css"), "utf8");
+
+  assert.match(shellStyles, /\.sessionList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
+  assert.match(cardStyles, /\.cardList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
+  assert.match(cardStyles, /\.knowledgeExportBody\s*\{[^}]*grid-auto-rows:\s*max-content;/);
+  assert.match(cardStyles, /\.knowledgeExportCardList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
 });

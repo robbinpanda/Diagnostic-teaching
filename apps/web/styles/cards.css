@@ -58,7 +58,9 @@
 .cardList {
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: grid;
+  grid-auto-rows: max-content;
   align-content: start;
   gap: 7px;
 }
@@ -263,6 +265,8 @@
   min-height: 0;
   overflow-y: auto;
   display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: 20px;
   padding: 20px 22px 24px;
 }
@@ -303,6 +307,8 @@
   overflow-y: auto;
   display: grid;
   grid-template-columns: 1fr 1fr;
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: 8px;
   padding-right: 3px;
 }

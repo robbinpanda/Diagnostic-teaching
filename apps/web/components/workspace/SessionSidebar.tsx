@@ -11,8 +11,7 @@ type Props = {
   openSessionBusyId: string;
   deleteSessionBusyId: string;
   deleteAllSessionsBusy: boolean;
-  sessionNavigationBusy: boolean;
-  streamBusy: boolean;
+  runningSessionIds: string[];
   onCollapse: () => void;
   onNewChat: () => void;
   onOpenSession: (sessionId: string) => void;
@@ -27,14 +26,15 @@ export function SessionSidebar({
   openSessionBusyId,
   deleteSessionBusyId,
   deleteAllSessionsBusy,
-  sessionNavigationBusy,
-  streamBusy,
+  runningSessionIds,
   onCollapse,
   onNewChat,
   onOpenSession,
   onDeleteSession,
   onDeleteAllSessions
 }: Props) {
+  const runningSessions = new Set(runningSessionIds);
+
   return (
     <aside className="sessionSidebar">
       <div className="sidebarBrand">
@@ -45,7 +45,7 @@ export function SessionSidebar({
         </button>
       </div>
 
-      <button className="newChatButton" type="button" onClick={onNewChat} disabled={sessionNavigationBusy}>
+      <button className="newChatButton" type="button" onClick={onNewChat}>
         <MessageSquarePlus size={18} />
         新建答疑
       </button>
@@ -56,7 +56,7 @@ export function SessionSidebar({
           className="plainIconButton"
           type="button"
           onClick={onDeleteAllSessions}
-          disabled={deleteAllSessionsBusy || streamBusy || historyItems.length === 0}
+          disabled={deleteAllSessionsBusy || runningSessions.size > 0 || historyItems.length === 0}
           title="清空全部会话"
         >
           {deleteAllSessionsBusy ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
@@ -66,22 +66,27 @@ export function SessionSidebar({
       <div className="sessionList">
         {historyBusy && historyItems.length === 0 && <div className="sidebarEmpty"><Loader2 size={16} className="spin" /> 正在读取会话</div>}
         {!historyBusy && historyItems.length === 0 && <div className="sidebarEmpty">还没有会话</div>}
-        {historyItems.map((item) => (
+        {historyItems.map((item) => {
+          const isRunning = runningSessions.has(item.session_id);
+          return (
           <div className={`sessionRow ${activeSessionId === item.session_id ? "active" : ""}`} key={item.session_id}>
             <button
               className="sessionEntry"
               type="button"
               onClick={() => onOpenSession(item.session_id)}
-              disabled={Boolean(openSessionBusyId) || sessionNavigationBusy}
+              disabled={openSessionBusyId === item.session_id}
             >
               <strong><MathText text={item.title || "未命名题目"} className="titleMathText" /></strong>
-              <span>{item.message_count} 条消息 · {new Date(item.updated_at).toLocaleDateString("zh-CN")}</span>
+              <span>
+                {isRunning && <><Loader2 size={11} className="spin" /> 正在思考 · </>}
+                {item.message_count} 条消息 · {new Date(item.updated_at).toLocaleDateString("zh-CN")}
+              </span>
             </button>
             <button
               className="sessionDeleteButton"
               type="button"
               onClick={() => onDeleteSession(item)}
-              disabled={Boolean(deleteSessionBusyId) || streamBusy}
+              disabled={Boolean(deleteSessionBusyId) || isRunning}
               aria-label={`删除会话：${item.title}`}
             >
               {deleteSessionBusyId === item.session_id || openSessionBusyId === item.session_id
@@ -89,7 +94,8 @@ export function SessionSidebar({
                 : <Trash2 size={14} />}
             </button>
           </div>
-        ))}
+          );
+        })}
       </div>
     </aside>
   );
