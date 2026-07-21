@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import { MessageTimeline } from "../components/workspace/MessageTimeline";
 import { ModelProfilePicker } from "../components/workspace/ModelProfilePicker";
+import { boxFromPoints, ProblemImageSelector } from "../components/ProblemImageSelector";
 import { SessionSidebar } from "../components/workspace/SessionSidebar";
 import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
 import type { ModelProfile, SessionHistoryItem } from "../lib/api";
@@ -154,4 +155,54 @@ test("model picker exposes image capability and batch management controls", () =
   assert.match(pickerSource, /aria-multiselectable/);
   assert.match(conversationStyles, /\.modelPickerCurrentLabel\s*\{[^}]*text-overflow:\s*ellipsis;/);
   assert.match(conversationStyles, /\.modelPicker\s*\{[^}]*max-width:/);
+});
+
+test("problem image selector renders movable and resizable regions", () => {
+  const selector = renderToStaticMarkup(
+    <ProblemImageSelector
+      imageUrl="data:image/png;base64,AAAA"
+      initialRegions={[
+        {
+          id: "problem-1",
+          label: "题目 1",
+          bbox: { x: 0.1, y: 0.2, width: 0.8, height: 0.25 }
+        },
+        {
+          id: "problem-2",
+          label: "题目 2",
+          bbox: { x: 0.1, y: 0.55, width: 0.8, height: 0.3 }
+        }
+      ]}
+      busy={false}
+      onCancel={() => {}}
+      onConfirm={() => {}}
+    />
+  );
+  const dialogStyles = readFileSync(resolve(__dirname, "../../../styles/dialogs.css"), "utf8");
+
+  assert.match(selector, /确认要创建的题目/);
+  assert.match(selector, /将创建 2 个独立答疑/);
+  assert.match(selector, /删除题目 1/);
+  assert.match(selector, /新增题目框/);
+  assert.match(selector, /aria-pressed="false"/);
+  assert.match(selector, /handle-nw/);
+  assert.match(dialogStyles, /\.problemRegion\.selected/);
+  assert.match(dialogStyles, /\.problemSelectorCanvas\.adding/);
+  assert.match(dialogStyles, /\.problemRegionDraft/);
+  assert.match(dialogStyles, /\.handle-e[^}]*cursor:\s*ew-resize/);
+});
+
+test("new problem boxes support reverse dragging and stay inside the image", () => {
+  assert.deepEqual(boxFromPoints(0.8, 0.7, 0.2, 0.1), {
+    x: 0.2,
+    y: 0.1,
+    width: 0.6000000000000001,
+    height: 0.6
+  });
+  assert.deepEqual(boxFromPoints(-0.2, 0.25, 1.3, 0.9), {
+    x: 0,
+    y: 0.25,
+    width: 1,
+    height: 0.65
+  });
 });

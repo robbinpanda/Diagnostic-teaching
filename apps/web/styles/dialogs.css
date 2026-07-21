@@ -12,7 +12,8 @@
 
 .modelDialog,
 .checkpointDialog,
-.studyCardDialog {
+.studyCardDialog,
+.problemSelectorDialog {
   width: min(560px, 100%);
   max-height: calc(100vh - 40px);
   overflow: auto;
@@ -20,6 +21,247 @@
   border-radius: 16px;
   background: #ffffff;
   box-shadow: var(--shadow);
+}
+
+.problemSelectorBackdrop {
+  z-index: 30;
+  background: rgba(18, 19, 17, 0.72);
+}
+
+.problemSelectorDialog {
+  width: min(1120px, 100%);
+  height: min(820px, calc(100vh - 40px));
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.problemSelectorHeader,
+.problemSelectorFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 18px;
+  background: #ffffff;
+}
+
+.problemSelectorHeader {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--line);
+}
+
+.problemSelectorHeader h2 {
+  margin-top: 5px;
+  font-size: 18px;
+}
+
+.problemSelectorHeader p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.problemSelectorKicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.problemSelectorWorkspace {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #282a27;
+}
+
+.problemSelectorCanvas {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+  box-shadow: 0 12px 38px rgba(0, 0, 0, 0.28);
+  user-select: none;
+  touch-action: none;
+}
+
+.problemSelectorCanvas.adding,
+.problemSelectorCanvas.adding .problemRegion {
+  cursor: crosshair;
+}
+
+.problemSelectorCanvas > img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 250px);
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.problemRegion {
+  position: absolute;
+  border: 2px solid #f0a83c;
+  border-radius: 6px;
+  background: rgba(240, 168, 60, 0.12);
+  box-shadow: 0 0 0 1px rgba(24, 24, 22, 0.28);
+  cursor: move;
+  touch-action: none;
+}
+
+.problemRegion.selected {
+  border-color: #ffffff;
+  background: rgba(42, 122, 95, 0.14);
+  box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px rgba(255, 255, 255, 0.75);
+}
+
+.problemRegionDraft {
+  border-color: #ffffff;
+  border-style: dashed;
+  background: rgba(42, 122, 95, 0.22);
+  box-shadow: 0 0 0 2px var(--accent);
+  pointer-events: none;
+}
+
+.problemRegionNumber {
+  position: absolute;
+  left: -2px;
+  top: -28px;
+  min-width: 28px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px 7px 0 0;
+  padding: 0 7px;
+  color: #ffffff;
+  background: #e2982c;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.problemRegion.selected .problemRegionNumber {
+  background: var(--accent);
+}
+
+.problemRegionDelete {
+  position: absolute;
+  right: -12px;
+  top: -12px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  color: #ffffff;
+  background: var(--danger);
+  line-height: 1;
+}
+
+.problemResizeHandle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: #ffffff;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.problemRegion.selected .problemResizeHandle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.handle-n { left: 50%; top: -7px; transform: translateX(-50%); cursor: ns-resize; }
+.handle-s { left: 50%; bottom: -7px; transform: translateX(-50%); cursor: ns-resize; }
+.handle-e { right: -7px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+.handle-w { left: -7px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+.handle-ne { right: -7px; top: -7px; cursor: nesw-resize; }
+.handle-nw { left: -7px; top: -7px; cursor: nwse-resize; }
+.handle-se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.handle-sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+
+.problemSelectorFooter {
+  border-top: 1px solid var(--line);
+}
+
+.problemSelectorTools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.problemSelectorAddButton {
+  min-height: 34px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.problemSelectorAddButton.active {
+  border-color: var(--accent);
+  color: #ffffff;
+  background: var(--accent);
+}
+
+.problemCount {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.problemCount.empty {
+  color: var(--danger);
+}
+
+@media (max-width: 680px) {
+  .problemSelectorBackdrop {
+    padding: 0;
+  }
+
+  .problemSelectorDialog {
+    width: 100%;
+    height: 100vh;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .problemSelectorHeader,
+  .problemSelectorFooter {
+    padding: 12px;
+  }
+
+  .problemSelectorHeader p {
+    max-width: 280px;
+  }
+
+  .problemSelectorWorkspace {
+    padding: 18px 10px;
+  }
+
+  .problemSelectorFooter {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .problemSelectorTools {
+    justify-content: space-between;
+  }
+
+  .problemSelectorFooter .dialogActions,
+  .problemSelectorFooter .dialogActions button {
+    flex: 1;
+  }
 }
 
 .modelDialog {

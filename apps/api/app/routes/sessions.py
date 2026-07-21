@@ -5,6 +5,9 @@ import json
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from app.core.schemas import (
+    ImageSessionBatchStartRequest,
+    SessionBatchStartRequest,
+    SessionBatchStartResponse,
     SessionCreate,
     SessionCreateResponse,
     SessionHistoryListResponse,
@@ -18,6 +21,7 @@ from app.core.schemas import (
     SessionStartResponse,
 )
 from app.routes.cards import card_from_row
+from app.routes.problem_images import crop_diagram_data_url, decode_problem_image
 from app.services.input_acceptance import (
     IdempotencyConflictError,
     InputAcceptanceService,
@@ -71,22 +75,29 @@ def persist_session(payload: SessionCreate, request: Request):
     return session
 
 
-@router.post("", response_model=SessionCreateResponse)
-def create_session(payload: SessionCreate, request: Request) -> SessionCreateResponse:
-    session = persist_session(payload, request)
-    return SessionCreateResponse(
+def session_start_response(started) -> SessionStartResponse:
+    session = started.session_row
+    message = started.message_row
+    return SessionStartResponse(
+        status="accepted" if started.accepted else "duplicate",
         session_id=session["id"],
         state_hint=session["phase"],
         context_status=session["context_status"],
         model_profile_id=session["model_profile_id"],
+        problem_text=session["problem_text"],
+        student_initial_thought=session["student_initial_thought"],
+        message_id=message["id"],
+        action_id=message["action_id"],
     )
 
 
-@router.post("/start", response_model=SessionStartResponse)
-def start_session(payload: SessionStartRequest, request: Request) -> SessionStartResponse:
-    profile = validate_session_profile(payload, request)
+def accept_session_starts(
+    payloads: list[SessionStartRequest],
+    request: Request,
+) -> list[SessionStartResponse]:
+    profiles = [validate_session_profile(payload, request) for payload in payloads]
     try:
-        started = InputAcceptanceService(request.app.state.sessions).start_session(payload)
+        started_sessions = InputAcceptanceService(request.app.state.sessions).start_sessions(payloads)
     except IdempotencyConflictError as exc:
         raise HTTPException(
             status_code=409,
@@ -98,10 +109,12 @@ def start_session(payload: SessionStartRequest, request: Request) -> SessionStar
     except (InputValidationError, InputStateConflictError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    session = started.session_row
-    message = started.message_row
     logger = getattr(request.app.state, "session_logger", None)
-    if logger is not None and started.accepted:
+    for started, profile in zip(started_sessions, profiles, strict=True):
+        if logger is None or not started.accepted:
+            continue
+        session = started.session_row
+        message = started.message_row
         logger.log_session_started(
             session_id=session["id"],
             model=profile["model"],
@@ -118,17 +131,69 @@ def start_session(payload: SessionStartRequest, request: Request) -> SessionStar
             in_reply_to_action_id=message["in_reply_to_action_id"],
             content=message["content"],
         )
-    return SessionStartResponse(
-        status="accepted" if started.accepted else "duplicate",
+    return [session_start_response(started) for started in started_sessions]
+
+
+@router.post("", response_model=SessionCreateResponse)
+def create_session(payload: SessionCreate, request: Request) -> SessionCreateResponse:
+    session = persist_session(payload, request)
+    return SessionCreateResponse(
         session_id=session["id"],
         state_hint=session["phase"],
         context_status=session["context_status"],
         model_profile_id=session["model_profile_id"],
-        problem_text=session["problem_text"],
-        student_initial_thought=session["student_initial_thought"],
-        message_id=message["id"],
-        action_id=message["action_id"],
     )
+
+
+@router.post("/start", response_model=SessionStartResponse)
+def start_session(payload: SessionStartRequest, request: Request) -> SessionStartResponse:
+    return accept_session_starts([payload], request)[0]
+
+
+@router.post("/batch-start", response_model=SessionBatchStartResponse)
+def batch_start_sessions(
+    payload: SessionBatchStartRequest,
+    request: Request,
+) -> SessionBatchStartResponse:
+    return SessionBatchStartResponse(sessions=accept_session_starts(payload.sessions, request))
+
+
+@router.post("/image-batch-start", response_model=SessionBatchStartResponse)
+def batch_start_image_sessions(
+    payload: ImageSessionBatchStartRequest,
+    request: Request,
+) -> SessionBatchStartResponse:
+    try:
+        profile = request.app.state.model_profiles.get(payload.model_profile_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=400, detail="请选择一个可用模型") from exc
+    if not profile["is_multimodal"]:
+        raise HTTPException(status_code=400, detail="图片拆题必须使用多模态答疑模型")
+
+    content_type, image_bytes, _ = decode_problem_image(payload.source_image_data_url)
+    starts: list[SessionStartRequest] = []
+    for index, item in enumerate(payload.items, start=1):
+        cropped = crop_diagram_data_url(
+            image_bytes,
+            content_type,
+            item.bbox.model_dump(mode="json"),
+        )
+        if cropped is None:
+            raise HTTPException(status_code=400, detail=f"第 {index} 个题目框太小或超出图片范围")
+        starts.append(
+            SessionStartRequest(
+                session_id=item.session_id,
+                client_message_id=item.client_message_id,
+                grade_band=payload.grade_band,
+                subject=payload.subject,
+                model_profile_id=payload.model_profile_id,
+                message=f"上传了一张框选题目图片（第 {index} 题）",
+                problem_text="",
+                student_initial_thought="",
+                problem_image_data_url=cropped,
+            )
+        )
+    return SessionBatchStartResponse(sessions=accept_session_starts(starts, request))
 
 
 @router.get("/history", response_model=SessionHistoryListResponse)

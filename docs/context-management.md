@@ -40,7 +40,7 @@ apps/api/app/services/input_acceptance.py
 生成：POST /api/chat/stream -> 读取 SQLite session/messages -> 调 LLM -> 保存 assistant action
 ```
 
-首条普通消息使用 `POST /api/sessions/start`：浏览器同时提供稳定的 `sess_<uuid>` 和 `client_message_id`，服务端在一个 `BEGIN IMMEDIATE` 事务中创建 session、写 `session_inputs`、写第一条 `STUDENT_RESPONSE` 并追加 durable events。响应丢失后原请求重试返回 `duplicate`；不会生成第二个 session。后续普通消息继续使用 `POST /api/sessions/{session_id}/inputs`。
+单题首条普通消息可使用 `POST /api/sessions/start`：浏览器同时提供稳定的 `sess_<uuid>` 和 `client_message_id`，服务端在一个 `BEGIN IMMEDIATE` 事务中创建 session、写 `session_inputs`、写第一条 `STUDENT_RESPONSE` 并追加 durable events。文字拆题后的多题使用 `POST /api/sessions/batch-start`，同一事务依次接纳最多 20 个 `SessionStartRequest`；图片确认框选后使用 `POST /api/sessions/image-batch-start`，后端先裁剪再走同一批量接纳事务。响应丢失后以原 session/message 标识重试会返回 `duplicate`，不会生成第二批 session。后续普通消息继续使用 `POST /api/sessions/{session_id}/inputs`。
 
 `session_inputs` 保存：
 
@@ -163,7 +163,9 @@ system 消息由四部分组成：
 
 `context_status` 是 SQLite 中可恢复的上下文收集状态。模型每轮同时输出 `problem_summary / student_thought_summary`；后端做单调归一化并与完整 assistant action 同事务写回。`need_problem / need_thought` 时后端只允许 `ASK_OPEN_QUESTION`，`ready` 后才开放其他教学 action。字段来自完整对话语义而非消息顺序；“完全没思路”会被保存为有效思路状态。
 
-图片识别与正式答疑仍是两条隔离链路：`POST /api/problem-images/analyze` 把可确认的题目作为 `problem_text` 初始摘要，把可见作答/批改痕迹作为 `student_initial_thought` 初始摘要；前端随后把结果、原图和“上传了一张题目图片”这条 durable 首消息交给 `POST /api/sessions/start`。上传图片创建的 session 始终保存用户原图并要求多模态答疑模型，保证后续每轮仍可查看图形与版面。视觉识别返回的 `answer_text / correctness / mistake_summary / diagram_note / diagram_image_data_url` 不会作为独立字段旁路进入答疑 prompt。
+拆题与正式答疑是两条隔离链路。文字草稿先交给 `POST /api/problem-intake/analyze-text`，由当前所选模型只返回 `problems[]`：每项包含自包含的 `problem_text` 和仅属于该题的 `student_initial_thought`。该结果只决定批量创建数量与各 session 初始上下文，不产生教学 action；单题同样返回长度为 1 的数组。
+
+图片草稿先交给 `POST /api/problem-images/detect`，多模态模型只返回按版面顺序排列的归一化题目框。前端允许在图片上拖拽新增框，也允许删除、平移和按边/角缩放已有框，确认后把最终框与一份原图交给 `POST /api/sessions/image-batch-start`。后端使用 Pillow 裁剪，并为每个框创建独立 session；session 只保存自己的 PNG 裁剪图，不保存或重复发送整张多题原图。图片子 session 的 `problem_text` 初始为空，正式多模态答疑模型从自己的裁剪图和首条上传消息中确认题目摘要，仍受 `context_status` 守门约束。旧的 `POST /api/problem-images/analyze` 保留为兼容接口，但新建图片多题流程不再依赖它的 OCR 旁路字段。
 
 `SessionCreate` 禁止未声明的额外字段，`build_messages()` 也只对白名单中的题目、初始思路、年级、学科、状态和可选原图组装 `SESSION_START`，防止视觉模型内部元数据旁路进入教学上下文。
 
@@ -454,7 +456,7 @@ controller 以 session id 为键保存多条活动 `streamChat`。切换会话�
 
 timeline reducer 仍校验 event 的 session id 与本地 run id，因此后台流和迟到回调不能写入当前打开的另一个 session。重新打开仍在生成的 session 时，页面先读取 SQLite 快照恢复已提交 action，再依据 controller 中该 session 的活动 run 接收后续事件；切换期间遗漏的半截字符不作为恢复依据，最终 `decision` 或下次 SQLite 快照负责校准完整内容。显式停止时仅移除尚未 `message_done` 的临时 assistant 片段；已经完成的 action 和学生消息保留，SQLite 仍是重新打开会话时的唯一权威来源。
 
-图片任务同样与视图解耦：文件选择时先生成稳定的 session id 和 `client_message_id`，随后读取图片、视觉识别、`POST /api/sessions/start` 与首轮生成都使用这组身份。用户在中途新建/打开其他对话或浏览卡片不会取消任务；回调只有在发起任务的视图 token 仍有效时才绑定当前草稿，否则只在后台创建 session、刷新历史并继续生成。
+图片检测阶段尚未创建 session；只有发起检测的草稿仍有效时才展示框选确认页。确认时前端为每个最终框生成稳定的 session id 和 `client_message_id`，后端在一个批量事务中裁剪并接纳全部子会话。成功后第一题绑定当前视图，其余题作为独立后台 session 并行生成；所有流继续由 `sessionId + runId` 隔离。用户取消框选或在检测完成前切换草稿时不会创建任何 session。
 
 chat 流与 durable change feed 的边界如下：
 

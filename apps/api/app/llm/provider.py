@@ -19,15 +19,19 @@ from app.llm.local_demo_provider import (
 
 __all__ = [
     "IMAGE_ANALYSIS_PROMPT",
+    "IMAGE_PROBLEM_DETECTION_PROMPT",
     "LlmProfile",
     "LlmProviderError",
+    "TEXT_PROBLEM_SPLIT_PROMPT",
     "_anthropic_response_events",
+    "analyze_problem_text",
     "analyze_problem_image",
     "anthropic_messages_url",
     "anthropic_request_payload",
     "chat_completion",
     "chat_completions_url",
     "chat_stream_completion",
+    "detect_problem_regions",
     "is_workflow_control_message",
     "local_demo_knowledge_card",
     "local_demo_problem_card",
@@ -82,6 +86,53 @@ IMAGE_ANALYSIS_PROMPT = """你是数学题图片录入助手，不是解题助�
 - diagram_bbox 使用整张图片归一化坐标，x/y/width/height 都在 0 到 1 之间，框住题目需要保留的图形区域。
 - 如果题目没有必要展示图，needs_diagram=false 且 diagram_bbox=null。
 - 如果无法识别题目文字，problem_text 返回空字符串。
+"""
+
+
+IMAGE_PROBLEM_DETECTION_PROMPT = """你是数学试题与学生作答区域检测助手。请找出图片中每一道独立题目，以及明确或可能属于该题的完整学生作答和批改区域；只返回 JSON，不要 Markdown，也不要解题或转录答案。
+
+严格返回：
+{
+  "problems": [
+    {
+      "label": "题目 1",
+      "bbox": {"x": 0.05, "y": 0.10, "width": 0.90, "height": 0.20}
+    }
+  ]
+}
+
+要求：
+- bbox 使用整张原图的归一化坐标，x/y/width/height 都在 0 到 1 之间。
+- 一道独立编号题只给一个框；同一大题的共享题干、多个小问、配图和表格必须与该题的作答区域放在同一个框内，不要把小问或解题过程拆成不同题目。
+- 不同题号、不同题干或明显独立作答目标应分别框选。按从上到下、从左到右排序，最多返回 20 道题。
+- 学生过程是框选内容的必要组成部分，不是可选内容。只要图片里能看到属于该题的手写或打印作答，包括草稿、每一步计算、推导、改写、划掉后重写、最终答案，都必须完整放进该题 bbox；红笔或其他颜色的勾、叉、圈、划线、得分和文字批注也必须包含。
+- 学生过程可能写在题干下方、右侧、空白处或跨越预留答题区域。不要只紧贴印刷题干，也不要因为过程离题干稍远就截掉；应结合题号、答题空白、连贯书写顺序和空间邻近关系判断归属。
+- 每个框要完整覆盖题号、题干、选项、必要图表、全部学生过程与批改痕迹，并在内容外侧保留少量安全边距。无法确定某一行过程是否属于该题时，优先适度扩大该题框保留它，而不是裁掉可能有用的学生过程；允许为此与相邻框轻微重叠，但不要完整吞入另一道独立题目。
+- 禁止在该题存在可见作答时仅框题干。返回前逐框检查：题目是否完整、学生过程是否从第一步到最后一步完整、批改痕迹是否完整；任一项被截断都必须扩大 bbox。
+- 图片中只有一道题也必须返回一个框。无法识别任何数学题时返回 {"problems": []}。
+"""
+
+
+TEXT_PROBLEM_SPLIT_PROMPT = """你是数学题目拆分助手，不是解题助手。判断用户文字包含一道还是多道彼此独立的数学题，并只返回严格 JSON，不要 Markdown。
+
+严格返回：
+{
+  "problems": [
+    {
+      "problem_text": "可独立交给答疑老师的完整题目",
+      "student_initial_thought": "用户明确表达且只属于这道题的思路、作答或卡点；没有则为空字符串"
+    }
+  ]
+}
+
+要求：
+- 单题也必须返回长度为 1 的 problems；最多 20 道题。
+- 以独立题号、独立题干和独立作答目标判断多题。同一大题的共享题干与多个小问保留为一道题，不要拆散必要上下文。
+- 每个 problem_text 必须自包含；共享条件应复制到需要它的题目中，但不得补写用户没有提供的信息。
+- 只拆分和整理，不得求解、纠错、推断答案或编造学生思路。
+- 保留原始数学含义。数学表达尽量整理为可直接交给 KaTeX 的 $...$ 或 $$...$$ 格式，JSON 反斜杠正确转义。
+- 寒暄、上传说明等非题目内容不要写入 problem_text；用户明确说“没思路”属于有效 student_initial_thought。
+- 无法找到数学题时返回 {"problems": []}。
 """
 
 
@@ -258,6 +309,78 @@ async def analyze_problem_image(profile: LlmProfile, image_data_url: str) -> str
             },
         ],
         max_tokens=min(max(profile.max_output_tokens, 4000), 16000),
+        temperature=0,
+    )
+
+
+async def detect_problem_regions(profile: LlmProfile, image_data_url: str) -> str:
+    if profile.provider == "local_demo":
+        return json.dumps(
+            {
+                "problems": [
+                    {
+                        "label": "题目 1",
+                        "bbox": {"x": 0.03, "y": 0.03, "width": 0.94, "height": 0.94},
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+
+    return await chat_completion(
+        profile,
+        [
+            {"role": "system", "content": IMAGE_PROBLEM_DETECTION_PROMPT},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "请检测全部独立数学题，并让每个框完整包含该题的学生过程、答案和批改痕迹。",
+                    },
+                    {"type": "image_url", "image_url": {"url": image_data_url}},
+                ],
+            },
+        ],
+        max_tokens=min(max(profile.max_output_tokens, 2000), 8000),
+        temperature=0,
+    )
+
+
+def _local_demo_text_problems(text: str) -> list[str]:
+    starts = list(
+        re.finditer(r"(?m)^\s*(?=(?:第\s*\d+\s*题|\d+\s*[.、．]))", text)
+    )
+    if len(starts) < 2:
+        return [text.strip()]
+    problems: list[str] = []
+    for index, match in enumerate(starts):
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(text)
+        problem = text[match.start() : end].strip()
+        if problem:
+            problems.append(problem)
+    return problems or [text.strip()]
+
+
+async def analyze_problem_text(profile: LlmProfile, text: str) -> str:
+    if profile.provider == "local_demo":
+        return json.dumps(
+            {
+                "problems": [
+                    {"problem_text": problem, "student_initial_thought": ""}
+                    for problem in _local_demo_text_problems(text)
+                ]
+            },
+            ensure_ascii=False,
+        )
+
+    return await chat_completion(
+        profile,
+        [
+            {"role": "system", "content": TEXT_PROBLEM_SPLIT_PROMPT},
+            {"role": "user", "content": text},
+        ],
+        max_tokens=min(max(profile.max_output_tokens, 3000), 12000),
         temperature=0,
     )
 

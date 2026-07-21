@@ -135,6 +135,43 @@ class ProblemImageAnalyzeResponse(BaseModel):
     diagram_note: str | None = None
 
 
+class ProblemBoundingBox(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
+
+
+class DetectedProblemRegion(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=80)
+    bbox: ProblemBoundingBox
+
+
+class ProblemImageDetectResponse(BaseModel):
+    problems: list[DetectedProblemRegion] = Field(min_length=1, max_length=20)
+    image_width: int = Field(gt=0)
+    image_height: int = Field(gt=0)
+
+
+class ProblemTextAnalyzeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_profile_id: str
+    text: str = Field(min_length=1, max_length=20_000)
+
+
+class SplitTextProblem(BaseModel):
+    problem_text: str = Field(min_length=1, max_length=20_000)
+    student_initial_thought: str = Field(default="", max_length=20_000)
+
+
+class ProblemTextAnalyzeResponse(BaseModel):
+    problems: list[SplitTextProblem] = Field(min_length=1, max_length=20)
+
+
 class SessionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -170,6 +207,34 @@ class SessionStartResponse(BaseModel):
     student_initial_thought: str
     message_id: str
     action_id: str
+
+
+class SessionBatchStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sessions: list[SessionStartRequest] = Field(min_length=1, max_length=20)
+
+
+class SessionBatchStartResponse(BaseModel):
+    sessions: list[SessionStartResponse]
+
+
+class ImageSessionStartItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(pattern=r"^sess_[0-9a-f]{32}$")
+    client_message_id: str = Field(min_length=1, max_length=128)
+    bbox: ProblemBoundingBox
+
+
+class ImageSessionBatchStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    grade_band: Literal["junior", "senior"]
+    subject: Literal["math"] = "math"
+    model_profile_id: str
+    source_image_data_url: str = Field(min_length=1, max_length=17_000_000)
+    items: list[ImageSessionStartItem] = Field(min_length=1, max_length=20)
 
 
 class SessionHistoryItem(BaseModel):
