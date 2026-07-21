@@ -94,11 +94,8 @@ def test_builtin_opencode_models_have_expected_multimodal_checkbox():
     capabilities = {model.model: model.is_multimodal for model in BUILTIN_FREE_MODELS}
 
     assert capabilities == {
-        "big-pickle": False,
-        "deepseek-v4-flash-free": False,
+        "hy3": False,
         "mimo-v2.5-free": True,
-        "north-mini-code-free": False,
-        "nemotron-3-ultra-free": False,
     }
 
 

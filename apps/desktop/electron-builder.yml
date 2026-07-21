@@ -17,6 +17,8 @@ extraResources:
     to: api
   - from: ../web/out
     to: web
+  - from: ../../dist/windows/seed
+    to: seed
 
 win:
   target:

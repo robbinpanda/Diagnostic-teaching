@@ -16,13 +16,13 @@ SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 re
 
 前端会话运行态由 timeline reducer、互斥 workflow 状态机和按 session 隔离的 stream controller 管理。切换会话或新建答疑只切换当前视图，不会关闭其他 session 的 HTTP 流；多个 session 可以同时生成，同一 session 的新 run 仍只会替换该 session 的旧 run。点击停止只中断当前打开的 session，页面卸载才统一收束所有本地流。每个 chat 事件同时绑定 session id 与本地 run id，后台流不能写入后来打开的 session；重新打开仍在生成的 session 时，页面从 SQLite 快照恢复已提交内容并重新接回该 session 的活动流。高频 `message_delta/message_reset` 没有 durable seq；稳定业务边界由独立的 session-events SSE 提供严格递增的 `seq` 和断线重放。
 
-模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name，并可选择 OpenAI-compatible chat completions 或 Anthropic Messages 协议。多个 model name 的连接测试最多四项并行执行，每个模型独立显示成功或失败并设置是否多模态；图片能力使用每次随机排列的颜色/图形挑战验证模型是否真正读懂图片，而不是只判断请求是否返回文字。模型选择器会根据名称长度自适应宽度，长名称自动省略，多模态项显示“支持上传图片”；管理模式可复选并原子批量删除自定义配置。用户配置显示为“供应商名称 · model name”；OpenCode 托管免费模型显示为 `opencodefree-<model-id>`。普通本地运行可从 `models.dev` 同步目录；Windows 安装版固定使用随包快照，不请求目录服务。
+模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name，并可选择 OpenAI-compatible chat completions 或 Anthropic Messages 协议。多个 model name 的连接测试最多四项并行执行，每个模型独立显示成功或失败并设置是否多模态；图片能力使用每次随机排列的颜色/图形挑战验证模型是否真正读懂图片，而不是只判断请求是否返回文字。模型选择器会根据名称长度自适应宽度，长名称自动省略，多模态项显示“支持上传图片”；管理模式可复选并原子批量删除自定义配置。用户配置显示为“供应商名称 · model name”；OpenCode 托管免费模型显示为 `opencodefree-<model-id>`。普通本地运行可从 `models.dev` 同步目录；Windows 安装版固定只提供 `hy3` 和 `mimo-v2.5-free` 两个随包快照模型，不请求目录服务。
 
 ## Windows 安装版
 
 Windows 10/11 x64 用户可直接运行 NSIS 安装包，无需预装 Node.js、Python、Conda 或数据库。Electron 启动随包 FastAPI sidecar，在随机 `127.0.0.1` 端口同源加载静态前端；会话、日志和加密密钥保存在当前 Windows 用户的应用数据目录，卸载默认保留数据。
 
-安装版没有登录、遥测、自动更新或外部页面跳转。渲染进程只能访问本机 sidecar；sidecar 关闭 `models.dev` 刷新，运行时外网请求只会发生在用户测试或使用已配置的 LLM API 时。构建、安装、数据位置和签名说明见 `docs/windows-installer.md`。
+安装版没有登录、遥测、自动更新或外部页面跳转。渲染进程只能访问本机 sidecar；sidecar 关闭 `models.dev` 刷新，运行时外网请求只会发生在用户测试或使用已配置的 LLM API 时。构建时可从 Git 忽略的本地文件逐模型执行文字与随机图片探针，并把通过检查的个人模型配置写入加密 SQLite 预置包；构建、安装、数据位置和签名说明见 `docs/windows-installer.md`。
 
 教学上下文的前置 intake 已取消；新增的拆题阶段只决定“一段输入要创建几个 session”，不参与教学 action。文字首发先调用 `POST /api/problem-intake/analyze-text`，由当前选定模型返回严格 `problems[]` JSON；单题返回一项，多题返回多个自包含题目，再由 `POST /api/sessions/batch-start` 在同一 SQLite 事务中为每题创建正式 session、写入 `session_inputs` 并保存首条 `STUDENT_RESPONSE`。每个子会话都有稳定 session id 与 `client_message_id`，整批重试不会重复创建。进入正式 session 后，题目和学生思路仍由答疑模型按完整对话语义更新；`context_status=need_problem|need_thought` 时后端强制只允许 `ASK_OPEN_QUESTION`，两项明确后进入 `ready`。
 

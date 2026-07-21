@@ -85,21 +85,18 @@ OpenCode 托管免费模型可从同一个设置入口查看，但供应商、Ba
 
 ### 4.2 OpenCode 免费模型同步
 
-实现与 OpenCode 源码的无密钥路径一致：目录来自 `models.dev/api.json`，无账户时使用公共值 `public`，只保留 `cost.input == 0` 的模型；本项目再排除 `alpha/deprecated` 和当前不支持的协议。普通本地运行启动时立即在线刷新，并每 60 分钟刷新一次；设置 `OPENCODE_CATALOG_REFRESH_ENABLED=0` 后改用最近磁盘缓存或内置快照。Windows 安装版固定禁用刷新，但用户选择托管免费模型时仍会把答疑请求发送到其 LLM API 地址。
+实现与 OpenCode 源码的无密钥路径一致：目录来自 `models.dev/api.json`，无账户时使用公共值 `public`，只保留 `cost.input == 0` 的模型；本项目再排除 `alpha/deprecated` 和当前不支持的协议。普通本地运行启动时立即在线刷新，并每 60 分钟刷新一次；设置 `OPENCODE_CATALOG_REFRESH_ENABLED=0` 后改用最近磁盘缓存或内置快照。Windows 安装版固定禁用刷新，并将内置快照裁剪为 `hy3` 与 `mimo-v2.5-free` 两项；用户选择托管免费模型时仍会把答疑请求发送到其 LLM API 地址。
 
 2026-07-19 内置快照如下；在线目录变化后会自动增删托管项：
 
 | 显示名 | 协议 | 设置中的“支持图片识别” |
 |---|---|---:|
-| `opencodefree-big-pickle` | OpenAI-compatible | 否 |
-| `opencodefree-deepseek-v4-flash-free` | OpenAI-compatible | 否 |
+| `opencodefree-hy3` | OpenAI-compatible | 否 |
 | `opencodefree-mimo-v2.5-free` | OpenAI-compatible | 是 |
-| `opencodefree-north-mini-code-free` | OpenAI-compatible | 否 |
-| `opencodefree-nemotron-3-ultra-free` | OpenAI-compatible | 否 |
 
 同步会复用已有托管 profile ID，避免 session 外键漂移；退出免费目录的 profile 只会从新建会话列表隐藏，历史 SQLite 行仍保留。公共值 `public` 也按普通 API key 加密保存，前端只能看到掩码。
 
-OpenCode 官方说明这些免费端点中的部分请求可能被记录并用于改进模型；North Mini Code 与 Nemotron 还明确不应接收个人或机密数据。模型设置弹窗会提示不要向免费模型提交个人或敏感信息。
+OpenCode 官方说明部分免费端点的请求可能被记录并用于改进模型。模型设置弹窗会提示不要向免费模型提交个人或敏感信息。
 
 按钮：
 

@@ -12,7 +12,7 @@
 
 Electron 不提供登录、遥测、自动更新或打开外部网页的能力。窗口启用 Chromium sandbox、关闭 Node 集成和开发者工具，拒绝权限请求、弹窗、外部导航及所有非当前本机 sidecar 的网络请求。静态页面还带有 `connect-src 'self'` CSP。
 
-后端的运行时外网出口只有 `app/llm/provider.py` 中的模型连接测试与 LLM 调用。桌面主进程固定设置 `OPENCODE_CATALOG_REFRESH_ENABLED=0`，所以不会请求 `models.dev`；OpenCode 免费模型使用随包快照，只有用户真正选择模型进行测试或答疑时才访问对应 LLM API。
+后端的运行时外网出口只有 `app/llm/provider.py` 中的模型连接测试与 LLM 调用。桌面主进程固定设置 `OPENCODE_CATALOG_REFRESH_ENABLED=0`，所以不会请求 `models.dev`；安装版只保留随包快照中的 `hy3` 和 `mimo-v2.5-free`，只有用户真正选择模型进行测试或答疑时才访问对应 LLM API。
 
 ## 构建
 
@@ -31,10 +31,21 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows-installer.ps1
 
 脚本会在 `.build/windows-python` 创建隔离构建环境，在 `.build/electron-builder-cache` 保存可复用的 NSIS 工具缓存，安装 `apps/api/requirements-build.txt`，然后依次构建静态前端、PyInstaller sidecar 和 NSIS 安装包。可通过 `-NodePath`、`-PythonPath` 指定运行时；依赖已经准备好时可使用 `-SkipDependencyInstall`。
 
+需要预置个人模型时，复制 `docs/windows-model-profiles.example.json` 到 Git 忽略的 `.secrets/windows-model-profiles.json`，只在本机填写 API key，然后执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-windows-installer.ps1 `
+  -ModelProfileSeedPath .secrets\windows-model-profiles.json
+```
+
+构建脚本最多并行检查四个模型：先验证文字连接，再用代码生成的随机颜色/图形图片验证多模态能力。任一模型文字连接失败时构建立即终止；图片探针失败则把该模型保存为非多模态。明文输入文件不会复制到 `dist/`，安装包只携带 `app.db` 中的加密密文和配套密钥。首次启动时仅在用户数据库与密钥都不存在的情况下复制预置数据，升级安装不会覆盖用户已有配置。
+
 产物：
 
 ```text
 dist/windows/api/                                      PyInstaller sidecar
+dist/windows/seed/app.db                               加密的首次安装模型预置库（可选）
+dist/windows/seed/app-secret.key                       预置库密钥（可选）
 dist/windows/installer/win-unpacked/                   未安装的检查目录
 dist/windows/installer/Diagnostic-Teaching-Setup-*.exe NSIS 安装包
 ```

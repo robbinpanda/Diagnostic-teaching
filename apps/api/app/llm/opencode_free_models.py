@@ -31,18 +31,12 @@ class OpenCodeFreeModel:
 
 
 # The bundled snapshot makes the models usable on an offline first launch. The
-# background catalog refresh replaces it with models.dev metadata when online.
+# Windows installer disables catalog refresh and therefore exposes exactly this
+# curated pair. Development builds may still replace it from models.dev.
 BUILTIN_FREE_MODELS = (
     OpenCodeFreeModel(
-        model="big-pickle",
-        name="Big Pickle",
-        provider="openai_compatible",
-        base_url="https://opencode.ai/zen/v1",
-        is_multimodal=False,
-    ),
-    OpenCodeFreeModel(
-        model="deepseek-v4-flash-free",
-        name="DeepSeek V4 Flash Free",
+        model="hy3",
+        name="HY3",
         provider="openai_compatible",
         base_url="https://opencode.ai/zen/v1",
         is_multimodal=False,
@@ -53,20 +47,6 @@ BUILTIN_FREE_MODELS = (
         provider="openai_compatible",
         base_url="https://opencode.ai/zen/v1",
         is_multimodal=True,
-    ),
-    OpenCodeFreeModel(
-        model="north-mini-code-free",
-        name="North Mini Code Free",
-        provider="openai_compatible",
-        base_url="https://opencode.ai/zen/v1",
-        is_multimodal=False,
-    ),
-    OpenCodeFreeModel(
-        model="nemotron-3-ultra-free",
-        name="Nemotron 3 Ultra Free",
-        provider="openai_compatible",
-        base_url="https://opencode.ai/zen/v1",
-        is_multimodal=False,
     ),
 )
 

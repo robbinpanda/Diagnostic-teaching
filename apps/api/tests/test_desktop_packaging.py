@@ -19,6 +19,19 @@ def test_desktop_settings_disable_catalog_network(monkeypatch, tmp_path: Path):
     assert load_settings().opencode_catalog_refresh_enabled is False
 
 
+def test_desktop_bundle_installs_encrypted_seed_only_for_fresh_users():
+    root = Path(__file__).resolve().parents[2]
+    main_source = (root / "desktop" / "src" / "main.cjs").read_text(encoding="utf-8")
+    builder_config = (root / "desktop" / "electron-builder.yml").read_text(encoding="utf-8")
+
+    assert "installBundledModelSeed(dataDirectory)" in main_source
+    assert "existsSync(databasePath) || existsSync(secretPath)" in main_source
+    assert "copyFileSync(seedDatabasePath, databasePath)" in main_source
+    assert "copyFileSync(seedSecretPath, secretPath)" in main_source
+    assert "rmSync(databasePath, { force: true })" in main_source
+    assert "from: ../../dist/windows/seed" in builder_config
+
+
 def test_catalog_network_refresh_defaults_on_for_development(monkeypatch, tmp_path: Path):
     configure_desktop_environment(monkeypatch, tmp_path)
     monkeypatch.delenv("OPENCODE_CATALOG_REFRESH_ENABLED")
