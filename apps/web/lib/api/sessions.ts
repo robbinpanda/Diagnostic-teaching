@@ -99,6 +99,7 @@ export async function dismissKnowledgeCardAndContinue(input: {
   session_id: string;
   client_command_id: string;
   card_id: string;
+  folder_id?: string | null;
 }): Promise<SessionInputAcceptance> {
   const response = await fetch(`${API_BASE}/api/sessions/${input.session_id}/inputs`, {
     method: "POST",
@@ -106,7 +107,8 @@ export async function dismissKnowledgeCardAndContinue(input: {
     body: JSON.stringify({
       kind: "CARD_DISMISSED_CONTINUE",
       client_command_id: input.client_command_id,
-      card_id: input.card_id
+      card_id: input.card_id,
+      folder_id: input.folder_id || null
     })
   });
   if (!response.ok) throw await responseError(response);

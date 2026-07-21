@@ -12,6 +12,7 @@ from app.services.input_acceptance_models import (
 from app.services.input_acceptance_models import (
     load_json as _load_json,
 )
+from app.storage.card_folder_repository import resolve_card_folder
 from app.storage.repository_utils import new_id, now_iso
 
 
@@ -22,11 +23,12 @@ class CardDismissalAcceptanceMixin:
         *,
         client_command_id: str,
         card_id: str,
+        folder_id: str | None = None,
     ) -> AcceptedSessionInput:
         key = client_command_id.strip()
         if not key:
             raise InputValidationError("client_command_id 不能为空")
-        payload_json = _canonical_json({"card_id": card_id})
+        payload_json = _canonical_json({"card_id": card_id, "folder_id": folder_id})
 
         with self.db.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -66,16 +68,21 @@ class CardDismissalAcceptanceMixin:
                 raise PermissionError(card_id)
             if card_row["card_type"] != "knowledge_card":
                 raise InputValidationError("只有知识卡片关闭后需要继续生成")
+            resolved_folder_id = resolve_card_folder(conn, folder_id, card_row["card_type"])
 
             input_id = new_id("inp")
             ts = card_row["saved_at"] or now_iso()
             newly_saved = card_row["saved_at"] is None
             if newly_saved:
                 conn.execute(
-                    "UPDATE study_cards SET saved_at = ? WHERE id = ?",
-                    (ts, card_id),
+                    "UPDATE study_cards SET saved_at = ?, folder_id = ? WHERE id = ?",
+                    (ts, resolved_folder_id, card_id),
                 )
-            result = {"card_id": card_id, "card_saved_at": ts}
+            result = {
+                "card_id": card_id,
+                "card_saved_at": ts,
+                "folder_id": card_row["folder_id"] if not newly_saved else resolved_folder_id,
+            }
             conn.execute(
                 """
                 INSERT INTO session_inputs (
@@ -112,6 +119,7 @@ class CardDismissalAcceptanceMixin:
                                 "source_action_id": card_row["source_action_id"],
                                 "source_message_id": card_row["source_message_id"],
                                 "saved_at": ts,
+                                "folder_id": resolved_folder_id,
                             },
                         )
                     ],

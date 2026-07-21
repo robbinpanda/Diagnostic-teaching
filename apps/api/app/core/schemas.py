@@ -291,6 +291,7 @@ class CardDismissedContinueInputRequest(BaseModel):
     kind: Literal["CARD_DISMISSED_CONTINUE"]
     client_command_id: str = Field(min_length=1, max_length=128)
     card_id: str = Field(min_length=1, max_length=128)
+    folder_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 SessionInputAcceptRequest = Annotated[
@@ -310,6 +311,7 @@ class SessionInputAcceptResponse(BaseModel):
     in_reply_to_action_id: str | None = None
     card_id: str | None = None
     card_saved_at: str | None = None
+    folder_id: str | None = None
 
 
 class CheckpointAnswerRequest(BaseModel):
@@ -373,6 +375,7 @@ class StudyCardPublic(BaseModel):
     source_action_id: str
     source_message_id: str
     content: TutorCardContent
+    folder_id: str | None = None
     created_at: str
     saved_at: str | None = None
 
@@ -383,6 +386,39 @@ class StudyCardListResponse(BaseModel):
 
 class StudyCardSaveRequest(BaseModel):
     session_id: str
+    folder_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class StudyCardPlacementRequest(BaseModel):
+    folder_id: str = Field(min_length=1, max_length=128)
+
+
+class CardFolderPublic(BaseModel):
+    id: str
+    name: str
+    parent_id: str | None = None
+    is_system: bool = False
+    default_card_type: Literal["knowledge_card", "problem_card"] | None = None
+    created_at: str
+    updated_at: str
+
+
+class CardFolderListResponse(BaseModel):
+    folders: list[CardFolderPublic]
+
+
+class CardFolderCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80)
+    parent_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class CardFolderUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    parent_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class TutorCheckpointOption(BaseModel):

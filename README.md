@@ -10,7 +10,7 @@ context_status + problem/thought summary + state_hint + action + message + break
 
 后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、标注每条 AI 消息对应的教学 action、弹出检查点并把学生选择回传给模型。
 
-当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、OpenAI-compatible / Anthropic 双协议加密模型配置、自动同步的 OpenCode 免费模型、检查点选择题、跨 session 的全局知识卡片/题目卡片库、学习卡片 PDF 多排版导出、SQLite 历史会话与删除、按 session 严格递增的 durable events 与断线重放 SSE，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
+当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、OpenAI-compatible / Anthropic 双协议加密模型配置、自动同步的 OpenCode 免费模型、检查点选择题、跨 session 的全局知识卡片/题目卡片库、层级卡片文件夹与复制/剪切/移动、基于目录树选择的学习卡片 PDF 多排版导出、SQLite 历史会话与删除、按 session 严格递增的 durable events 与断线重放 SSE，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
 
 SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 revision；旧版无 Alembic 标记的数据库会在保留业务数据的前提下建立迁移基线。每条应用连接启用 foreign keys、WAL 与 5 秒 busy timeout，具体约束、备份和 Windows 本地运行行为见 `docs/database.md`。
 
@@ -32,9 +32,9 @@ Checkpoint answer 也进入 `session_inputs`，并由数据库唯一约束保证
 
 run 中只有完整解析并通过 SQLite 事务提交的教学 action 才进入会话历史；流式显示到一半的 step 不会写成 assistant message。应用启动时会把上次进程遗留的 `queued/running` run 标为 `failed/process_restarted`，不会静默恢复可能重复的 provider 工作。
 
-知识卡片策略为：`EXPLAIN_PRINCIPLE` 必须输出，`EXPLAIN_LOCAL` 仅在讲解包含值得独立记忆、可迁移复用的公式、定理、性质或方法辨析时由模型选择输出；任一 knowledge card 都会在消息结束后弹窗，关闭归档后继续答疑。
+知识卡片策略为：`EXPLAIN_PRINCIPLE` 必须输出，`EXPLAIN_LOCAL` 仅在讲解包含值得独立记忆、可迁移复用的公式、定理、性质或方法辨析时由模型选择输出；任一 knowledge card 都会在消息结束后弹窗，选择保存文件夹并归档后继续答疑。题目卡片弹窗同样要求选择保存位置。新库自动创建“默认知识卡片”和“默认题目卡片”两个系统文件夹；旧卡片升级后按类型归入对应默认文件夹，客户端不传位置时后端也使用同一默认规则。
 
-已归档知识卡片和题目卡片可以在“导出学习卡片”中混合选择后导出 PDF。窗口默认全选，并按 `saved_at` 从新到旧排列；取消全选后逐张点击时，选择编号就是打印顺序，再次点击会取消，重新选中则追加到末尾。排版预设包括 A4 竖版单列、A4 竖版双列和 A4 横版三列；默认双列。打印稿按“先从上到下填满左列，再流向右列”的报纸式顺序排版，普通卡片尽量保持完整，单张特别长时只在内容分区之间续排。导出会打开系统打印面板，选择“另存为 PDF”即可保留 KaTeX 公式与彩色版式。
+右侧学习卡片库采用文件管理器形态：虚拟根目录下可创建主文件夹，任意文件夹内可继续创建子文件夹；卡片支持复制、剪切后粘贴、直接移动和删除。已归档知识卡片和题目卡片可以在“从卡片库导出”窗口中按目录树浏览、按文件夹批选或逐张选择后导出 PDF。窗口默认全选，并按 `saved_at` 从新到旧排列；选择编号就是打印顺序。排版预设包括 A4 竖版单列、A4 竖版双列和 A4 横版三列，默认双列；导出会打开系统打印面板，选择“另存为 PDF”即可保留 KaTeX 公式与彩色版式。
 
 ## 本地启动
 
@@ -98,7 +98,7 @@ POST /api/sessions/start 原子创建 session + 接纳首条普通消息
 - Frontend: Next.js + React + TypeScript
 - Math Rendering: KaTeX（聊天气泡和检查点题干/选项支持 `$...$`、`$$...$$`、`\(...\)`、`\[...\]`）
 - Backend: FastAPI
-- Database: SQLite + Alembic（session、durable session_inputs、结构化消息、checkpoint、全局 study_cards、session_runs 和可重放 session_events 的权威存储，也是历史恢复来源；启用 foreign keys、WAL 和 busy timeout）
+- Database: SQLite + Alembic（session、durable session_inputs、结构化消息、checkpoint、层级 card_folders、全局 study_cards、session_runs 和可重放 session_events 的权威存储，也是历史恢复来源；启用 foreign keys、WAL 和 busy timeout）
 - Run lifecycle: SQLite `session_runs`（run_id、attempt、queued/running/terminal 状态、时间戳和结构化错误）
 - Diagnostic Log: JSONL（机器审计）+ Markdown（留白充足的人类阅读版）
 - Model API: OpenAI-compatible chat completions + Anthropic Messages（两种协议均支持流式输出与图片输入转换）

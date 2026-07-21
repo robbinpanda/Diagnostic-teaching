@@ -228,7 +228,7 @@ checkpoint 类似一次需要结果的调用，但结果来自学生，而不是
 
 `EXPLAIN_PRINCIPLE` 必须输出 knowledge card；`EXPLAIN_LOCAL` 由模型判断是否输出。局部讲解中易混且可迁移的辨析（例如韦达定理“和用 $-b/a$、积用 $c/a$”）适合出卡；一次性代入、算术计算、符号改写或纯本题过渡不出卡。可选卡仍必须结构化 message 中的同一个知识点，不得扩大讲解范围。
 
-生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null`，不会出现在右侧卡片库。知识卡片点大叉后，前端提交 `CARD_DISMISSED_CONTINUE`；后端在同一事务写 `saved_at` 与 `session_inputs` 控制命令，再由前端调用 `/api/chat/stream`。Problem card 仍只归档、不继续。未归档卡片存在时，`/api/chat/stream` 返回 409，避免绕过确认继续生成。
+生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null`，并按类型预绑定系统默认文件夹，但不会出现在右侧卡片库。知识卡片弹窗选择位置并保存后，前端提交带 `folder_id` 的 `CARD_DISMISSED_CONTINUE`；后端在同一事务写 `saved_at / folder_id` 与 `session_inputs` 控制命令，再由前端调用 `/api/chat/stream`。Problem card 同样可选目录，但仍只归档、不继续。未归档卡片存在时，`/api/chat/stream` 返回 409，避免绕过确认继续生成。
 
 卡片接口：
 

@@ -147,15 +147,16 @@ scripts\inspect-session.cmd sess_c4052d2538a6
 
 该脚本会自动定位 `ai4edu-tutor` Conda 环境，并读取 `.env` 中自定义的 `DATABASE_URL` 与 `SESSION_LOG_DIR`。
 
-你重点看七张表：
+你重点看八张表：
 
 1. `sessions`：`context_status`、当前教学阶段、题目/思路语义摘要、模型与可选原图。
 2. `session_inputs`：已可靠接纳的普通消息、checkpoint answer、卡片关闭继续命令，以及幂等键和首次结果。
 3. `messages`：学生消息、AI 回复，以及每条消息的 `action_id / action / in_reply_to_action_id`。
 4. `checkpoints`：每个检查点的问题、选项、正确答案、学生选择，以及产生它的 `source_action_id`。
-5. `study_cards`：全局知识/题目卡片内容、来源 session/action/message，以及是否已由学生关闭归档的 `saved_at`。
-6. `session_events`：按 session 严格递增的 durable change feed，用于有限历史、SSE 断线补发和事件顺序排查；它与 JSONL 诊断日志无关。
-7. `session_runs`：每次生成的 `run_id / attempt / status`、开始结束时间、最后提交 action 下标和结构化错误。
+5. `card_folders`：卡片目录名称、父目录、系统默认目录标记与默认卡片类型。
+6. `study_cards`：全局知识/题目卡片内容、来源 session/action/message、`folder_id`，以及是否已由学生保存归档的 `saved_at`。
+7. `session_events`：按 session 严格递增的 durable change feed，用于有限历史、SSE 断线补发和事件顺序排查；它与 JSONL 诊断日志无关。
+8. `session_runs`：每次生成的 `run_id / attempt / status`、开始结束时间、最后提交 action 下标和结构化错误。
 
 生成过程中可查询或显式停止当前 session：
 
@@ -171,7 +172,7 @@ POST /api/sessions/<session_id>/interrupt
 需要重置测试数据时：
 
 1. 在左侧会话栏标题旁点击清空按钮，会删除 SQLite 中的全部会话业务态和全部 session 日志，但保留已归档学习卡片和模型配置。
-2. 在右侧学习卡片库点击“清空全部卡片”，会删除全部知识卡片和题目卡片，但保留会话与日志。
+2. 在右侧学习卡片库点击“清空全部卡片”，会删除全部知识卡片和题目卡片，但保留文件夹、会话与日志。
 3. 两个按钮都要求二次确认；答疑正在生成时不能执行。
 
 ## 看全量诊断日志（推荐）

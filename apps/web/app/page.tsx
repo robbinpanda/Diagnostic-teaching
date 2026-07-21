@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckpointModal } from "../components/CheckpointModal";
+import { CardMoveDialog } from "../components/CardMoveDialog";
 import { ModelConfigDialog } from "../components/ModelConfigDialog";
 import { StudyCardModal } from "../components/StudyCardModal";
 import {
@@ -112,15 +113,28 @@ export default function Home() {
   } = profilesState;
   const {
     cards,
-    filteredCards,
-    filter: cardFilter,
-    setFilter: setCardFilter,
+    folders,
+    currentFolderId,
+    setCurrentFolderId,
+    visibleFolders,
+    visibleCards,
     viewingCard,
     setViewingCard,
+    movingCard,
+    setMovingCard,
+    clipboard,
+    setClipboard,
     cardBusyId,
+    folderBusyId,
+    pasteBusy,
     deleteAllCardsBusy,
     refreshCards,
     upsertCard,
+    createFolder,
+    renameFolder,
+    deleteFolder,
+    moveCardToFolder,
+    pasteCard,
     deleteCard: handleDeleteCard,
     deleteAllCards: handleDeleteAllCards
   } = cardsState;
@@ -474,7 +488,7 @@ export default function Home() {
     }
   }
 
-  async function handleActiveCardClose() {
+  async function handleActiveCardClose(folderId: string) {
     if (!activeCard || !sessionId || workflow.mode !== "card" || workflow.phase !== "ready") return;
     const targetSessionId = sessionId;
     const cardToSave = activeCard;
@@ -486,14 +500,16 @@ export default function Home() {
         const accepted = await dismissKnowledgeCardAndContinue({
           session_id: targetSessionId,
           client_command_id: `card:${cardToSave.id}`,
-          card_id: cardToSave.id
+          card_id: cardToSave.id,
+          folder_id: folderId
         });
         saved = {
           ...cardToSave,
-          saved_at: accepted.card_saved_at ?? accepted.created_at
+          saved_at: accepted.card_saved_at ?? accepted.created_at,
+          folder_id: accepted.folder_id ?? folderId
         };
       } else {
-        saved = await saveCard(cardToSave.id, targetSessionId);
+        saved = await saveCard(cardToSave.id, targetSessionId, folderId);
       }
       upsertCard(saved);
       if (runtime.isSessionActive(targetSessionId)) runtime.completeCardSave();
@@ -574,14 +590,27 @@ export default function Home() {
 
       <StudyCardSidebar
         cards={cards}
-        filteredCards={filteredCards}
-        filter={cardFilter}
+        folders={folders}
+        currentFolderId={currentFolderId}
+        visibleFolders={visibleFolders}
+        visibleCards={visibleCards}
+        clipboard={clipboard}
         cardBusyId={cardBusyId}
+        folderBusyId={folderBusyId}
+        pasteBusy={pasteBusy}
         deleteAllCardsBusy={deleteAllCardsBusy}
         composerBlocked={composerBlocked || anySessionRunning}
         onCollapse={() => setRightOpen(false)}
-        onFilterChange={setCardFilter}
+        onOpenFolder={setCurrentFolderId}
+        onCreateFolder={createFolder}
+        onRenameFolder={renameFolder}
+        onDeleteFolder={(folder) => void deleteFolder(folder)}
         onOpenCard={setViewingCard}
+        onCopyCard={(card) => setClipboard((current) => current?.mode === "copy" && current.card.id === card.id ? null : { card, mode: "copy" })}
+        onCutCard={(card) => setClipboard((current) => current?.mode === "cut" && current.card.id === card.id ? null : { card, mode: "cut" })}
+        onClearClipboard={() => setClipboard(null)}
+        onPasteCard={() => void pasteCard()}
+        onMoveCard={setMovingCard}
         onDeleteCard={handleDeleteCard}
         onExport={() => setLearningCardExportOpen(true)}
         onDeleteAllCards={handleDeleteAllCards}
@@ -596,11 +625,21 @@ export default function Home() {
       <CheckpointModal checkpoint={checkpoint} onChoose={handleCheckpoint} busy={workflow.mode === "checkpoint" && workflow.phase === "submitting"} />
       <StudyCardModal
         card={activeCard ?? viewingCard}
-        onClose={activeCard ? handleActiveCardClose : () => setViewingCard(null)}
+        folders={folders}
+        onClose={() => setViewingCard(null)}
+        onSave={activeCard ? (folderId) => void handleActiveCardClose(folderId) : undefined}
         busy={workflow.mode === "card" && workflow.phase === "saving"}
+      />
+      <CardMoveDialog
+        card={movingCard}
+        folders={folders}
+        busy={Boolean(movingCard && cardBusyId === movingCard.id)}
+        onClose={() => setMovingCard(null)}
+        onMove={(card, folderId) => void moveCardToFolder(card, folderId)}
       />
       <LearningCardExportDialog
         cards={cards}
+        folders={folders}
         open={learningCardExportOpen}
         onClose={() => setLearningCardExportOpen(false)}
         onExport={handleLearningCardExport}

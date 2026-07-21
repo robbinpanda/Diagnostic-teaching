@@ -286,20 +286,22 @@ assistant 教学动作类似：
 `EXPLAIN_PRINCIPLE` 必须带结构化 `knowledge_card`，`EXPLAIN_LOCAL` 可由模型按复用价值选择是否带 `knowledge_card`，`SUMMARIZE` 必须带结构化 `problem_card`。局部讲解只有在包含值得独立记忆、可迁移的公式、定理、性质或方法辨析时出卡；一次性代入、计算或纯本题过渡不出卡。后端在保存 assistant message 时，同一事务把卡片写入 `study_cards`：
 
 ```text
-id / session_id / card_type / title / content_json
+id / session_id / card_type / title / content_json / folder_id
 source_action_id / source_message_id / created_at / saved_at
 ```
 
-`saved_at=null` 表示卡片正在弹窗中等待学生关闭。此时卡片不进入右侧已归档列表，后端也拒绝该 session 的新生成请求。知识卡片点大叉后，前端调用 `POST /api/sessions/{session_id}/inputs` 提交 `CARD_DISMISSED_CONTINUE`，在同一事务写 `saved_at` 和 durable control input；problem card 使用 `POST /api/cards/{id}/save` 只归档、不继续：
+`saved_at=null` 表示卡片正在弹窗中等待学生选择保存位置。此时卡片不进入右侧已归档列表，后端也拒绝该 session 的新生成请求。知识卡片保存后，前端调用 `POST /api/sessions/{session_id}/inputs` 提交带 `folder_id` 的 `CARD_DISMISSED_CONTINUE`，在同一事务写 `saved_at / folder_id` 和 durable control input；problem card 使用带 `folder_id` 的 `POST /api/cards/{id}/save` 只归档、不继续：
 
 - knowledge card：保存后立即以无新增 student message 的 `/api/chat/stream` 继续答疑。
 - problem card：保存后结束，因为来源 action 是终止动作 `SUMMARIZE`。
 
-前端启动时调用全局 `GET /api/cards`，支持按 `card_type` 筛选；双击使用与首次弹窗相同的视图，删除单张调用 `DELETE /api/cards/{id}`，清空全部调用 `DELETE /api/cards`。批量清卡会删除已归档和待归档卡片，但不会删除会话或日志。卡片保留 `session_id / source_action_id / source_message_id` 作为来源审计信息，但全局列表和删除不要求当前 session。
+前端启动时并行调用 `GET /api/cards` 与 `GET /api/card-folders`，右栏按 `parent_id` 浏览主文件夹和任意深度子文件夹，不再使用“全部/知识/题目”类型选项框。文件夹通过 `POST/PATCH/DELETE /api/card-folders` 创建、重命名/移动和删除；系统默认文件夹受保护，普通文件夹必须为空才能删除。卡片通过 `POST /api/cards/{id}/copy` 复制，通过 `PATCH /api/cards/{id}/move` 移动；剪切/复制状态只保存在前端剪贴板，粘贴时才提交对应写操作。删除单张调用 `DELETE /api/cards/{id}`，清空全部调用 `DELETE /api/cards`；清卡保留文件夹、会话和日志。
+
+`card_folders` 以可空 `parent_id` 自关联形成目录树，同级名称大小写不敏感且唯一。`0006_card_folders` 创建“默认知识卡片”和“默认题目卡片”两个根级系统文件夹，并把旧卡片按 `card_type` 迁入对应目录。待归档新卡创建时也预绑定默认目录；保存请求省略位置时，后端仍以卡片类型解析到相同默认目录。
 
 数据库内部另外使用可空的 `study_cards.live_session_id` 作为真实外键。卡片生成时它与来源 `session_id` 相同；删除会话时，触发器先删除 `saved_at=null` 的待归档卡片，已归档卡片则由 `ON DELETE SET NULL` 解除活动会话关系。不可变的来源 `session_id / source_action_id / source_message_id` 仍保留，因此全局卡片既不会被误删，也不会丢失来源审计文本。
 
-右侧卡片库的“导出学习卡片”支持混选已归档 `knowledge_card` 与 `problem_card`。弹窗打开时默认全选，按 `saved_at` 从新到旧生成有序选择；用户取消全选后，逐张点击会按点击先后追加到有序 ID 数组，再次点击会移除该项，重新选择则追加到末尾，界面编号和最终打印顺序始终一致。导出完全使用前端已有的结构化卡片数据和 KaTeX 渲染，不新增副本、不修改 SQLite，也不把卡片上传到外部服务。预设为 A4 竖版单列、A4 竖版双列和 A4 横版三列；列内按从上到下、再向右的顺序流动。CSS 会优先避免拆开整张卡片；若单卡高于可打印列，则优先在卡片的结构化内容分区之间换列或换页。浏览器打印面板中选择“另存为 PDF”完成下载。
+“从卡片库导出”使用左侧目录树和右侧文件内容区混选已归档 `knowledge_card` 与 `problem_card`，支持选中当前文件夹及全部后代卡片，也支持逐张选择。弹窗打开时默认全选，按 `saved_at` 从新到旧生成有序选择；取消和重新选择仍按点击顺序维护打印编号。导出完全使用前端已有的结构化卡片数据和 KaTeX 渲染，不新增副本、不修改 SQLite，也不把卡片上传到外部服务。预设为 A4 竖版单列、A4 竖版双列和 A4 横版三列；列内按从上到下、再向右的顺序流动。
 
 assistant 历史消息的 `metadata_json` 同时保存 `card_id` 和结构化 card，保证模型历史仍是完整 `TutorTurn` 格式；会话恢复时会重建 card ID、action ID 和 message ID 的引用。
 

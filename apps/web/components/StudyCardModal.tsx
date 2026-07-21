@@ -1,12 +1,17 @@
 "use client";
 
-import { BookOpen, ClipboardCheck, Loader2, X } from "lucide-react";
-import type { StudyCard } from "../lib/api";
+import { BookOpen, Check, ClipboardCheck, Loader2, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { CardFolder, StudyCard } from "../lib/api";
+import { defaultFolderForCard, folderBreadcrumbs } from "../lib/card-folders";
+import { FolderLocationSelect } from "./FolderLocationSelect";
 import { MathText } from "./MathText";
 
 type Props = {
   card: StudyCard | null;
+  folders: CardFolder[];
   onClose: () => void;
+  onSave?: (folderId: string) => void;
   busy?: boolean;
 };
 
@@ -21,7 +26,13 @@ function TextList({ items }: { items: string[] }) {
   );
 }
 
-export function StudyCardModal({ card, onClose, busy = false }: Props) {
+export function StudyCardModal({ card, folders, onClose, onSave, busy = false }: Props) {
+  const [folderId, setFolderId] = useState("");
+
+  useEffect(() => {
+    if (card) setFolderId(card.folder_id || defaultFolderForCard(folders, card));
+  }, [card, folders]);
+
   if (!card) return null;
   const content = card.content;
   const isKnowledge = content.type === "knowledge_card";
@@ -40,10 +51,10 @@ export function StudyCardModal({ card, onClose, busy = false }: Props) {
           <button
             className="cardCloseButton"
             type="button"
-            onClick={onClose}
+            onClick={() => onSave ? onSave(folderId) : onClose()}
             disabled={busy}
-            aria-label="关闭卡片"
-            title="关闭卡片"
+            aria-label={onSave ? "保存并关闭卡片" : "关闭卡片"}
+            title={onSave ? "保存并关闭" : "关闭卡片"}
           >
             {busy ? <Loader2 size={28} className="spin" /> : <X size={32} strokeWidth={2.4} />}
           </button>
@@ -119,6 +130,34 @@ export function StudyCardModal({ card, onClose, busy = false }: Props) {
             </section>
           </div>
         )}
+        <footer className="studyCardFooter">
+          {onSave ? (
+            <>
+              <FolderLocationSelect
+                folders={folders}
+                value={folderId}
+                onChange={setFolderId}
+                disabled={busy}
+              />
+              <button
+                className="primaryButton studyCardSaveButton"
+                type="button"
+                onClick={() => onSave(folderId)}
+                disabled={busy}
+              >
+                {busy ? <Loader2 size={18} className="spin" /> : <Check size={18} />}
+                保存卡片
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="savedCardLocation">
+                位于：{folderBreadcrumbs(folders, card.folder_id ?? null).map((folder) => folder.name).join(" / ") || "未分类"}
+              </span>
+              <button className="secondaryButton" type="button" onClick={onClose}>关闭</button>
+            </>
+          )}
+        </footer>
       </article>
     </div>
   );

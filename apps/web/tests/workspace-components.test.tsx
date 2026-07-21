@@ -4,12 +4,14 @@ import { resolve } from "node:path";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
+import { LearningCardExportDialog } from "../components/LearningCardExportDialog";
+import { StudyCardModal } from "../components/StudyCardModal";
 import { MessageTimeline } from "../components/workspace/MessageTimeline";
 import { ModelProfilePicker } from "../components/workspace/ModelProfilePicker";
 import { SessionSidebar } from "../components/workspace/SessionSidebar";
 import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
 import type { ModelProfile, SessionHistoryItem } from "../lib/api";
-import { cardFixture } from "./fixtures";
+import { cardFixture, knowledgeFolderFixture } from "./fixtures";
 
 const profile: ModelProfile = {
   id: "profile-1",
@@ -93,14 +95,27 @@ test("workspace sidebars render active sessions and filtered cards", () => {
   const cards = renderToStaticMarkup(
     <StudyCardSidebar
       cards={[cardFixture]}
-      filteredCards={[cardFixture]}
-      filter="knowledge_card"
+      folders={[knowledgeFolderFixture]}
+      currentFolderId={knowledgeFolderFixture.id}
+      visibleFolders={[]}
+      visibleCards={[cardFixture]}
+      clipboard={null}
       cardBusyId=""
+      folderBusyId=""
+      pasteBusy={false}
       deleteAllCardsBusy={false}
       composerBlocked={false}
       onCollapse={() => {}}
-      onFilterChange={() => {}}
+      onOpenFolder={() => {}}
+      onCreateFolder={async () => true}
+      onRenameFolder={async () => true}
+      onDeleteFolder={() => {}}
       onOpenCard={() => {}}
+      onCopyCard={() => {}}
+      onCutCard={() => {}}
+      onClearClipboard={() => {}}
+      onPasteCard={() => {}}
+      onMoveCard={() => {}}
       onDeleteCard={() => {}}
       onExport={() => {}}
       onDeleteAllCards={() => {}}
@@ -108,6 +123,7 @@ test("workspace sidebars render active sessions and filtered cards", () => {
   );
   assert.match(cards, /1 张已归档/);
   assert.match(cards, /知识卡片/);
+  assert.doesNotMatch(cards, /筛选学习卡片/);
 });
 
 test("scrolling grid lists keep intrinsic row heights", () => {
@@ -115,9 +131,35 @@ test("scrolling grid lists keep intrinsic row heights", () => {
   const cardStyles = readFileSync(resolve(__dirname, "../../../styles/cards.css"), "utf8");
 
   assert.match(shellStyles, /\.sessionList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
-  assert.match(cardStyles, /\.cardList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
+  assert.match(cardStyles, /\.cardFileList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.knowledgeExportBody\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.knowledgeExportCardList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
+});
+
+test("card save and export dialogs expose folder-based navigation", () => {
+  const saveDialog = renderToStaticMarkup(
+    <StudyCardModal
+      card={cardFixture}
+      folders={[knowledgeFolderFixture]}
+      onClose={() => {}}
+      onSave={() => {}}
+    />
+  );
+  assert.match(saveDialog, /保存位置/);
+  assert.match(saveDialog, /默认知识卡片/);
+
+  const exportDialog = renderToStaticMarkup(
+    <LearningCardExportDialog
+      open
+      cards={[cardFixture]}
+      folders={[knowledgeFolderFixture]}
+      onClose={() => {}}
+      onExport={() => {}}
+    />
+  );
+  assert.match(exportDialog, /从卡片库导出/);
+  assert.match(exportDialog, /全部卡片/);
+  assert.match(exportDialog, /默认知识卡片/);
 });
 
 test("model picker exposes image capability and batch management controls", () => {

@@ -56,8 +56,19 @@ export type StudyCard = {
   source_action_id: string;
   source_message_id: string;
   content: KnowledgeCardContent | ProblemCardContent;
+  folder_id?: string | null;
   created_at: string;
   saved_at?: string | null;
+};
+
+export type CardFolder = {
+  id: string;
+  name: string;
+  parent_id?: string | null;
+  is_system: boolean;
+  default_card_type?: "knowledge_card" | "problem_card" | null;
+  created_at: string;
+  updated_at: string;
 };
 
 type SseEventPayload =
@@ -135,4 +146,5 @@ export type SessionInputAcceptance = {
   in_reply_to_action_id?: string | null;
   card_id?: string | null;
   card_saved_at?: string | null;
+  folder_id?: string | null;
 };
