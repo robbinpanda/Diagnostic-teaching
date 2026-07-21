@@ -17,6 +17,8 @@
     "lib/stream-protocol.ts",
     "lib/timeline.ts",
     "components/MathText.tsx",
+    "components/CheckpointModal.tsx",
+    "components/StudyCardModal.tsx",
     "components/workspace/ConversationHeader.tsx",
     "components/workspace/MessageTimeline.tsx",
     "components/workspace/ModelProfilePicker.tsx",

@@ -1,7 +1,7 @@
 # 答疑状态机与 LLM 主导流程
 
-版本：v1.4
-日期：2026-07-20
+版本：v1.5
+日期：2026-07-21
 适用项目：诊断式数学答疑 MVP
 
 本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行上下文收集与教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作，同时判断 `context_status` 并提供可靠的新语义摘要；后端在上下文未 ready 时只允许开放提问，ready 后再根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop。`EXPLAIN_PRINCIPLE` 必须产生 `knowledge_card`，`EXPLAIN_LOCAL` 可按知识复用价值选择产生 `knowledge_card`，`SUMMARIZE` 必须产生 `problem_card`。**
@@ -57,8 +57,8 @@ sequenceDiagram
   end
   API-->>Student: checkpoint_ready / card_ready / 等待开放问题回复
   opt EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / SUMMARIZE 产出卡片
-    Student->>API: 关闭卡片并调用 card save
-    API->>DB: saved_at 入库，卡片进入右侧列表
+    Student->>API: 检查/编辑内嵌卡片并显式保存或二次确认舍弃
+    API->>DB: 编辑内容 + saved_at 原子入库，卡片进入右侧列表
     Student->>API: knowledge_card 继续生成；problem_card 结束
   end
 ```
@@ -73,9 +73,9 @@ sequenceDiagram
 - LLM 每轮决定 `state_hint`、`action`、`message`、`breakpoint_description`、`checkpoint`、`knowledge_card`、`problem_card`。
 - 后端不信任模型给出的等待判断；`wait_for_student` 由后端根据 action 强制推导。
 - `ASK_OPEN_QUESTION` 和 `ASK_MULTIPLE_CHOICE` 是阻塞动作，会停下等待学生。
-- `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是教学语义上的非阻塞动作。`RESPOND_TO_CHECKPOINT` 直接继续；`EXPLAIN_PRINCIPLE` 必须弹出 `knowledge_card`，`EXPLAIN_LOCAL` 仅在模型判断本次内容值得独立记忆和迁移复用时弹出，关闭归档后继续。
+- `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是教学语义上的非阻塞动作。`RESPOND_TO_CHECKPOINT` 直接继续；`EXPLAIN_PRINCIPLE` 必须内嵌展示 `knowledge_card`，`EXPLAIN_LOCAL` 仅在模型判断本次内容值得独立记忆和迁移复用时展示，确认归档后继续。
 - 连续 3 个非阻塞动作后，下一轮 prompt 会要求模型在“自然总结”和“获取必要的新证据”之间选择；若仍输出非阻塞动作，后端会转成 `ASK_OPEN_QUESTION`。
-- `SUMMARIZE` 是终止动作，不等待学生回答，但会弹出 `problem_card`；关闭归档后流程结束。
+- `SUMMARIZE` 是终止动作，不等待学生回答，但会内嵌展示 `problem_card`；确认归档后流程结束。
 - `SUMMARIZE` 不要求学生先独立给出最终答案，也不要求额外插入确认性问题；当前结论或卡点已经讲清即可自然收束。
 - 项目不主动截断、压缩或摘要历史；模型供应商自身的硬上下文限制仍然存在。
 
@@ -229,6 +229,8 @@ RESPOND_TO_CHECKPOINT
 
 checkpoint 类似一次需要结果的调用，但结果来自学生，而不是电脑工具。下一轮 LLM 同时看到可读的学生选择和结构化的正误、误区、耗时、event 与 next_state_hint。
 
+前端不把 `CHECKPOINT_RESPONSE.content` 的内部可读文本直接渲染成普通学生气泡。实时提交时使用当前 checkpoint 与 answer 响应生成一张锁定的用户作答卡片；`GET /api/sessions/{id}` 和显式 restore 会把 message metadata 与对应 checkpoint 行重新组合为 `messages[].checkpoint_result`。因此提交后以及重新打开历史时都保留原题、全部选项和学生选择；选对的已选项标绿，选错的已选项标红，但不会向前端泄露其他选项的 `is_correct/misconception`。
+
 普通开放消息使用同一 durable input 边界：前端生成 `client_message_id` 后调用 `POST /api/sessions/{session_id}/inputs`。`(session_id, client_message_id)` 在 SQLite 唯一；同 ID 同内容是安全重试，同 ID 不同内容是 409 冲突。兼容入口 `/api/chat/stream` 仍接受 message，但内部同样先调用输入接纳服务，再尝试占用生成锁。
 
 ## 8. knowledge_card 与 problem_card
@@ -240,13 +242,18 @@ checkpoint 类似一次需要结果的调用，但结果来自学生，而不是
 
 `EXPLAIN_PRINCIPLE` 必须输出 knowledge card；`EXPLAIN_LOCAL` 由模型判断是否输出。局部讲解中易混且可迁移的辨析（例如韦达定理“和用 $-b/a$、积用 $c/a$”）适合出卡；一次性代入、算术计算、符号改写或纯本题过渡不出卡。可选卡仍必须结构化 message 中的同一个知识点，不得扩大讲解范围。
 
-生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null`，并按类型预绑定系统默认文件夹，但不会出现在右侧卡片库。知识卡片弹窗选择位置并保存后，前端提交带 `folder_id` 的 `CARD_DISMISSED_CONTINUE`；后端在同一事务写 `saved_at / folder_id` 与 `session_inputs` 控制命令，再由前端调用 `/api/chat/stream`。Problem card 同样可选目录，但仍只归档、不继续。未归档卡片存在时，`/api/chat/stream` 返回 409，避免绕过确认继续生成。
+生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null` 并预绑定默认文件夹。知识卡片随消息时间线内嵌展示，保存时带最终 `content/folder_id` 的 `CARD_DISMISSED_CONTINUE` 原子更新内容、位置与归档时间；二次确认舍弃会写控制命令后删除待归档卡片。Problem card 选择位置后只归档、不继续。未解决的待归档卡片存在时，`/api/chat/stream` 返回 409。
+
+全局卡片库中的查看不属于阻塞教学工作流；已归档 knowledge card 可在右侧浮层中编辑并通过 `PUT /api/cards/{id}` 更新。
+
+Checkpoint 同样嵌入消息时间线，只有点击“提交答案”才调用 answer 接口。
 
 卡片接口：
 
 ```text
 GET    /api/cards?card_type=knowledge_card|problem_card
 POST   /api/cards/{card_id}/save
+PUT    /api/cards/{card_id}              # 修改已归档 knowledge card
 POST   /api/sessions/{session_id}/inputs  # CARD_DISMISSED_CONTINUE
 DELETE /api/cards
 DELETE /api/cards/{card_id}
@@ -295,7 +302,7 @@ run.completed
 session.idle
 ```
 
-checkpoint answer 会在原子事务中依次追加 `checkpoint.completed` 和对应的 student `message.completed`；卡片归档追加 `card.saved`。run 失败时追加 `error.occurred -> run.completed(status=failed) -> session.idle`。
+checkpoint answer 会在原子事务中依次追加 `checkpoint.completed` 和对应的 student `message.completed`；卡片归档追加 `card.saved`，舍弃追加 `card.discarded`。run 失败时追加 `error.occurred -> run.completed(status=failed) -> session.idle`。
 
 `GET /api/sessions/{session_id}/events/stream` 用 `after_seq` 或 `Last-Event-ID` 先补齐遗漏事件再持续订阅。同一 session 的 `seq` 严格递增；客户端重复收到相同 `seq` 时只应用一次。这个 change feed 不改变六个教学 action，也不让模型控制 `wait_for_student`。完整合同见 `docs/session-events.md`。
 

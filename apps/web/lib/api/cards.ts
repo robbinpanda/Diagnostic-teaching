@@ -1,5 +1,5 @@
 import { API_BASE, JSON_HEADERS, responseError } from "./http";
-import type { CardFolder, StudyCard } from "./types";
+import type { CardFolder, KnowledgeCardContent, StudyCard } from "./types";
 
 export async function fetchCards(
   cardType?: "knowledge_card" | "problem_card"
@@ -82,6 +82,19 @@ export async function copyCard(cardId: string, folderId: string): Promise<StudyC
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify({ folder_id: folderId })
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json();
+}
+
+export async function updateKnowledgeCard(
+  cardId: string,
+  content: KnowledgeCardContent
+): Promise<StudyCard> {
+  const response = await fetch(`${API_BASE}/api/cards/${cardId}`, {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ content })
   });
   if (!response.ok) throw await responseError(response);
   return response.json();

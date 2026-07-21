@@ -45,6 +45,12 @@ export type SplitTextProblem = {
   student_initial_thought: string;
 };
 
+export type AnsweredCheckpoint = {
+  checkpoint: Checkpoint;
+  selected_option_id: string;
+  is_correct: boolean;
+};
+
 export type KnowledgeCardContent = {
   type: "knowledge_card";
   title: string;
@@ -136,6 +142,7 @@ export type RestoredSession = {
     action_id?: string | null;
     action: string;
     client_message_id?: string | null;
+    checkpoint_result?: AnsweredCheckpoint | null;
   }>;
   pending_checkpoint?: Checkpoint | null;
   pending_card?: StudyCard | null;
@@ -177,4 +184,5 @@ export type SessionInputAcceptance = {
   card_id?: string | null;
   card_saved_at?: string | null;
   folder_id?: string | null;
+  card_discarded?: boolean;
 };

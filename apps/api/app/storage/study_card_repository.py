@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 
 from app.storage.card_folder_repository import resolve_card_folder
@@ -154,6 +155,31 @@ class StudyCardRepositoryMixin:
             )
             return conn.execute(
                 "SELECT * FROM study_cards WHERE id = ?", (copied_card_id,)
+            ).fetchone()
+
+    def update_saved_knowledge_card(self, card_id: str, *, content: dict) -> sqlite3.Row:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM study_cards WHERE id = ?",
+                (card_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(card_id)
+            if row["saved_at"] is None:
+                raise PermissionError(card_id)
+            if row["card_type"] != "knowledge_card":
+                raise ValueError(card_id)
+            conn.execute(
+                "UPDATE study_cards SET title = ?, content_json = ? WHERE id = ?",
+                (
+                    content["title"],
+                    json.dumps(content, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                    card_id,
+                ),
+            )
+            return conn.execute(
+                "SELECT * FROM study_cards WHERE id = ?",
+                (card_id,),
             ).fetchone()
 
     def delete_card(self, card_id: str) -> None:

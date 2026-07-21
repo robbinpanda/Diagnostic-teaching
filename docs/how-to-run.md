@@ -171,6 +171,8 @@ POST /api/sessions/<session_id>/interrupt
 
 页面左侧会话栏直接读取 SQLite。点击一条会话会打开原 session，并恢复其 messages、待答 checkpoint 和待归档 card，不会因为查看而复制记录；需要显式创建实验分支时仍可调用 `POST /api/sessions/restore`。
 
+右侧卡片库点击已归档卡片后，会在屏幕右侧打开无暗色遮罩的浮层；浮层外的对话仍可滚动和操作。知识卡片可点“修改内容”编辑，再点“保存修改”通过 `PUT /api/cards/<card_id>` 持久化；题目卡片只读。待归档知识卡片的“舍弃”需要连续点击“舍弃”和“确认舍弃”两次才会生效。
+
 需要重置测试数据时：
 
 1. 在左侧会话栏标题旁点击清空按钮，会删除 SQLite 中的全部会话业务态和全部 session 日志，但保留已归档学习卡片和模型配置。
@@ -206,6 +208,7 @@ JSONL 每行一个事件；Markdown 把同一批事件按 system/user/assistant�
 1. `parsed_turn.message` 有内容，但页面没显示：看前端 SSE / `decision.message` 兜底，详见 `docs/state-machine.md`。
 2. `raw_response` 为空或 `error` 非空：多半是模型空流、超时或网络异常，前端应显示错误。
 3. `parse_ok=false`、`used_fallback=true`：模型返回了坏 JSON，后端已尝试恢复 message。
-4. 连续重复同一检查点：检查 history 里是否有 `student: 我在检查点「...」选了：...`。
+4. 连续重复同一检查点：检查 SQLite 是否只有一条 `action=CHECKPOINT_RESPONSE` 的 message；页面应把它渲染为保留原题和选项的已作答 checkpoint，而不是展示内部 `student_message` 文本。
+5. 舍弃知识卡片后仍被阻塞：检查是否存在对应的 `CARD_DISMISSED_CONTINUE` 输入和 `card.discarded` event；被舍弃的待归档卡片行应已删除，且不会出现在 `GET /api/cards`。
 
 历史修复与根因记录见 `docs/changelog.md`。当前完整流程说明见 `docs/state-machine.md` 与 `docs/context-management.md`。

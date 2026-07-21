@@ -1,5 +1,6 @@
 import { API_BASE, JSON_HEADERS, responseError } from "./http";
 import type {
+  KnowledgeCardContent,
   RestoredSession,
   SessionHistoryItem,
   SessionInputAcceptance,
@@ -123,6 +124,8 @@ export async function dismissKnowledgeCardAndContinue(input: {
   client_command_id: string;
   card_id: string;
   folder_id?: string | null;
+  content?: KnowledgeCardContent;
+  save_to_library?: boolean;
 }): Promise<SessionInputAcceptance> {
   const response = await fetch(`${API_BASE}/api/sessions/${input.session_id}/inputs`, {
     method: "POST",
@@ -131,7 +134,9 @@ export async function dismissKnowledgeCardAndContinue(input: {
       kind: "CARD_DISMISSED_CONTINUE",
       client_command_id: input.client_command_id,
       card_id: input.card_id,
-      folder_id: input.folder_id || null
+      ...(input.folder_id ? { folder_id: input.folder_id } : {}),
+      ...(input.content ? { content: input.content } : {}),
+      ...(input.save_to_library === false ? { save_to_library: false } : {})
     })
   });
   if (!response.ok) throw await responseError(response);

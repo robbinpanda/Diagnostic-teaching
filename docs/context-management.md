@@ -1,8 +1,8 @@
 # 上下文、Session 恢复与诊断日志
 
-版本：v1.4
+版本：v1.5
 
-日期：2026-07-20
+日期：2026-07-21
 
 适用项目：诊断式数学答疑 MVP
 
@@ -53,7 +53,7 @@ message_id / checkpoint_id / card_id / created_at
 
 - `STUDENT_MESSAGE`：普通开放消息；`idempotency_key` 来自前端 `client_message_id`。
 - `CHECKPOINT_ANSWER`：checkpoint answer；每个 `checkpoint_id` 在数据库唯一。
-- `CARD_DISMISSED_CONTINUE`：知识卡片关闭后的继续命令；每个 `card_id` 在数据库唯一，并与 `study_cards.saved_at` 同事务写入。
+- `CARD_DISMISSED_CONTINUE`：知识卡片解决后的继续命令；每个 `card_id` 只允许一次。保存时与 `study_cards.saved_at/content_json` 同事务写入，舍弃时与待归档卡片删除及 `card.discarded` 事件同事务写入。
 
 普通消息 API：
 
@@ -80,9 +80,34 @@ Content-Type: application/json
 {
   "kind": "CARD_DISMISSED_CONTINUE",
   "client_command_id": "card:<card_id>",
-  "card_id": "card_..."
+  "card_id": "card_...",
+  "content": {
+    "type": "knowledge_card",
+    "title": "用户确认后的标题",
+    "knowledge_point": "...",
+    "core_idea": "...",
+    "derivation_steps": [{"title": "...", "content": "..."}],
+    "when_to_use": ["..."],
+    "common_mistakes": [],
+    "connection_to_problem": "..."
+  }
 }
 ```
+
+舍弃同一张待归档知识卡片时不提交 `content`，而是使用：
+
+```json
+{
+  "kind": "CARD_DISMISSED_CONTINUE",
+  "client_command_id": "card:<card_id>",
+  "card_id": "card_...",
+  "save_to_library": false
+}
+```
+
+保存与舍弃共用同一个稳定 `client_command_id` 和一次性解决范围；响应丢失后必须用相同 payload 重试，不能把同一个 key 从保存改成舍弃或反向修改。
+
+`content` 为兼容旧客户端可省略；新前端始终提交用户最终确认的知识卡片。它参与 `payload_json` 的规范化和幂等比较，并与 `title/content_json/saved_at`、控制输入在同一个事务中提交。同一 `client_command_id` 用相同内容重试会返回第一次结果，用不同内容重试则返回 `IDEMPOTENCY_KEY_CONFLICT`。
 
 输入接纳服务本身只负责一次性业务写入和重试结果稳定；稳定事件重放/SSE 续传由 `session_events` 提供，生成生命周期与显式中断由 `session_runs` 和 coordinator 提供。assistant action 仍以 run 状态门闩保护的完整事务为提交边界，不把半截 token 当成可恢复结果。
 
@@ -292,14 +317,14 @@ id / session_id / card_type / title / content_json / folder_id
 source_action_id / source_message_id / created_at / saved_at
 ```
 
-`saved_at=null` 表示卡片正在弹窗中等待学生选择保存位置。此时卡片不进入右侧已归档列表，后端也拒绝该 session 的新生成请求。知识卡片保存后，前端调用 `POST /api/sessions/{session_id}/inputs` 提交带 `folder_id` 的 `CARD_DISMISSED_CONTINUE`，在同一事务写 `saved_at / folder_id` 和 durable control input；problem card 使用带 `folder_id` 的 `POST /api/cards/{id}/save` 只归档、不继续：
+`saved_at=null` 表示卡片正在对话中等待学生确认。此时卡片不进入右侧已归档列表，后端也拒绝该 session 的新生成请求。知识卡片支持在内嵌编辑器中删改内容；保存时带最终内容与 `folder_id` 的 `CARD_DISMISSED_CONTINUE` 会在同一事务写入 `title/content_json/saved_at/folder_id` 和 durable control input；二次确认舍弃会以 `save_to_library=false` 记录 control input 后删除待归档行；problem card 使用带 `folder_id` 的 `POST /api/cards/{id}/save` 只归档、不继续：
 
-- knowledge card：保存后立即以无新增 student message 的 `/api/chat/stream` 继续答疑。
+- knowledge card：保存或舍弃后立即以无新增 student message 的 `/api/chat/stream` 继续答疑。
 - problem card：保存后结束，因为来源 action 是终止动作 `SUMMARIZE`。
 
-前端启动时并行调用 `GET /api/cards` 与 `GET /api/card-folders`，右栏按 `parent_id` 浏览主文件夹和任意深度子文件夹，不再使用“全部/知识/题目”类型选项框。文件夹通过 `POST/PATCH/DELETE /api/card-folders` 创建、重命名/移动和删除；系统默认文件夹受保护，普通文件夹必须为空才能删除。卡片通过 `POST /api/cards/{id}/copy` 复制，通过 `PATCH /api/cards/{id}/move` 移动；剪切/复制状态只保存在前端剪贴板，粘贴时才提交对应写操作。删除单张调用 `DELETE /api/cards/{id}`，清空全部调用 `DELETE /api/cards`；清卡保留文件夹、会话和日志。
+前端启动时并行调用 `GET /api/cards` 与 `GET /api/card-folders`；右栏按 `parent_id` 浏览文件夹，点击卡片后在右侧无暗色遮罩的浮层中查看或编辑。已归档 knowledge card 通过 `PUT /api/cards/{id}` 提交完整 `content`；待归档卡片和 problem card 不允许走该更新接口。文件夹通过 `POST/PATCH/DELETE /api/card-folders` 管理，卡片可复制、移动和删除。
 
-`card_folders` 以可空 `parent_id` 自关联形成目录树，同级名称大小写不敏感且唯一。`0006_card_folders` 创建“默认知识卡片”和“默认题目卡片”两个根级系统文件夹，并把旧卡片按 `card_type` 迁入对应目录。待归档新卡创建时也预绑定默认目录；保存请求省略位置时，后端仍以卡片类型解析到相同默认目录。
+`card_folders` 以可空 `parent_id` 自关联形成目录树；`0006_card_folders` 创建两个默认根目录，并把旧卡片按类型迁入对应目录。
 
 数据库内部另外使用可空的 `study_cards.live_session_id` 作为真实外键。卡片生成时它与来源 `session_id` 相同；删除会话时，触发器先删除 `saved_at=null` 的待归档卡片，已归档卡片则由 `ON DELETE SET NULL` 解除活动会话关系。不可变的来源 `session_id / source_action_id / source_message_id` 仍保留，因此全局卡片既不会被误删，也不会丢失来源审计文本。
 
@@ -337,7 +362,7 @@ DELETE /api/sessions/{session_id}
 
 5. 在新 session 的 `restored_from` 记录来源 ID。
 
-6. 若最后有未回答的 checkpoint 或未归档 card，前端恢复后重新显示对应弹窗；否则恢复对话消息并可继续输入。
+6. 若最后有未回答的 checkpoint 或未归档 card，前端恢复后在消息时间线重新显示对应内嵌交互；否则恢复对话消息并可继续输入。
 
 这样原始实验记录保持不变，恢复后的新分支也有独立、完整的数据关系。
 
