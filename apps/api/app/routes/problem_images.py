@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 from io import BytesIO
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.core.schemas import ProblemImageAnalyzeRequest, ProblemImageAnalyzeResponse
+from app.core.schemas import (
+    ProblemImageAnalyzeRequest,
+    ProblemImageAnalyzeResponse,
+    ProblemImageDetectResponse,
+)
 from app.core.teaching_controller import extract_json_object
-from app.llm.provider import LlmProfile, analyze_problem_image
+from app.llm.provider import LlmProfile, analyze_problem_image, detect_problem_regions
 
 router = APIRouter(prefix="/api/problem-images", tags=["problem images"])
 
@@ -40,6 +45,22 @@ def clean_base64_image(value: str) -> tuple[str | None, str]:
 def image_data_url(content_type: str, image_bytes: bytes) -> str:
     encoded = base64.b64encode(image_bytes).decode("ascii")
     return f"data:{content_type};base64,{encoded}"
+
+
+def decode_problem_image(value: str, fallback_content_type: str = "image/png") -> tuple[str, bytes, str]:
+    embedded_content_type, encoded = clean_base64_image(value.strip())
+    content_type = embedded_content_type or fallback_content_type
+    if content_type not in SUPPORTED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail="只支持 PNG、JPEG 或 WebP 图片")
+    try:
+        image_bytes = base64.b64decode(encoded, validate=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="图片数据不是有效的 base64") from exc
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="图片内容为空")
+    if len(image_bytes) > 12 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="图片太大，请压缩到 12MB 以内")
+    return content_type, image_bytes, image_data_url(content_type, image_bytes)
 
 
 def crop_diagram_data_url(image_bytes: bytes, content_type: str, bbox: Any) -> str | None:
@@ -119,6 +140,78 @@ def build_student_summary(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def normalize_problem_regions(data: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_problems = data.get("problems")
+    if not isinstance(raw_problems, list):
+        return []
+    problems: list[dict[str, Any]] = []
+    for raw in raw_problems[:20]:
+        if not isinstance(raw, dict) or not isinstance(raw.get("bbox"), dict):
+            continue
+        bbox = raw["bbox"]
+        try:
+            x = max(0.0, min(float(bbox.get("x")), 1.0))
+            y = max(0.0, min(float(bbox.get("y")), 1.0))
+            width = max(0.0, min(float(bbox.get("width")), 1.0 - x))
+            height = max(0.0, min(float(bbox.get("height")), 1.0 - y))
+        except (TypeError, ValueError):
+            continue
+        if not all(math.isfinite(value) for value in (x, y, width, height)):
+            continue
+        if width < 0.01 or height < 0.01:
+            continue
+        raw_label = str(raw.get("label") or "").strip()
+        problems.append(
+            {
+                "id": f"problem-{len(problems) + 1}",
+                "label": raw_label[:80] or f"题目 {len(problems) + 1}",
+                "bbox": {"x": x, "y": y, "width": width, "height": height},
+            }
+        )
+    return sorted(problems, key=lambda item: (item["bbox"]["y"], item["bbox"]["x"]))
+
+
+@router.post("/detect", response_model=ProblemImageDetectResponse)
+async def detect_image_problems(
+    payload: ProblemImageAnalyzeRequest,
+    request: Request,
+) -> ProblemImageDetectResponse:
+    try:
+        row = request.app.state.model_profiles.get(payload.model_profile_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="模型配置不存在") from exc
+    if not row["is_multimodal"]:
+        raise HTTPException(status_code=400, detail="请选择一个已标记为多模态的模型配置")
+
+    content_type, image_bytes, source_data_url = decode_problem_image(
+        payload.image_base64,
+        payload.content_type,
+    )
+    try:
+        from PIL import Image
+
+        with Image.open(BytesIO(image_bytes)) as image:
+            image_width, image_height = image.size
+        raw = await detect_problem_regions(profile_from_row(request, row), source_data_url)
+        data = extract_json_object(raw)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail="题目框检测模型返回格式不完整，请重试") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc) or "题目框检测失败") from exc
+
+    problems = normalize_problem_regions(data)
+    if not problems:
+        raise HTTPException(status_code=422, detail="未能检测到数学题，请换一张更清晰的图片")
+    # Referencing content_type keeps image validation explicit even though the response
+    # only needs dimensions and normalized regions.
+    _ = content_type
+    return ProblemImageDetectResponse(
+        problems=problems,
+        image_width=image_width,
+        image_height=image_height,
+    )
+
+
 @router.post("/analyze", response_model=ProblemImageAnalyzeResponse)
 async def analyze_image(payload: ProblemImageAnalyzeRequest, request: Request) -> ProblemImageAnalyzeResponse:
     try:
@@ -128,20 +221,10 @@ async def analyze_image(payload: ProblemImageAnalyzeRequest, request: Request) -
     if not row["is_multimodal"]:
         raise HTTPException(status_code=400, detail="请选择一个已标记为多模态的模型配置")
 
-    embedded_content_type, encoded = clean_base64_image(payload.image_base64.strip())
-    content_type = embedded_content_type or payload.content_type
-    if content_type not in SUPPORTED_IMAGE_TYPES:
-        raise HTTPException(status_code=400, detail="只支持 PNG、JPEG 或 WebP 图片")
-    try:
-        image_bytes = base64.b64decode(encoded, validate=True)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="图片数据不是有效的 base64") from exc
-    if not image_bytes:
-        raise HTTPException(status_code=400, detail="图片内容为空")
-    if len(image_bytes) > 12 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="图片太大，请压缩到 12MB 以内")
-
-    source_data_url = image_data_url(content_type, image_bytes)
+    content_type, image_bytes, source_data_url = decode_problem_image(
+        payload.image_base64,
+        payload.content_type,
+    )
     try:
         raw = await analyze_problem_image(profile_from_row(request, row), source_data_url)
         data = extract_json_object(raw)

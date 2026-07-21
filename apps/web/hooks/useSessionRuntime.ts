@@ -2,6 +2,7 @@
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import {
+  type AnsweredCheckpoint,
   interruptSession,
   streamChat,
   type Checkpoint,
@@ -149,6 +150,7 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
           role: message.role,
           text: message.text,
           action: message.action,
+          checkpointResult: message.checkpoint_result ?? undefined,
           imageUrl:
             index === firstStudentIndex ? opened.problem_image_data_url : undefined
         }))
@@ -216,7 +218,12 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     let receivedError = false;
 
     dispatchTimeline({ type: "run_started", sessionId: nextSessionId, runId });
-    dispatchWorkflow({ type: "run_started", sessionId: nextSessionId, runId });
+    dispatchWorkflow({
+      type: "run_started",
+      sessionId: nextSessionId,
+      runId,
+      foreground: contextRef.current.sessionId === nextSessionId
+    });
     setRunningSessionIds((current) => current.includes(nextSessionId) ? current : [...current, nextSessionId]);
 
     try {
@@ -332,10 +339,20 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     dispatchWorkflow({ type: "checkpoint_submit_started" });
   }
 
-  function completeCheckpointSubmission(studentMessage: string) {
+  function completeCheckpointSubmission(checkpointResult: AnsweredCheckpoint) {
     dispatchTimeline({ type: "interaction_cleared", sessionKey: currentSessionKey() });
     dispatchWorkflow({ type: "checkpoint_submitted" });
-    addMessage("student", studentMessage, "CHECKPOINT_RESPONSE");
+    dispatchTimeline({
+      type: "message_added",
+      sessionKey: currentSessionKey(),
+      message: {
+        id: messageId(),
+        role: "student",
+        text: "",
+        action: "CHECKPOINT_RESPONSE",
+        checkpointResult
+      }
+    });
   }
 
   function failCheckpointSubmission(message: string) {

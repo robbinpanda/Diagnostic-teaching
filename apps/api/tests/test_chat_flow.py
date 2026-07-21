@@ -298,6 +298,45 @@ def test_knowledge_card_close_resumes_nonblocking_tutoring(tmp_path: Path):
     assert not any(e == "card_ready" and d["id"] == card["id"] for e, d in continued_events)
 
 
+def test_saved_knowledge_card_content_can_be_updated(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    first = client.post("/api/chat/stream", json={"session_id": session_id})
+    checkpoint_id = next(d["id"] for e, d in _parse_sse_events(first.text) if e == "checkpoint_ready")
+    client.post(
+        f"/api/checkpoints/{checkpoint_id}/answer",
+        json={"session_id": session_id, "selected_option_id": "UNKNOWN", "elapsed_ms": 500},
+    )
+    response = client.post("/api/chat/stream", json={"session_id": session_id})
+    card = next(d for e, d in _parse_sse_events(response.text) if e == "card_ready")
+    edited_content = {
+        **card["content"],
+        "title": "平方项非负（卡片库修订版）",
+        "core_idea": "任意实数 $u$ 都满足 $u^2\\ge 0$。",
+    }
+
+    pending_update = client.put(
+        f"/api/cards/{card['id']}",
+        json={"content": edited_content},
+    )
+    assert pending_update.status_code == 409
+
+    assert client.post(
+        f"/api/cards/{card['id']}/save",
+        json={"session_id": session_id},
+    ).status_code == 200
+    updated = client.put(
+        f"/api/cards/{card['id']}",
+        json={"content": edited_content},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["content"] == edited_content
+    assert updated.json()["saved_at"]
+    listed = client.get("/api/cards?card_type=knowledge_card").json()["cards"]
+    assert listed[0]["id"] == card["id"]
+    assert listed[0]["content"] == edited_content
+
+
 def test_optional_explain_local_card_pauses_then_requests_continuation(tmp_path: Path, monkeypatch):
     client, session_id = _bootstrap_app(tmp_path)
     turn = TutorTurn.model_validate(
@@ -408,6 +447,12 @@ def test_sqlite_history_can_be_restored_as_new_session(tmp_path: Path):
         "ASK_MULTIPLE_CHOICE",
         "CHECKPOINT_RESPONSE",
     ]
+    checkpoint_result = payload["messages"][1]["checkpoint_result"]
+    assert checkpoint_result["checkpoint"]["question"]
+    assert checkpoint_result["selected_option_id"] == "A"
+    assert checkpoint_result["is_correct"] is True
+    assert all("is_correct" not in option for option in checkpoint_result["checkpoint"]["options"])
+    assert all("misconception" not in option for option in checkpoint_result["checkpoint"]["options"])
     original_messages = client.app.state.sessions.list_messages(session_id)
     copied_messages = client.app.state.sessions.list_messages(payload["session_id"])
     assert [row["content"] for row in copied_messages] == [row["content"] for row in original_messages]

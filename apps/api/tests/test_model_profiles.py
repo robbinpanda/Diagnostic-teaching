@@ -171,6 +171,80 @@ def test_delete_model_profile_endpoint_hides_profile(tmp_path: Path):
     assert deleted_again.status_code == 404
 
 
+def test_batch_delete_model_profiles_is_atomic_and_preserves_order(tmp_path: Path):
+    app = create_app()
+    app.state.db = Database(tmp_path / "app.db")
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/model-profiles/batch",
+        json={
+            "display_name": "Example Cloud",
+            "base_url": "https://example.com/v1",
+            "api_key": "shared-secret",
+            "models": [
+                {"model": "first-model"},
+                {"model": "keep-model"},
+                {"model": "third-model"},
+            ],
+        },
+    ).json()["profiles"]
+    delete_ids = [created[2]["id"], created[0]["id"]]
+
+    deleted = client.post(
+        "/api/model-profiles/batch-delete",
+        json={"profile_ids": delete_ids},
+    )
+
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted_profile_ids"] == delete_ids
+    listed = client.get("/api/model-profiles").json()["profiles"]
+    assert [profile["model"] for profile in listed] == ["keep-model"]
+
+
+def test_batch_delete_rejects_managed_profile_without_partial_deletion(tmp_path: Path):
+    app = create_app()
+    app.state.db = Database(tmp_path / "app.db")
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
+    managed = app.state.model_profiles.sync_opencode_free_models(
+        (
+            OpenCodeFreeModel(
+                model="vision-free",
+                name="Vision Free",
+                provider="openai_compatible",
+                base_url="https://opencode.ai/zen/v1",
+                is_multimodal=True,
+            ),
+        )
+    )[0]
+    client = TestClient(app)
+    custom = client.post(
+        "/api/model-profiles",
+        json={
+            "display_name": "Keep Me",
+            "base_url": "https://example.com/v1",
+            "api_key": "secret",
+            "model": "custom-model",
+        },
+    ).json()
+
+    deleted = client.post(
+        "/api/model-profiles/batch-delete",
+        json={"profile_ids": [custom["id"], managed["id"]]},
+    )
+
+    assert deleted.status_code == 409
+    listed_ids = {
+        profile["id"] for profile in client.get("/api/model-profiles").json()["profiles"]
+    }
+    assert listed_ids == {custom["id"], managed["id"]}
+
+
 def test_update_model_profile_changes_editable_fields_and_can_replace_key(tmp_path: Path):
     app = create_app()
     app.state.db = Database(tmp_path / "app.db")

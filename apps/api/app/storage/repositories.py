@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 
 from app.core.schemas import SessionCreate, TutorTurn
+from app.storage.card_folder_repository import CardFolderRepositoryMixin
 from app.storage.database import Database
 from app.storage.model_profiles import ModelProfileRepository
 from app.storage.repository_utils import (
@@ -34,6 +35,7 @@ __all__ = [
 class SessionRepository(
     SessionRunRepositoryMixin,
     StudyCardRepositoryMixin,
+    CardFolderRepositoryMixin,
     SessionHistoryRepositoryMixin,
 ):
     def __init__(self, db: Database):

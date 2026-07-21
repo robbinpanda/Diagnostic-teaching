@@ -1,9 +1,9 @@
 "use client";
 
-import { ArrowUp, Loader2, Paperclip, Pencil, Plus, Square, Trash2, X } from "lucide-react";
+import { ArrowUp, Loader2, Paperclip, Pencil, Plus, Square, X } from "lucide-react";
 import type { RefObject } from "react";
 import type { ModelProfile } from "../../lib/api";
-import { modelProfileLabel } from "../../lib/api";
+import { ModelProfilePicker } from "./ModelProfilePicker";
 
 type Props = {
   error: string | null;
@@ -17,7 +17,7 @@ type Props = {
   selectedProfileId: string;
   selectedProfile?: ModelProfile;
   profiles: ModelProfile[];
-  deleteBusyId: string;
+  deleteBusy: boolean;
   streamBusy: boolean;
   stopBusy: boolean;
   startBusy: boolean;
@@ -28,8 +28,9 @@ type Props = {
   onImageFile: (file?: File) => void;
   onGradeBandChange: (value: "junior" | "senior") => void;
   onProfileChange: (profileId: string) => void;
+  onAddProfile: () => void;
   onEditProfile: () => void;
-  onDeleteProfile: () => void;
+  onDeleteProfiles: (profileIds: string[]) => Promise<boolean>;
   onStop: () => void;
 };
 
@@ -45,7 +46,7 @@ export function TutorComposer({
   selectedProfileId,
   selectedProfile,
   profiles,
-  deleteBusyId,
+  deleteBusy,
   streamBusy,
   stopBusy,
   startBusy,
@@ -56,8 +57,9 @@ export function TutorComposer({
   onImageFile,
   onGradeBandChange,
   onProfileChange,
+  onAddProfile,
   onEditProfile,
-  onDeleteProfile,
+  onDeleteProfiles,
   onStop
 }: Props) {
   return (
@@ -81,7 +83,7 @@ export function TutorComposer({
             }
           }}
           disabled={composerBlocked}
-          placeholder={sessionId ? "继续说说你的想法…" : "输入题目和你想到哪一步，或上传题目图片…"}
+          placeholder={sessionId ? "继续说说你的想法…" : "输入一道或多道题目，或上传题目图片…"}
           rows={3}
         />
         <div className="composerToolbar">
@@ -106,10 +108,16 @@ export function TutorComposer({
               <option value="junior">初中</option>
               <option value="senior">高中</option>
             </select>
-            <select value={selectedProfileId} onChange={(event) => onProfileChange(event.target.value)} disabled={Boolean(sessionId) || composerBlocked} aria-label="答疑模型">
-              <option value="">选择模型</option>
-              {profiles.map((profile) => <option key={profile.id} value={profile.id}>{modelProfileLabel(profile)}</option>)}
-            </select>
+            <ModelProfilePicker
+              profiles={profiles}
+              selectedProfileId={selectedProfileId}
+              disabled={Boolean(sessionId) || composerBlocked}
+              canManage={!sessionId}
+              deleteBusy={deleteBusy}
+              onChange={onProfileChange}
+              onAdd={onAddProfile}
+              onDelete={onDeleteProfiles}
+            />
             <button
               className="toolButton"
               type="button"
@@ -118,11 +126,6 @@ export function TutorComposer({
             >
               {selectedProfile ? <Pencil size={16} /> : <Plus size={16} />}
             </button>
-            {selectedProfile && !selectedProfile.managed && !sessionId && (
-              <button className="toolButton danger" type="button" onClick={onDeleteProfile} disabled={Boolean(deleteBusyId)} title="删除模型配置">
-                {deleteBusyId ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
-              </button>
-            )}
           </div>
           <button
             className="sendButton"
@@ -136,7 +139,7 @@ export function TutorComposer({
           </button>
         </div>
       </div>
-      <p className="composerHint">Enter 发送 · Shift + Enter 换行 · 开始答疑前需同时识别题目与当前思路</p>
+      <p className="composerHint">Enter 发送 · 文字自动拆题 · 图片确认框选后按题目数创建答疑</p>
     </div>
   );
 }

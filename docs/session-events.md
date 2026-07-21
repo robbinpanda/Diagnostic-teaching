@@ -66,8 +66,9 @@ message/action/checkpoint/card 的业务行和对应事件在同一个 SQLite �
 | `action.completed` | 完整 `message/action/state_hint/wait_for_student` 及引用 ID | 一个后端归一化后的教学 action 已提交 |
 | `checkpoint.ready` | 脱敏后的完整 checkpoint 和来源 action | checkpoint 已创建并等待学生作答；不暴露正确项和误区标签 |
 | `checkpoint.completed` | 选择、正误、耗时、下一状态和 student message 引用 | answer 接口已原子保存结果与 `CHECKPOINT_RESPONSE` |
-| `card.ready` | 完整 card content 和来源引用 | 待归档 knowledge/problem card 已创建 |
+| `card.ready` | 完整 card content、来源引用和初始 `folder_id` | 待归档 knowledge/problem card 已创建 |
 | `card.saved` | `card_id/card_type/saved_at` | 学生已关闭并归档卡片 |
+| `card.discarded` | `card_id/card_type/discarded_at` | 学生舍弃待归档知识卡片；卡片不会进入全局卡片库 |
 | `error.occurred` | `run_id/code/message` | run 内出现可呈现错误 |
 | `run.completed` | `run_id/status/stop_reason/action_count` | run 以 succeeded/failed/cancelled 结束 |
 | `session.idle` | `run_id/reason` | 当前 session 已退出生成态 |

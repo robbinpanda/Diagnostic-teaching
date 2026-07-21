@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -224,10 +225,15 @@ def test_card_dismiss_continue_is_durable_and_idempotent(tmp_path: Path):
         }
     )
     _, _, card = client.app.state.sessions.record_tutor_action(session_id, turn, action_index=0)
+    edited_content = turn.knowledge_card.model_dump()
+    edited_content["title"] = "平方项非负（学生整理版）"
+    edited_content["core_idea"] = "任意实数 $u$ 都满足 $u^2\\ge0$。"
+    edited_content["common_mistakes"] = ["把平方项误认为一定大于零"]
     body = {
         "kind": "CARD_DISMISSED_CONTINUE",
         "client_command_id": f"card:{card['id']}",
         "card_id": card["id"],
+        "content": edited_content,
     }
 
     first = client.post(f"/api/sessions/{session_id}/inputs", json=body)
@@ -238,12 +244,74 @@ def test_card_dismiss_continue_is_durable_and_idempotent(tmp_path: Path):
     assert retry.status_code == 200
     assert retry.json()["status"] == "duplicate"
     assert retry.json()["input_id"] == first.json()["input_id"]
-    assert client.app.state.sessions.get_card(card["id"])["saved_at"] is not None
+    saved_card = client.app.state.sessions.get_card(card["id"])
+    assert saved_card["saved_at"] is not None
+    assert saved_card["title"] == edited_content["title"]
+    assert json.loads(saved_card["content_json"]) == edited_content
     control_inputs = [
         row for row in client.app.state.sessions.list_inputs(session_id)
         if row["kind"] == "CARD_DISMISSED_CONTINUE"
     ]
     assert len(control_inputs) == 1
+
+    changed_retry = {
+        **body,
+        "content": {**edited_content, "core_idea": "另一份内容"},
+    }
+    conflict = client.post(f"/api/sessions/{session_id}/inputs", json=changed_retry)
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "IDEMPOTENCY_KEY_CONFLICT"
+
+
+def test_card_can_be_discarded_without_entering_library(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    turn = TutorTurn.model_validate(
+        {
+            "state_hint": "explaining",
+            "action": "EXPLAIN_PRINCIPLE",
+            "message": "先从平方项非负讲起。",
+            "knowledge_card": {
+                "type": "knowledge_card",
+                "title": "平方项非负",
+                "knowledge_point": "完全平方的非负性",
+                "core_idea": "任意实数的平方都不小于零。",
+                "derivation_steps": [{"title": "定义", "content": "$u^2\\ge0$。"}],
+                "when_to_use": ["判断含平方项表达式的范围"],
+                "common_mistakes": [],
+                "connection_to_problem": "用于判断当前函数的最大值。",
+            },
+        }
+    )
+    _, _, card = client.app.state.sessions.record_tutor_action(session_id, turn, action_index=0)
+    body = {
+        "kind": "CARD_DISMISSED_CONTINUE",
+        "client_command_id": f"card:{card['id']}",
+        "card_id": card["id"],
+        "save_to_library": False,
+    }
+
+    first = client.post(f"/api/sessions/{session_id}/inputs", json=body)
+    retry = client.post(f"/api/sessions/{session_id}/inputs", json=body)
+
+    assert first.status_code == 201
+    assert first.json()["card_id"] == card["id"]
+    assert first.json()["card_saved_at"] is None
+    assert first.json()["card_discarded"] is True
+    assert retry.status_code == 200
+    assert retry.json()["status"] == "duplicate"
+    assert retry.json()["card_id"] == card["id"]
+    with pytest.raises(KeyError):
+        client.app.state.sessions.get_card(card["id"])
+    assert client.app.state.sessions.latest_pending_card(session_id) is None
+    assert client.get("/api/cards").json()["cards"] == []
+    events = client.get(f"/api/sessions/{session_id}/events").json()["events"]
+    assert "card.discarded" in [event["type"] for event in events]
+    assert client.post("/api/chat/stream", json={"session_id": session_id}).status_code == 200
+
+    changed_retry = {**body, "save_to_library": True}
+    conflict = client.post(f"/api/sessions/{session_id}/inputs", json=changed_retry)
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "IDEMPOTENCY_KEY_CONFLICT"
 
 
 def test_session_delete_removes_durable_inputs(tmp_path: Path):

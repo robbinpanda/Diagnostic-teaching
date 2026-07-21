@@ -1,8 +1,8 @@
 # 上下文、Session 恢复与诊断日志
 
-版本：v1.4
+版本：v1.5
 
-日期：2026-07-20
+日期：2026-07-21
 
 适用项目：诊断式数学答疑 MVP
 
@@ -40,7 +40,7 @@ apps/api/app/services/input_acceptance.py
 生成：POST /api/chat/stream -> 读取 SQLite session/messages -> 调 LLM -> 保存 assistant action
 ```
 
-首条普通消息使用 `POST /api/sessions/start`：浏览器同时提供稳定的 `sess_<uuid>` 和 `client_message_id`，服务端在一个 `BEGIN IMMEDIATE` 事务中创建 session、写 `session_inputs`、写第一条 `STUDENT_RESPONSE` 并追加 durable events。响应丢失后原请求重试返回 `duplicate`；不会生成第二个 session。后续普通消息继续使用 `POST /api/sessions/{session_id}/inputs`。
+单题首条普通消息可使用 `POST /api/sessions/start`：浏览器同时提供稳定的 `sess_<uuid>` 和 `client_message_id`，服务端在一个 `BEGIN IMMEDIATE` 事务中创建 session、写 `session_inputs`、写第一条 `STUDENT_RESPONSE` 并追加 durable events。文字拆题后的多题使用 `POST /api/sessions/batch-start`，同一事务依次接纳最多 20 个 `SessionStartRequest`；图片确认框选后使用 `POST /api/sessions/image-batch-start`，后端先裁剪再走同一批量接纳事务。响应丢失后以原 session/message 标识重试会返回 `duplicate`，不会生成第二批 session。后续普通消息继续使用 `POST /api/sessions/{session_id}/inputs`。
 
 `session_inputs` 保存：
 
@@ -53,7 +53,7 @@ message_id / checkpoint_id / card_id / created_at
 
 - `STUDENT_MESSAGE`：普通开放消息；`idempotency_key` 来自前端 `client_message_id`。
 - `CHECKPOINT_ANSWER`：checkpoint answer；每个 `checkpoint_id` 在数据库唯一。
-- `CARD_DISMISSED_CONTINUE`：知识卡片关闭后的继续命令；每个 `card_id` 在数据库唯一，并与 `study_cards.saved_at` 同事务写入。
+- `CARD_DISMISSED_CONTINUE`：知识卡片解决后的继续命令；每个 `card_id` 只允许一次。保存时与 `study_cards.saved_at/content_json` 同事务写入，舍弃时与待归档卡片删除及 `card.discarded` 事件同事务写入。
 
 普通消息 API：
 
@@ -80,9 +80,34 @@ Content-Type: application/json
 {
   "kind": "CARD_DISMISSED_CONTINUE",
   "client_command_id": "card:<card_id>",
-  "card_id": "card_..."
+  "card_id": "card_...",
+  "content": {
+    "type": "knowledge_card",
+    "title": "用户确认后的标题",
+    "knowledge_point": "...",
+    "core_idea": "...",
+    "derivation_steps": [{"title": "...", "content": "..."}],
+    "when_to_use": ["..."],
+    "common_mistakes": [],
+    "connection_to_problem": "..."
+  }
 }
 ```
+
+舍弃同一张待归档知识卡片时不提交 `content`，而是使用：
+
+```json
+{
+  "kind": "CARD_DISMISSED_CONTINUE",
+  "client_command_id": "card:<card_id>",
+  "card_id": "card_...",
+  "save_to_library": false
+}
+```
+
+保存与舍弃共用同一个稳定 `client_command_id` 和一次性解决范围；响应丢失后必须用相同 payload 重试，不能把同一个 key 从保存改成舍弃或反向修改。
+
+`content` 为兼容旧客户端可省略；新前端始终提交用户最终确认的知识卡片。它参与 `payload_json` 的规范化和幂等比较，并与 `title/content_json/saved_at`、控制输入在同一个事务中提交。同一 `client_command_id` 用相同内容重试会返回第一次结果，用不同内容重试则返回 `IDEMPOTENCY_KEY_CONFLICT`。
 
 输入接纳服务本身只负责一次性业务写入和重试结果稳定；稳定事件重放/SSE 续传由 `session_events` 提供，生成生命周期与显式中断由 `session_runs` 和 coordinator 提供。assistant action 仍以 run 状态门闩保护的完整事务为提交边界，不把半截 token 当成可恢复结果。
 
@@ -163,7 +188,9 @@ system 消息由四部分组成：
 
 `context_status` 是 SQLite 中可恢复的上下文收集状态。模型每轮同时输出 `problem_summary / student_thought_summary`；后端做单调归一化并与完整 assistant action 同事务写回。`need_problem / need_thought` 时后端只允许 `ASK_OPEN_QUESTION`，`ready` 后才开放其他教学 action。字段来自完整对话语义而非消息顺序；“完全没思路”会被保存为有效思路状态。
 
-图片识别与正式答疑仍是两条隔离链路：`POST /api/problem-images/analyze` 把可确认的题目作为 `problem_text` 初始摘要，把可见作答/批改痕迹作为 `student_initial_thought` 初始摘要；前端随后把结果、原图和“上传了一张题目图片”这条 durable 首消息交给 `POST /api/sessions/start`。上传图片创建的 session 始终保存用户原图并要求多模态答疑模型，保证后续每轮仍可查看图形与版面。视觉识别返回的 `answer_text / correctness / mistake_summary / diagram_note / diagram_image_data_url` 不会作为独立字段旁路进入答疑 prompt。
+拆题与正式答疑是两条隔离链路。文字草稿先交给 `POST /api/problem-intake/analyze-text`，由当前所选模型只返回 `problems[]`：每项包含自包含的 `problem_text` 和仅属于该题的 `student_initial_thought`。该结果只决定批量创建数量与各 session 初始上下文，不产生教学 action；单题同样返回长度为 1 的数组。
+
+图片草稿先交给 `POST /api/problem-images/detect`，多模态模型只返回按版面顺序排列的归一化题目框。前端允许在图片上拖拽新增框，也允许删除、平移和按边/角缩放已有框，确认后把最终框与一份原图交给 `POST /api/sessions/image-batch-start`。后端使用 Pillow 裁剪，并为每个框创建独立 session；session 只保存自己的 PNG 裁剪图，不保存或重复发送整张多题原图。图片子 session 的 `problem_text` 初始为空，正式多模态答疑模型从自己的裁剪图和首条上传消息中确认题目摘要，仍受 `context_status` 守门约束。旧的 `POST /api/problem-images/analyze` 保留为兼容接口，但新建图片多题流程不再依赖它的 OCR 旁路字段。
 
 `SessionCreate` 禁止未声明的额外字段，`build_messages()` 也只对白名单中的题目、初始思路、年级、学科、状态和可选原图组装 `SESSION_START`，防止视觉模型内部元数据旁路进入教学上下文。
 
@@ -286,20 +313,22 @@ assistant 教学动作类似：
 `EXPLAIN_PRINCIPLE` 必须带结构化 `knowledge_card`，`EXPLAIN_LOCAL` 可由模型按复用价值选择是否带 `knowledge_card`，`SUMMARIZE` 必须带结构化 `problem_card`。局部讲解只有在包含值得独立记忆、可迁移的公式、定理、性质或方法辨析时出卡；一次性代入、计算或纯本题过渡不出卡。后端在保存 assistant message 时，同一事务把卡片写入 `study_cards`：
 
 ```text
-id / session_id / card_type / title / content_json
+id / session_id / card_type / title / content_json / folder_id
 source_action_id / source_message_id / created_at / saved_at
 ```
 
-`saved_at=null` 表示卡片正在弹窗中等待学生关闭。此时卡片不进入右侧已归档列表，后端也拒绝该 session 的新生成请求。知识卡片点大叉后，前端调用 `POST /api/sessions/{session_id}/inputs` 提交 `CARD_DISMISSED_CONTINUE`，在同一事务写 `saved_at` 和 durable control input；problem card 使用 `POST /api/cards/{id}/save` 只归档、不继续：
+`saved_at=null` 表示卡片正在对话中等待学生确认。此时卡片不进入右侧已归档列表，后端也拒绝该 session 的新生成请求。知识卡片支持在内嵌编辑器中删改内容；保存时带最终内容与 `folder_id` 的 `CARD_DISMISSED_CONTINUE` 会在同一事务写入 `title/content_json/saved_at/folder_id` 和 durable control input；二次确认舍弃会以 `save_to_library=false` 记录 control input 后删除待归档行；problem card 使用带 `folder_id` 的 `POST /api/cards/{id}/save` 只归档、不继续：
 
-- knowledge card：保存后立即以无新增 student message 的 `/api/chat/stream` 继续答疑。
+- knowledge card：保存或舍弃后立即以无新增 student message 的 `/api/chat/stream` 继续答疑。
 - problem card：保存后结束，因为来源 action 是终止动作 `SUMMARIZE`。
 
-前端启动时调用全局 `GET /api/cards`，支持按 `card_type` 筛选；双击使用与首次弹窗相同的视图，删除单张调用 `DELETE /api/cards/{id}`，清空全部调用 `DELETE /api/cards`。批量清卡会删除已归档和待归档卡片，但不会删除会话或日志。卡片保留 `session_id / source_action_id / source_message_id` 作为来源审计信息，但全局列表和删除不要求当前 session。
+前端启动时并行调用 `GET /api/cards` 与 `GET /api/card-folders`；右栏按 `parent_id` 浏览文件夹，点击卡片后在右侧无暗色遮罩的浮层中查看或编辑。已归档 knowledge card 通过 `PUT /api/cards/{id}` 提交完整 `content`；待归档卡片和 problem card 不允许走该更新接口。文件夹通过 `POST/PATCH/DELETE /api/card-folders` 管理，卡片可复制、移动和删除。
+
+`card_folders` 以可空 `parent_id` 自关联形成目录树；`0006_card_folders` 创建两个默认根目录，并把旧卡片按类型迁入对应目录。
 
 数据库内部另外使用可空的 `study_cards.live_session_id` 作为真实外键。卡片生成时它与来源 `session_id` 相同；删除会话时，触发器先删除 `saved_at=null` 的待归档卡片，已归档卡片则由 `ON DELETE SET NULL` 解除活动会话关系。不可变的来源 `session_id / source_action_id / source_message_id` 仍保留，因此全局卡片既不会被误删，也不会丢失来源审计文本。
 
-右侧卡片库的“导出学习卡片”支持混选已归档 `knowledge_card` 与 `problem_card`。弹窗打开时默认全选，按 `saved_at` 从新到旧生成有序选择；用户取消全选后，逐张点击会按点击先后追加到有序 ID 数组，再次点击会移除该项，重新选择则追加到末尾，界面编号和最终打印顺序始终一致。导出完全使用前端已有的结构化卡片数据和 KaTeX 渲染，不新增副本、不修改 SQLite，也不把卡片上传到外部服务。预设为 A4 竖版单列、A4 竖版双列和 A4 横版三列；列内按从上到下、再向右的顺序流动。CSS 会优先避免拆开整张卡片；若单卡高于可打印列，则优先在卡片的结构化内容分区之间换列或换页。浏览器打印面板中选择“另存为 PDF”完成下载。
+“从卡片库导出”使用左侧目录树和右侧文件内容区混选已归档 `knowledge_card` 与 `problem_card`，支持选中当前文件夹及全部后代卡片，也支持逐张选择。弹窗打开时默认全选，按 `saved_at` 从新到旧生成有序选择；取消和重新选择仍按点击顺序维护打印编号。导出完全使用前端已有的结构化卡片数据和 KaTeX 渲染，不新增副本、不修改 SQLite，也不把卡片上传到外部服务。预设为 A4 竖版单列、A4 竖版双列和 A4 横版三列；列内按从上到下、再向右的顺序流动。
 
 assistant 历史消息的 `metadata_json` 同时保存 `card_id` 和结构化 card，保证模型历史仍是完整 `TutorTurn` 格式；会话恢复时会重建 card ID、action ID 和 message ID 的引用。
 
@@ -333,7 +362,7 @@ DELETE /api/sessions/{session_id}
 
 5. 在新 session 的 `restored_from` 记录来源 ID。
 
-6. 若最后有未回答的 checkpoint 或未归档 card，前端恢复后重新显示对应弹窗；否则恢复对话消息并可继续输入。
+6. 若最后有未回答的 checkpoint 或未归档 card，前端恢复后在消息时间线重新显示对应内嵌交互；否则恢复对话消息并可继续输入。
 
 这样原始实验记录保持不变，恢复后的新分支也有独立、完整的数据关系。
 
@@ -454,7 +483,7 @@ controller 以 session id 为键保存多条活动 `streamChat`。切换会话�
 
 timeline reducer 仍校验 event 的 session id 与本地 run id，因此后台流和迟到回调不能写入当前打开的另一个 session。重新打开仍在生成的 session 时，页面先读取 SQLite 快照恢复已提交 action，再依据 controller 中该 session 的活动 run 接收后续事件；切换期间遗漏的半截字符不作为恢复依据，最终 `decision` 或下次 SQLite 快照负责校准完整内容。显式停止时仅移除尚未 `message_done` 的临时 assistant 片段；已经完成的 action 和学生消息保留，SQLite 仍是重新打开会话时的唯一权威来源。
 
-图片任务同样与视图解耦：文件选择时先生成稳定的 session id 和 `client_message_id`，随后读取图片、视觉识别、`POST /api/sessions/start` 与首轮生成都使用这组身份。用户在中途新建/打开其他对话或浏览卡片不会取消任务；回调只有在发起任务的视图 token 仍有效时才绑定当前草稿，否则只在后台创建 session、刷新历史并继续生成。
+图片检测阶段尚未创建 session；只有发起检测的草稿仍有效时才展示框选确认页。确认时前端为每个最终框生成稳定的 session id 和 `client_message_id`，后端在一个批量事务中裁剪并接纳全部子会话。成功后第一题绑定当前视图，其余题作为独立后台 session 并行生成；所有流继续由 `sessionId + runId` 隔离。用户取消框选或在检测完成前切换草稿时不会创建任何 session。
 
 chat 流与 durable change feed 的边界如下：
 

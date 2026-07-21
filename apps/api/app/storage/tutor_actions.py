@@ -4,6 +4,7 @@ import json
 import sqlite3
 
 from app.core.schemas import TutorTurn
+from app.storage.card_folder_repository import default_folder_id
 from app.storage.database import Database
 from app.storage.repository_utils import new_id, now_iso
 from app.storage.run_state import RunStateConflict
@@ -147,8 +148,8 @@ def record_tutor_action(
                 """
                 INSERT INTO study_cards (
                   id, session_id, live_session_id, card_type, title, content_json,
-                  source_action_id, source_message_id, created_at, saved_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                  source_action_id, source_message_id, created_at, saved_at, folder_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
                 """,
                 (
                     card_id,
@@ -160,6 +161,7 @@ def record_tutor_action(
                     action_id,
                     message_id,
                     ts,
+                    default_folder_id(card_content.type),
                 ),
             )
             card_row = conn.execute(
@@ -239,6 +241,7 @@ def record_tutor_action(
                         "card_type": card_content.type,
                         "source_action_id": action_id,
                         "source_message_id": message_id,
+                        "folder_id": default_folder_id(card_content.type),
                         "content": card_content.model_dump(),
                     },
                 )

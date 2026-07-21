@@ -231,20 +231,46 @@ class ModelProfileRepository:
             )
 
     def soft_delete(self, profile_id: str) -> None:
-        if self.is_managed(self.get(profile_id)):
-            raise PermissionError(profile_id)
+        self.soft_delete_many([profile_id])
+
+    def soft_delete_many(self, profile_ids: list[str]) -> list[str]:
+        """Soft-delete profiles atomically after validating the complete selection."""
+        unique_ids = list(dict.fromkeys(profile_ids))
+        if not unique_ids:
+            return []
         ts = now_iso()
         with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            placeholders = ", ".join("?" for _ in unique_ids)
+            rows = conn.execute(
+                f"""
+                SELECT * FROM model_profiles
+                WHERE id IN ({placeholders}) AND deleted_at IS NULL
+                """,
+                tuple(unique_ids),
+            ).fetchall()
+            rows_by_id = {row["id"]: row for row in rows}
+            missing_ids = [profile_id for profile_id in unique_ids if profile_id not in rows_by_id]
+            if missing_ids:
+                raise KeyError(missing_ids[0])
+            managed_ids = [
+                profile_id
+                for profile_id in unique_ids
+                if self.is_managed(rows_by_id[profile_id])
+            ]
+            if managed_ids:
+                raise PermissionError(managed_ids[0])
             cursor = conn.execute(
-                """
+                f"""
                 UPDATE model_profiles
                 SET enabled = 0, deleted_at = ?, updated_at = ?
-                WHERE id = ? AND deleted_at IS NULL
+                WHERE id IN ({placeholders}) AND deleted_at IS NULL
                 """,
-                (ts, ts, profile_id),
+                (ts, ts, *unique_ids),
             )
-        if cursor.rowcount == 0:
-            raise KeyError(profile_id)
+            if cursor.rowcount != len(unique_ids):
+                raise RuntimeError("批量删除模型配置时写入数量不一致")
+        return unique_ids
 
     @staticmethod
     def is_managed(row: sqlite3.Row) -> bool:

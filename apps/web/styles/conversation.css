@@ -107,6 +107,18 @@
   background: #f0f0ed;
 }
 
+.chatMessage.student.checkpointResponseMessage .messageBody {
+  width: calc(100% - 42px);
+  max-width: none;
+  padding: 0;
+  background: transparent;
+}
+
+.checkpointResponseMessage .inlineInteraction {
+  width: 100%;
+  margin-left: 0;
+}
+
 .chatMessage.system {
   grid-template-columns: minmax(0, 1fr);
   justify-items: center;
@@ -264,6 +276,312 @@
   color: #565652;
   background: var(--panel);
   font-size: 11px;
+}
+
+.modelPicker {
+  position: relative;
+  min-width: 0;
+  max-width: min(430px, calc(100vw - 230px));
+  flex: 0 1 auto;
+}
+
+.modelPickerTrigger {
+  width: 100%;
+  height: 34px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 9px 0 10px;
+  color: #484944;
+  background: linear-gradient(180deg, #ffffff 0%, #f7f7f4 100%);
+  box-shadow: 0 1px 2px rgba(28, 29, 26, 0.04);
+  font-size: 11px;
+}
+
+.modelPickerTrigger:hover:not(:disabled),
+.modelPicker.open .modelPickerTrigger {
+  border-color: #a9cabe;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(42, 122, 95, 0.09);
+}
+
+.modelPickerCurrent {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.modelPickerStatus {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #b9bbb5;
+}
+
+.modelPickerStatus.selected {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.modelPickerCurrentLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelPickerChevron {
+  flex: 0 0 auto;
+  color: #777872;
+  transition: transform 150ms ease;
+}
+
+.modelPicker.open .modelPickerChevron {
+  transform: rotate(180deg);
+}
+
+.modelPickerMenu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 9px);
+  z-index: 16;
+  width: min(420px, calc(100vw - 28px));
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 18px 48px rgba(28, 29, 26, 0.17), 0 3px 10px rgba(28, 29, 26, 0.08);
+}
+
+.modelPickerMenu[hidden] {
+  display: none;
+}
+
+.modelPickerMenuHeader {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 11px 9px 13px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfbf9;
+}
+
+.modelPickerHeaderCopy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.modelPickerHeaderActions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.modelPickerMenuHeader strong {
+  color: #3c3d38;
+  font-size: 12px;
+}
+
+.modelPickerMenuHeader span,
+.modelPickerDeleteBar > span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.modelPickerHeaderButton,
+.modelPickerSelectAll {
+  border: 0;
+  color: #426b5c;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.modelPickerHeaderButton {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 8px;
+  padding: 0 8px;
+}
+
+.modelPickerHeaderButton:hover,
+.modelPickerSelectAll:hover {
+  background: var(--accent-soft);
+}
+
+.modelPickerSelectAll {
+  width: 100%;
+  min-height: 30px;
+  padding: 0 13px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.modelPickerOptions {
+  max-height: min(320px, 48vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+}
+
+.modelPickerOption {
+  width: 100%;
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 9px;
+  padding: 7px 9px;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
+}
+
+.modelPickerOption:hover:not(:disabled) {
+  background: #f4f6f3;
+}
+
+.modelPickerOption.selected {
+  background: #edf6f1;
+}
+
+.modelPickerOption.checked {
+  background: #f8f2f1;
+}
+
+.modelPickerOption:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.modelPickerOptionMark,
+.modelPickerCheckbox {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: #ffffff;
+}
+
+.modelPickerOptionMark.selected {
+  color: var(--accent);
+  background: #dceee6;
+}
+
+.modelPickerCheckbox {
+  border: 1px solid #bcbdb7;
+  background: #ffffff;
+}
+
+.modelPickerCheckbox.checked {
+  border-color: var(--danger);
+  background: var(--danger);
+}
+
+.modelPickerOptionBody {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.modelPickerOptionLabel {
+  overflow: hidden;
+  color: #3d3e39;
+  font-size: 11px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelPickerOptionMeta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.modelCapabilityBadge,
+.managedModelBadge {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+.modelCapabilityBadge {
+  color: #2d6b55;
+  background: #e4f2eb;
+  font-weight: 650;
+}
+
+.modelCapabilityBadge.compact {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  font-size: 9px;
+}
+
+.managedModelBadge {
+  color: #6a675e;
+  background: #efeee9;
+}
+
+.modelPickerEmpty {
+  padding: 22px 14px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.modelPickerDeleteBar {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px 8px 13px;
+  border-top: 1px solid var(--line);
+  background: #fbf9f8;
+}
+
+.modelPickerDeleteBar button {
+  min-height: 31px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #ffffff;
+  background: var(--danger);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.modelPickerDeleteBar button:disabled {
+  color: #8d8d87;
+  background: #e7e6e2;
 }
 
 .sendButton {

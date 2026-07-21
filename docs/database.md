@@ -1,7 +1,7 @@
 # SQLite 数据库与 Alembic 迁移
 
-版本：v1.1
-日期：2026-07-19
+版本：v1.2
+日期：2026-07-21
 
 SQLite 是 session 恢复的唯一权威来源。JSONL/Markdown 仍然只是只追加诊断日志，不参与 schema 迁移或业务恢复。
 
@@ -47,6 +47,8 @@ python -m alembic -c alembic.ini upgrade head
 | `session_events.session_id` | `sessions.id` | `CASCADE`；durable change feed 随业务聚合删除 |
 | `session_runs.session_id` | `sessions.id` | `CASCADE`；run 生命周期记录随业务聚合删除 |
 | `study_cards.live_session_id` | `sessions.id` | `SET NULL` |
+| `study_cards.folder_id` | `card_folders.id` | `RESTRICT`；有卡片的目录不能删除 |
+| `card_folders.parent_id` | `card_folders.id` | `RESTRICT`；有子目录的目录不能删除 |
 
 `study_cards` 有两个不同职责的 session 字段：
 
@@ -56,6 +58,8 @@ python -m alembic -c alembic.ini upgrade head
 删除 session 前，`trg_sessions_delete_pending_cards` 会先删除 `saved_at IS NULL` 的待归档卡片；随后外键把已归档卡的 `live_session_id` 设为 `NULL`。所以待确认工作流随会话清理，而已经进入全局卡片库的内容和来源审计继续保留。
 
 必要索引覆盖历史排序、session 子记录查询、阻塞 action 回复查找、待答 checkpoint、活动/全局卡片列表和外键父记录删除检查。
+
+`0006_card_folders` 新增层级 `card_folders` 和 `study_cards.folder_id`。两个系统默认目录以稳定 ID 建立，升级时所有旧卡片按类型回填目录。普通目录同级名称使用大小写不敏感唯一索引；仓储层同时阻止自引用和把目录移动到自己的后代中。默认目录不能重命名、移动或删除；普通目录仅能在没有子目录且没有卡片时删除。
 
 `sessions.context_status` 由 `0005_conversational_context` 增加，取值仅为 `need_problem / need_thought / ready`。它与 `problem_text / student_initial_thought` 都属于 SQLite 权威业务态：模型产出的上下文状态和新语义摘要会与完整 assistant action 同事务提交，刷新或恢复时不从诊断日志重新推断。旧 session 在迁移时默认为 `ready`，保持升级前已进入正式教学的语义。
 
