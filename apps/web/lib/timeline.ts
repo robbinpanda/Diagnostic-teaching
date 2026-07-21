@@ -1,4 +1,4 @@
-import type { Checkpoint, StudyCard } from "./api";
+import type { AnsweredCheckpoint, Checkpoint, StudyCard } from "./api";
 import type { CanonicalStreamEvent, StreamDecision } from "./stream-protocol";
 
 export type ChatMessage = {
@@ -10,6 +10,7 @@ export type ChatMessage = {
   runId?: string;
   actionIndex?: number;
   streamState?: "streaming" | "complete";
+  checkpointResult?: AnsweredCheckpoint;
 };
 
 type StreamActionBuffer = {

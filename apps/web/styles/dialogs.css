@@ -10,9 +10,7 @@
   backdrop-filter: blur(3px);
 }
 
-.modelDialog,
-.checkpointDialog,
-.studyCardDialog {
+.modelDialog {
   width: min(560px, 100%);
   max-height: calc(100vh - 40px);
   overflow: auto;
@@ -20,6 +18,51 @@
   border-radius: 16px;
   background: #ffffff;
   box-shadow: var(--shadow);
+}
+
+.inlineInteraction {
+  width: calc(100% - 42px);
+  margin-left: 42px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 8px 26px rgba(28, 29, 26, 0.08);
+}
+
+.cardViewerLayer {
+  position: fixed;
+  inset: 72px 0 18px;
+  z-index: 18;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding-right: 18px;
+  pointer-events: none;
+}
+
+.studyCardDialog.cardViewerDialog {
+  width: min(560px, calc(100vw - 36px));
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 18px 54px rgba(28, 29, 26, 0.2);
+  pointer-events: auto;
+}
+
+.cardViewerDialog .studyCardHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.cardViewerDialog .studyCardFooter {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
 }
 
 .modelDialog {
@@ -249,14 +292,10 @@
   gap: 8px;
 }
 
-.checkpointBackdrop {
-  place-items: center;
-  background: rgba(25, 26, 23, 0.22);
-}
-
 .checkpointDialog {
-  width: min(470px, 100%);
   padding: 22px;
+  border-color: #bfd9cf;
+  background: linear-gradient(180deg, #fbfffd 0%, #ffffff 34%);
 }
 
 .checkpointKicker,
@@ -299,6 +338,48 @@
   background: var(--accent-soft);
 }
 
+.optionButton.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 2px rgba(42, 122, 95, 0.1);
+}
+
+.optionButton.selected.correct {
+  border-color: #2a7a5f;
+  color: #195b43;
+  background: #e7f5ee;
+  box-shadow: 0 0 0 2px rgba(42, 122, 95, 0.13);
+}
+
+.optionButton.selected.incorrect {
+  border-color: #cb5c56;
+  color: #87342f;
+  background: #fff0ef;
+  box-shadow: 0 0 0 2px rgba(203, 92, 86, 0.12);
+}
+
+.optionButton.selected.correct .optionBadge {
+  color: #ffffff;
+  background: #2a7a5f;
+}
+
+.optionButton.selected.incorrect .optionBadge {
+  color: #ffffff;
+  background: #cb5c56;
+}
+
+.optionButton.selected.correct .optionSelectionMark {
+  color: #2a7a5f;
+}
+
+.optionButton.selected.incorrect .optionSelectionMark {
+  color: #cb5c56;
+}
+
+.optionButton:disabled {
+  cursor: not-allowed;
+}
+
 .optionBadge {
   width: 27px;
   height: 27px;
@@ -314,26 +395,65 @@
 
 .optionText {
   min-width: 0;
+  flex: 1;
   font-size: 12px;
   line-height: 1.55;
+}
+
+.optionSelectionMark {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  color: var(--accent);
 }
 
 .checkpointHint {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 13px;
 }
 
-.cardBackdrop {
-  place-items: center end;
-  padding-right: clamp(20px, 5vw, 72px);
-  background: rgba(25, 26, 23, 0.28);
+.checkpointFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.checkpointSubmitButton,
+.cardSaveButton {
+  min-height: 40px;
+  border: 0;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 15px;
+  color: #ffffff;
+  background: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.checkpointSubmitButton:hover:not(:disabled),
+.cardSaveButton:hover:not(:disabled) {
+  background: #21684f;
+}
+
+.checkpointSubmitButton:disabled,
+.cardSaveButton:disabled {
+  color: #8d918b;
+  background: #e6e8e4;
 }
 
 .studyCardDialog {
-  width: min(680px, 100%);
   border-top: 4px solid var(--accent);
+  overflow: hidden;
 }
 
 .studyCardDialog.problemCard {
@@ -341,9 +461,6 @@
 }
 
 .studyCardHeader {
-  position: sticky;
-  top: 0;
-  z-index: 1;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -364,10 +481,38 @@
   color: #8a6228;
 }
 
+.studyCardHeaderActions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.cardEditButton {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 11px;
+  color: #496158;
+  background: #f4f6f3;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.cardEditButton:hover:not(:disabled),
+.cardEditButton.active {
+  border-color: #acd1c2;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .cardCloseButton {
-  width: 48px;
-  height: 48px;
-  flex: 0 0 48px;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
   border: 0;
   border-radius: 12px;
   display: grid;
@@ -488,6 +633,211 @@
   padding: 7px 9px;
   background: #fcf6e9;
   font-size: 12px;
+}
+
+.studyCardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 15px 21px 17px;
+  border-top: 1px solid var(--line);
+  background: #fafbf9;
+}
+
+.studyCardFooter > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.studyCardFooter strong {
+  color: #41433e;
+  font-size: 11px;
+}
+
+.studyCardFooter span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.studyCardFooter .cardValidationError {
+  color: var(--danger);
+  font-weight: 650;
+}
+
+.studyCardFooter > .studyCardFooterActions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cardDiscardButton {
+  min-height: 40px;
+  border: 1px solid #e1b3af;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 15px;
+  color: #9a4039;
+  background: #fff7f6;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cardDiscardButton:hover:not(:disabled) {
+  border-color: #cb5c56;
+  background: #fff0ef;
+}
+
+.cardDiscardButton[data-confirming="true"] {
+  color: #ffffff;
+  border-color: #b44740;
+  background: #b44740;
+}
+
+.cardDiscardButton[data-confirming="true"]:hover:not(:disabled) {
+  background: #963a34;
+}
+
+.cardDiscardButton:disabled {
+  color: #9b9b96;
+  border-color: var(--line);
+  background: #f0f1ee;
+}
+
+.studyCardEditor {
+  background: #fbfcfa;
+}
+
+.studyCardEditor .cardEditorField,
+.studyCardEditor .cardEditorSection {
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 14px;
+  background: #ffffff;
+}
+
+.cardEditorField {
+  display: grid;
+  gap: 7px;
+}
+
+.cardEditorField > span,
+.cardEditorSectionHeader h3 {
+  color: #474842;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.cardEditorField input,
+.cardEditorField textarea,
+.cardEditorStep input,
+.cardEditorStep textarea,
+.cardEditorListRow textarea {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  outline: none;
+  padding: 9px 10px;
+  color: var(--ink);
+  background: #ffffff;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.cardEditorField input:focus,
+.cardEditorField textarea:focus,
+.cardEditorStep input:focus,
+.cardEditorStep textarea:focus,
+.cardEditorListRow textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.cardEditorTitleField input {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.cardEditorConnectionField {
+  border-color: #abd7c6 !important;
+  background: #f2f9f5 !important;
+}
+
+.cardEditorSection {
+  display: grid;
+  gap: 10px;
+}
+
+.cardEditorSectionHeader,
+.cardEditorStepHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cardEditorSectionHeader button {
+  min-height: 30px;
+  border: 0;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.cardEditorList {
+  display: grid;
+  gap: 9px;
+}
+
+.cardEditorListRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: start;
+  gap: 7px;
+}
+
+.cardEditorStep {
+  display: grid;
+  gap: 7px;
+  border-radius: 9px;
+  padding: 10px;
+  background: var(--panel);
+}
+
+.cardEditorStepHeader strong {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.cardEditorRemoveButton {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: #9b625b;
+  background: var(--danger-soft);
+}
+
+.cardEditorRemoveButton:hover:not(:disabled) {
+  color: var(--danger);
+  background: #f3deda;
 }
 
 .spin {

@@ -8,7 +8,7 @@
 context_status + problem/thought summary + state_hint + action + message + breakpoint_description + checkpoint + knowledge_card + problem_card
 ```
 
-后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、标注每条 AI 消息对应的教学 action、弹出检查点并把学生选择回传给模型。
+后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、标注每条 AI 消息对应的教学 action，并把检查点和待归档卡片嵌入消息时间线。
 
 当前已支持：文本题目与单张 PNG/JPEG/WebP 题图、OpenAI-compatible / Anthropic 双协议加密模型配置、自动同步的 OpenCode 免费模型、检查点选择题、跨 session 的全局知识卡片/题目卡片库、学习卡片 PDF 多排版导出、SQLite 历史会话与删除、按 session 严格递增的 durable events 与断线重放 SSE，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
 
@@ -22,7 +22,7 @@ SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 re
 
 正式 session 的学生输入采用“先接纳、后生成”：普通消息先调用 `POST /api/sessions/{session_id}/inputs`，携带稳定的 `client_message_id`，服务端在一个 SQLite 事务中写入 `session_inputs` 和 `STUDENT_RESPONSE` message；随后 `/api/chat/stream` 只负责读取已落库上下文并生成。首次接纳返回 `201 + accepted`，同 ID 同内容重试返回 `200 + duplicate` 和原始结果，同 ID 不同内容返回 `409 IDEMPOTENCY_KEY_CONFLICT`。旧客户端仍可在 `/api/chat/stream` 中携带 message，后端会先走同一接纳服务。
 
-Checkpoint answer 也进入 `session_inputs`，并由数据库唯一约束保证每个 checkpoint 只成功回答一次：相同选项重试返回第一次的结果，不同选项重试返回 `409 CHECKPOINT_ANSWER_CONFLICT`。知识卡片关闭后的继续命令使用 `CARD_DISMISSED_CONTINUE`，卡片归档与控制命令在同一事务落库后才触发生成。事件重放由 `session_events` 承担，生成中断与重启遗留清理由 `session_runs` 承担，两者不混入输入接纳服务。
+Checkpoint answer 也进入 `session_inputs`，并由数据库唯一约束保证每个 checkpoint 只成功回答一次：相同选项重试返回第一次的结果，不同选项重试返回 `409 CHECKPOINT_ANSWER_CONFLICT`。提交后的 checkpoint 会作为结构化用户作答卡片留在消息时间线，保留原题与全部选项，并把正确选择标绿、错误选择标红；重新打开历史会话时从 SQLite checkpoint 与 message metadata 恢复，不展示内部使用的冗长答案文本。知识卡片解决后的继续命令使用 `CARD_DISMISSED_CONTINUE`：保存会原子归档最终编辑内容，舍弃则原子记录控制输入并删除待归档卡片，两种选择完成后才触发继续生成。事件重放由 `session_events` 承担，生成中断与重启遗留清理由 `session_runs` 承担，两者不混入输入接纳服务。
 
 左侧会话栏直接从 SQLite 读取并通过 `GET /api/sessions/{session_id}` 打开原 session，不会仅因查看而复制记录；选择某个 session 后会话栏保持展开，只有用户主动点击收起按钮或初次进入窄屏布局时才收起。原有 `POST /api/sessions/restore` 仍保留给需要显式创建实验分支的调用方。左侧可清空全部会话和 session 日志，右侧可清空全部卡片；两项操作都需要二次确认，且互不删除对方保留的数据。
 
@@ -32,7 +32,7 @@ Checkpoint answer 也进入 `session_inputs`，并由数据库唯一约束保证
 
 run 中只有完整解析并通过 SQLite 事务提交的教学 action 才进入会话历史；流式显示到一半的 step 不会写成 assistant message。应用启动时会把上次进程遗留的 `queued/running` run 标为 `failed/process_restarted`，不会静默恢复可能重复的 provider 工作。
 
-知识卡片策略为：`EXPLAIN_PRINCIPLE` 必须输出，`EXPLAIN_LOCAL` 仅在讲解包含值得独立记忆、可迁移复用的公式、定理、性质或方法辨析时由模型选择输出；任一 knowledge card 都会在消息结束后弹窗，关闭归档后继续答疑。
+知识卡片策略为：`EXPLAIN_PRINCIPLE` 必须输出，`EXPLAIN_LOCAL` 仅在讲解包含值得独立记忆、可迁移复用的公式、定理、性质或方法辨析时由模型选择输出；任一 knowledge card 都会在消息结束后嵌入对话。学生可先修改标题、正文、推导步骤和列表项，显式点击保存后才归档；也可连续点击两次“舍弃/确认舍弃”让卡片不进入卡片库，避免单次误触。两种选择都会解除当前阻塞并继续答疑。右侧卡片库打开已归档卡片时使用尽量靠右、无暗色遮罩的浮层，浮层外仍可查看和操作对话；已归档知识卡片可再次编辑并通过 `PUT /api/cards/{id}` 保存修改，题目卡片保持只读。
 
 已归档知识卡片和题目卡片可以在“导出学习卡片”中混合选择后导出 PDF。窗口默认全选，并按 `saved_at` 从新到旧排列；取消全选后逐张点击时，选择编号就是打印顺序，再次点击会取消，重新选中则追加到末尾。排版预设包括 A4 竖版单列、A4 竖版双列和 A4 横版三列；默认双列。打印稿按“先从上到下填满左列，再流向右列”的报纸式顺序排版，普通卡片尽量保持完整，单张特别长时只在内容分区之间续排。导出会打开系统打印面板，选择“另存为 PDF”即可保留 KaTeX 公式与彩色版式。
 
@@ -90,7 +90,7 @@ POST /api/sessions/start 原子创建 session + 接纳首条普通消息
   -> 未收齐题目与思路时后端只允许开放提问；ready 后进入正常教学 action
   -> session run 串行门控 + 后端校验 context/action/checkpoint/card + SQLite 业务态与 durable event 原子落库 + 追加诊断日志
   -> SSE 流式推给前端
-  -> 前端展示 message / KaTeX 公式 / checkpoint 或学习卡片弹窗
+  -> 前端展示 message / KaTeX 公式 / 可恢复的已作答 checkpoint / 可保存或舍弃的知识卡片
 ```
 
 ## 技术栈

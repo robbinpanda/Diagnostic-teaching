@@ -29,7 +29,8 @@ import {
   saveCard,
   startSession,
   SessionHistoryItem,
-  StudyCard
+  StudyCard,
+  updateKnowledgeCard
 } from "../lib/api";
 
 type LearningCardPrintJob = {
@@ -49,6 +50,7 @@ export default function Home() {
   const [rightOpen, setRightOpen] = useState(true);
   const [learningCardExportOpen, setLearningCardExportOpen] = useState(false);
   const [learningCardPrintJob, setLearningCardPrintJob] = useState<LearningCardPrintJob | null>(null);
+  const [viewingCardSaveBusy, setViewingCardSaveBusy] = useState(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const sendInFlightKeysRef = useRef(new Set<string>());
@@ -146,11 +148,11 @@ export default function Home() {
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: streamBusy ? "auto" : "smooth" });
-  }, [messages, streamBusy]);
+  }, [activeCard?.id, checkpoint?.id, messages, streamBusy]);
 
   useEffect(() => {
-    if (activeCard) setViewingCard(null);
-  }, [activeCard, setViewingCard]);
+    if (activeCard || checkpoint) setViewingCard(null);
+  }, [activeCard, checkpoint, setViewingCard]);
 
   useEffect(() => {
     if (!learningCardPrintJob) return;
@@ -464,7 +466,11 @@ export default function Home() {
         elapsed_ms: elapsed
       });
       if (runtime.isSessionActive(targetSessionId)) {
-        runtime.completeCheckpointSubmission(answer.student_message);
+        runtime.completeCheckpointSubmission({
+          checkpoint: activeCheckpoint,
+          selected_option_id: optionId,
+          is_correct: answer.is_correct
+        });
       }
       await runtime.runStream(targetSessionId);
     } catch (nextError) {
@@ -474,19 +480,25 @@ export default function Home() {
     }
   }
 
-  async function handleActiveCardClose() {
-    if (!activeCard || !sessionId || workflow.mode !== "card" || workflow.phase !== "ready") return;
+  async function handleActiveCardSave(cardToSave: StudyCard) {
+    if (
+      !activeCard
+      || cardToSave.id !== activeCard.id
+      || !sessionId
+      || workflow.mode !== "card"
+      || workflow.phase !== "ready"
+    ) return;
     const targetSessionId = sessionId;
-    const cardToSave = activeCard;
     runtime.beginCardSave();
     runtime.clearError();
     try {
       let saved: StudyCard;
-      if (cardToSave.card_type === "knowledge_card") {
+      if (cardToSave.card_type === "knowledge_card" && cardToSave.content.type === "knowledge_card") {
         const accepted = await dismissKnowledgeCardAndContinue({
           session_id: targetSessionId,
           client_command_id: `card:${cardToSave.id}`,
-          card_id: cardToSave.id
+          card_id: cardToSave.id,
+          content: cardToSave.content
         });
         saved = {
           ...cardToSave,
@@ -502,6 +514,54 @@ export default function Home() {
       if (runtime.isSessionActive(targetSessionId)) {
         runtime.failCardSave(nextError instanceof Error ? nextError.message : "保存学习卡片失败");
       }
+    }
+  }
+
+  async function handleActiveCardDiscard(cardToDiscard: StudyCard) {
+    if (
+      !activeCard
+      || cardToDiscard.id !== activeCard.id
+      || cardToDiscard.card_type !== "knowledge_card"
+      || !sessionId
+      || workflow.mode !== "card"
+      || workflow.phase !== "ready"
+    ) return;
+    const targetSessionId = sessionId;
+    runtime.beginCardSave();
+    runtime.clearError();
+    try {
+      await dismissKnowledgeCardAndContinue({
+        session_id: targetSessionId,
+        client_command_id: `card:${cardToDiscard.id}`,
+        card_id: cardToDiscard.id,
+        save_to_library: false
+      });
+      if (runtime.isSessionActive(targetSessionId)) runtime.completeCardSave();
+      await runtime.runStream(targetSessionId);
+    } catch (nextError) {
+      if (runtime.isSessionActive(targetSessionId)) {
+        runtime.failCardSave(nextError instanceof Error ? nextError.message : "舍弃知识卡片失败");
+      }
+    }
+  }
+
+  async function handleArchivedCardSave(cardToSave: StudyCard) {
+    if (
+      !viewingCard
+      || cardToSave.id !== viewingCard.id
+      || cardToSave.card_type !== "knowledge_card"
+      || cardToSave.content.type !== "knowledge_card"
+    ) return;
+    setViewingCardSaveBusy(true);
+    runtime.clearError();
+    try {
+      const saved = await updateKnowledgeCard(cardToSave.id, cardToSave.content);
+      upsertCard(saved);
+      setViewingCard(saved);
+    } catch (nextError) {
+      runtime.setError(nextError instanceof Error ? nextError.message : "修改知识卡片失败");
+    } finally {
+      setViewingCardSaveBusy(false);
     }
   }
 
@@ -540,7 +600,29 @@ export default function Home() {
           onToggleCards={() => setRightOpen((value) => !value)}
         />
 
-        <MessageTimeline messages={messages} messageEndRef={messageEndRef} />
+        <MessageTimeline
+          messages={messages}
+          messageEndRef={messageEndRef}
+          interaction={checkpoint ? (
+            <CheckpointModal
+              key={checkpoint.id}
+              checkpoint={checkpoint}
+              onSubmit={handleCheckpoint}
+              busy={workflow.mode === "checkpoint" && workflow.phase === "submitting"}
+            />
+          ) : activeCard ? (
+            <StudyCardModal
+              key={activeCard.id}
+              card={activeCard}
+              onSave={(card) => void handleActiveCardSave(card)}
+              onDiscard={activeCard.card_type === "knowledge_card"
+                ? (card) => void handleActiveCardDiscard(card)
+                : undefined}
+              busy={workflow.mode === "card" && workflow.phase === "saving"}
+              editable={activeCard.card_type === "knowledge_card"}
+            />
+          ) : null}
+        />
 
         <TutorComposer
           error={error}
@@ -593,12 +675,6 @@ export default function Home() {
         onClose={closeProfileDialog}
         onSaved={(profileId) => refreshProfiles(profileId)}
       />
-      <CheckpointModal checkpoint={checkpoint} onChoose={handleCheckpoint} busy={workflow.mode === "checkpoint" && workflow.phase === "submitting"} />
-      <StudyCardModal
-        card={activeCard ?? viewingCard}
-        onClose={activeCard ? handleActiveCardClose : () => setViewingCard(null)}
-        busy={workflow.mode === "card" && workflow.phase === "saving"}
-      />
       <LearningCardExportDialog
         cards={cards}
         open={learningCardExportOpen}
@@ -606,6 +682,22 @@ export default function Home() {
         onExport={handleLearningCardExport}
       />
     </main>
+    {viewingCard && !activeCard && !checkpoint && (
+      <div className="cardViewerLayer">
+        <StudyCardModal
+          key={viewingCard.id}
+          card={viewingCard}
+          displayMode="viewer"
+          libraryView
+          editable={viewingCard.card_type === "knowledge_card"}
+          onSave={viewingCard.card_type === "knowledge_card"
+            ? (card) => void handleArchivedCardSave(card)
+            : undefined}
+          onClose={() => setViewingCard(null)}
+          busy={viewingCardSaveBusy}
+        />
+      </div>
+    )}
     {learningCardPrintJob && (
       <LearningCardPrintView cards={learningCardPrintJob.cards} layout={learningCardPrintJob.layout} />
     )}

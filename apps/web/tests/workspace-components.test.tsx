@@ -3,13 +3,15 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { CheckpointModal } from "../components/CheckpointModal";
+import { StudyCardModal } from "../components/StudyCardModal";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import { MessageTimeline } from "../components/workspace/MessageTimeline";
 import { ModelProfilePicker } from "../components/workspace/ModelProfilePicker";
 import { SessionSidebar } from "../components/workspace/SessionSidebar";
 import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
 import type { ModelProfile, SessionHistoryItem } from "../lib/api";
-import { cardFixture } from "./fixtures";
+import { cardFixture, checkpointFixture } from "./fixtures";
 
 const profile: ModelProfile = {
   id: "profile-1",
@@ -54,6 +56,96 @@ test("workspace header and timeline preserve teaching context labels", () => {
   );
   assert.match(timeline, /先看等式两边/);
   assert.match(timeline, /原理讲解/);
+});
+
+test("checkpoint and pending card interactions render inside the conversation without backdrops", () => {
+  const checkpoint = renderToStaticMarkup(
+    <CheckpointModal checkpoint={checkpointFixture} onSubmit={() => {}} />
+  );
+  assert.match(checkpoint, /对话中的检查点/);
+  assert.match(checkpoint, /提交答案/);
+  assert.match(checkpoint, /aria-pressed="false"/);
+  assert.doesNotMatch(checkpoint, /modalBackdrop/);
+
+  const answeredCheckpoint = renderToStaticMarkup(
+    <CheckpointModal
+      checkpoint={checkpointFixture}
+      answer={{ selected_option_id: "B", is_correct: false }}
+    />
+  );
+  assert.match(answeredCheckpoint, /我的检查点作答/);
+  assert.match(answeredCheckpoint, /optionButton selected incorrect/);
+  assert.doesNotMatch(answeredCheckpoint, /回答错误|你选择了/);
+  assert.doesNotMatch(answeredCheckpoint, /提交答案/);
+
+  const correctCheckpoint = renderToStaticMarkup(
+    <CheckpointModal
+      checkpoint={checkpointFixture}
+      answer={{ selected_option_id: "A", is_correct: true }}
+    />
+  );
+  assert.match(correctCheckpoint, /optionButton selected correct/);
+  assert.doesNotMatch(correctCheckpoint, /回答正确|你选择了/);
+
+  const card = renderToStaticMarkup(
+    <StudyCardModal card={cardFixture} editable onSave={() => {}} onDiscard={() => {}} />
+  );
+  assert.match(card, /对话中的知识卡片/);
+  assert.match(card, /修改内容/);
+  assert.match(card, /保存到卡片库/);
+  assert.match(card, /舍弃/);
+  assert.doesNotMatch(card, /modalBackdrop/);
+
+  const libraryCard = renderToStaticMarkup(
+    <StudyCardModal
+      card={{ ...cardFixture, saved_at: "2026-07-21T00:00:00Z" }}
+      displayMode="viewer"
+      libraryView
+      editable
+      onSave={() => {}}
+      onClose={() => {}}
+    />
+  );
+  assert.match(libraryCard, /cardViewerDialog/);
+  assert.match(libraryCard, /卡片库中的知识卡片/);
+  assert.match(libraryCard, /修改内容/);
+  assert.match(libraryCard, /保存修改/);
+  assert.doesNotMatch(libraryCard, /inlineInteraction/);
+
+  const cardSource = readFileSync(resolve(__dirname, "../../../components/StudyCardModal.tsx"), "utf8");
+  const dialogStyles = readFileSync(resolve(__dirname, "../../../styles/dialogs.css"), "utf8");
+  assert.match(cardSource, /discardConfirmation \? "确认舍弃" : "舍弃"/);
+  assert.match(dialogStyles, /\.cardViewerLayer\s*\{[^}]*justify-content:\s*flex-end;[^}]*pointer-events:\s*none;/);
+  assert.match(dialogStyles, /\.studyCardDialog\.cardViewerDialog\s*\{[^}]*overflow-y:\s*auto;[^}]*pointer-events:\s*auto;/);
+
+  const timeline = renderToStaticMarkup(
+    <MessageTimeline
+      messages={[{ id: "message-1", role: "assistant", text: "先看这一步" }]}
+      messageEndRef={{ current: null }}
+      interaction={<span className="inlineInteraction">内嵌交互</span>}
+    />
+  );
+  assert.match(timeline, /先看这一步[\s\S]*内嵌交互/);
+
+  const answeredTimeline = renderToStaticMarkup(
+    <MessageTimeline
+      messages={[{
+        id: "checkpoint-answer-1",
+        role: "student",
+        text: "我在检查点里选了 B",
+        action: "CHECKPOINT_RESPONSE",
+        checkpointResult: {
+          checkpoint: checkpointFixture,
+          selected_option_id: "B",
+          is_correct: false
+        }
+      }]}
+      messageEndRef={{ current: null }}
+    />
+  );
+  assert.match(answeredTimeline, /checkpointResponseMessage/);
+  assert.match(answeredTimeline, /哪一步正确？/);
+  assert.doesNotMatch(answeredTimeline, /我在检查点里选了 B/);
 });
 
 test("workspace sidebars render active sessions and filtered cards", () => {

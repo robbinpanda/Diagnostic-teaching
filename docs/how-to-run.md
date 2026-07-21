@@ -153,7 +153,7 @@ scripts\inspect-session.cmd sess_c4052d2538a6
 2. `session_inputs`：已可靠接纳的普通消息、checkpoint answer、卡片关闭继续命令，以及幂等键和首次结果。
 3. `messages`：学生消息、AI 回复，以及每条消息的 `action_id / action / in_reply_to_action_id`。
 4. `checkpoints`：每个检查点的问题、选项、正确答案、学生选择，以及产生它的 `source_action_id`。
-5. `study_cards`：全局知识/题目卡片内容、来源 session/action/message，以及是否已由学生关闭归档的 `saved_at`。
+5. `study_cards`：全局知识/题目卡片内容、来源 session/action/message，以及是否已由学生确认归档的 `saved_at`。
 6. `session_events`：按 session 严格递增的 durable change feed，用于有限历史、SSE 断线补发和事件顺序排查；它与 JSONL 诊断日志无关。
 7. `session_runs`：每次生成的 `run_id / attempt / status`、开始结束时间、最后提交 action 下标和结构化错误。
 
@@ -167,6 +167,8 @@ POST /api/sessions/<session_id>/interrupt
 空闲或重复 interrupt 是幂等 no-op。显式中断显示为 `interrupted/explicit_interrupt`；关闭页面或客户端停止读取显示为 `failed/client_disconnected`。服务重启后若看到 `failed/process_restarted`，表示旧进程留下的 queued/running run 已被安全终结，服务不会自动重放 provider 请求；可以在确认已提交消息后重新发起生成。
 
 页面左侧会话栏直接读取 SQLite。点击一条会话会打开原 session，并恢复其 messages、待答 checkpoint 和待归档 card，不会因为查看而复制记录；需要显式创建实验分支时仍可调用 `POST /api/sessions/restore`。
+
+右侧卡片库点击已归档卡片后，会在屏幕右侧打开无暗色遮罩的浮层；浮层外的对话仍可滚动和操作。知识卡片可点“修改内容”编辑，再点“保存修改”通过 `PUT /api/cards/<card_id>` 持久化；题目卡片只读。待归档知识卡片的“舍弃”需要连续点击“舍弃”和“确认舍弃”两次才会生效。
 
 需要重置测试数据时：
 
@@ -203,6 +205,7 @@ JSONL 每行一个事件；Markdown 把同一批事件按 system/user/assistant�
 1. `parsed_turn.message` 有内容，但页面没显示：看前端 SSE / `decision.message` 兜底，详见 `docs/state-machine.md`。
 2. `raw_response` 为空或 `error` 非空：多半是模型空流、超时或网络异常，前端应显示错误。
 3. `parse_ok=false`、`used_fallback=true`：模型返回了坏 JSON，后端已尝试恢复 message。
-4. 连续重复同一检查点：检查 history 里是否有 `student: 我在检查点「...」选了：...`。
+4. 连续重复同一检查点：检查 SQLite 是否只有一条 `action=CHECKPOINT_RESPONSE` 的 message；页面应把它渲染为保留原题和选项的已作答 checkpoint，而不是展示内部 `student_message` 文本。
+5. 舍弃知识卡片后仍被阻塞：检查是否存在对应的 `CARD_DISMISSED_CONTINUE` 输入和 `card.discarded` event；被舍弃的待归档卡片行应已删除，且不会出现在 `GET /api/cards`。
 
 历史修复与根因记录见 `docs/changelog.md`。当前完整流程说明见 `docs/state-machine.md` 与 `docs/context-management.md`。

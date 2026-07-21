@@ -5,7 +5,12 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
-from app.core.schemas import StudyCardListResponse, StudyCardPublic, StudyCardSaveRequest
+from app.core.schemas import (
+    StudyCardListResponse,
+    StudyCardPublic,
+    StudyCardSaveRequest,
+    StudyCardUpdateRequest,
+)
 
 router = APIRouter(prefix="/api/cards", tags=["cards"])
 
@@ -42,6 +47,22 @@ def save_card(card_id: str, payload: StudyCardSaveRequest, request: Request) -> 
         raise HTTPException(status_code=404, detail="卡片不存在") from exc
     except PermissionError as exc:
         raise HTTPException(status_code=400, detail="卡片不属于当前会话") from exc
+    return card_from_row(row)
+
+
+@router.put("/{card_id}", response_model=StudyCardPublic)
+def update_card(card_id: str, payload: StudyCardUpdateRequest, request: Request) -> StudyCardPublic:
+    try:
+        row = request.app.state.sessions.update_saved_knowledge_card(
+            card_id,
+            content=payload.content.model_dump(),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="卡片不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail="待归档知识卡片必须先在对话中确认") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="只有已归档知识卡片支持修改") from exc
     return card_from_row(row)
 
 

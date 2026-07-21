@@ -22,11 +22,20 @@ class CardDismissalAcceptanceMixin:
         *,
         client_command_id: str,
         card_id: str,
+        content: dict | None = None,
+        save_to_library: bool = True,
     ) -> AcceptedSessionInput:
         key = client_command_id.strip()
         if not key:
             raise InputValidationError("client_command_id 不能为空")
-        payload_json = _canonical_json({"card_id": card_id})
+        if not save_to_library and content is not None:
+            raise InputValidationError("舍弃知识卡片时不能同时提交卡片内容")
+        durable_payload = {"card_id": card_id}
+        if content is not None:
+            durable_payload["content"] = content
+        if not save_to_library:
+            durable_payload["save_to_library"] = False
+        payload_json = _canonical_json(durable_payload)
 
         with self.db.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -66,16 +75,36 @@ class CardDismissalAcceptanceMixin:
                 raise PermissionError(card_id)
             if card_row["card_type"] != "knowledge_card":
                 raise InputValidationError("只有知识卡片关闭后需要继续生成")
+            if not save_to_library and card_row["saved_at"] is not None:
+                raise InputStateConflictError(card_id)
+            if content is not None and card_row["saved_at"] is not None:
+                stored_content = _load_json(card_row["content_json"])
+                if _canonical_json(stored_content) != _canonical_json(content):
+                    raise InputStateConflictError(card_id)
 
             input_id = new_id("inp")
             ts = card_row["saved_at"] or now_iso()
-            newly_saved = card_row["saved_at"] is None
+            newly_saved = save_to_library and card_row["saved_at"] is None
             if newly_saved:
-                conn.execute(
-                    "UPDATE study_cards SET saved_at = ? WHERE id = ?",
-                    (ts, card_id),
-                )
-            result = {"card_id": card_id, "card_saved_at": ts}
+                if content is None:
+                    conn.execute(
+                        "UPDATE study_cards SET saved_at = ? WHERE id = ?",
+                        (ts, card_id),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE study_cards
+                        SET title = ?, content_json = ?, saved_at = ?
+                        WHERE id = ?
+                        """,
+                        (content["title"], _canonical_json(content), ts, card_id),
+                    )
+            result = {
+                "card_id": card_id,
+                "card_saved_at": ts if save_to_library else None,
+                "card_discarded": not save_to_library,
+            }
             conn.execute(
                 """
                 INSERT INTO session_inputs (
@@ -116,11 +145,30 @@ class CardDismissalAcceptanceMixin:
                         )
                     ],
                 )
+            elif not save_to_library:
+                self.sessions.events.append_in_transaction(
+                    conn,
+                    session_id,
+                    [
+                        (
+                            "card.discarded",
+                            {
+                                "input_id": input_id,
+                                "card_id": card_id,
+                                "card_type": card_row["card_type"],
+                                "source_action_id": card_row["source_action_id"],
+                                "source_message_id": card_row["source_message_id"],
+                                "discarded_at": ts,
+                            },
+                        )
+                    ],
+                )
+                conn.execute("DELETE FROM study_cards WHERE id = ?", (card_id,))
             input_row = conn.execute(
                 "SELECT * FROM session_inputs WHERE id = ?",
                 (input_id,),
             ).fetchone()
-            card_row = conn.execute(
+            card_row = None if not save_to_library else conn.execute(
                 "SELECT * FROM study_cards WHERE id = ?",
                 (card_id,),
             ).fetchone()

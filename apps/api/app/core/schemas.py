@@ -216,6 +216,12 @@ class SessionRestoreRequest(BaseModel):
     model_profile_id: str
 
 
+class SessionRestoredCheckpointResult(BaseModel):
+    checkpoint: dict[str, Any]
+    selected_option_id: str
+    is_correct: bool
+
+
 class SessionRestoredMessage(BaseModel):
     id: str
     role: Literal["student", "assistant"]
@@ -223,6 +229,7 @@ class SessionRestoredMessage(BaseModel):
     action_id: str | None = None
     action: str
     client_message_id: str | None = None
+    checkpoint_result: SessionRestoredCheckpointResult | None = None
 
 
 class SessionRestoreResponse(BaseModel):
@@ -291,6 +298,8 @@ class CardDismissedContinueInputRequest(BaseModel):
     kind: Literal["CARD_DISMISSED_CONTINUE"]
     client_command_id: str = Field(min_length=1, max_length=128)
     card_id: str = Field(min_length=1, max_length=128)
+    content: TutorKnowledgeCard | None = None
+    save_to_library: bool = True
 
 
 SessionInputAcceptRequest = Annotated[
@@ -310,6 +319,7 @@ class SessionInputAcceptResponse(BaseModel):
     in_reply_to_action_id: str | None = None
     card_id: str | None = None
     card_saved_at: str | None = None
+    card_discarded: bool = False
 
 
 class CheckpointAnswerRequest(BaseModel):
@@ -364,6 +374,10 @@ class TutorProblemCard(BaseModel):
 
 
 TutorCardContent = TutorKnowledgeCard | TutorProblemCard
+
+
+class StudyCardUpdateRequest(BaseModel):
+    content: TutorKnowledgeCard
 
 
 class StudyCardPublic(BaseModel):

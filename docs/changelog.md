@@ -2,6 +2,18 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v2.5 — 2026-07-21
+
+### 对话内检查点与可编辑知识卡片
+
+- Checkpoint 和待归档学习卡片从全屏遮罩弹窗改为消息时间线内嵌卡片，交互期间仍可回看前文。
+- Checkpoint 点击选项只记录本地选择，新增“提交答案”按钮；只有显式提交才调用原子 answer 接口，避免误选立即落库。
+- Checkpoint 提交后改为一张锁定的用户作答卡片留在消息时间线，继续显示原题、选项与学生选择；正确选择标绿、错误选择标红。session detail/restore 从 SQLite checkpoint 与 message metadata 返回结构化 `checkpoint_result`，历史会话不会退化成内部答案文本。
+- 待归档知识卡片新增修改模式，可编辑标题、知识点、核心原理、当前题联系，增删改推导步骤、适用场景和易错点；题目卡片继续只读确认。
+- `CARD_DISMISSED_CONTINUE` 支持携带最终知识卡片内容，后端在同一 SQLite 事务更新 `title/content_json/saved_at` 和 durable control input；内容进入规范化幂等 payload，相同重试返回原结果，不同内容重试返回冲突。
+- 知识卡片新增二次确认“舍弃”：第一次点击只把按钮切换为“确认舍弃”，第二次才以 `save_to_library=false` 接纳 durable 继续命令，原子追加 `card.discarded` 并删除待归档卡片；它不会进入右侧卡片库，随后仍继续当前教学流程。
+- 右侧已归档卡片恢复为尽量靠右的无暗色遮罩浮层，浮层外仍可查看和操作对话；已归档 knowledge card 支持再次编辑，通过新增 `PUT /api/cards/{id}` 持久化完整内容，problem card 保持只读。
+
 ## v2.4 — 2026-07-20
 
 ### 模型选择器与批量配置管理

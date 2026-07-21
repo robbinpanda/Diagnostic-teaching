@@ -27,6 +27,12 @@ export type Checkpoint = {
   difficulty: "easy" | "medium";
 };
 
+export type AnsweredCheckpoint = {
+  checkpoint: Checkpoint;
+  selected_option_id: string;
+  is_correct: boolean;
+};
+
 export type KnowledgeCardContent = {
   type: "knowledge_card";
   title: string;
@@ -107,6 +113,7 @@ export type RestoredSession = {
     action_id?: string | null;
     action: string;
     client_message_id?: string | null;
+    checkpoint_result?: AnsweredCheckpoint | null;
   }>;
   pending_checkpoint?: Checkpoint | null;
   pending_card?: StudyCard | null;
@@ -135,4 +142,5 @@ export type SessionInputAcceptance = {
   in_reply_to_action_id?: string | null;
   card_id?: string | null;
   card_saved_at?: string | null;
+  card_discarded?: boolean;
 };
