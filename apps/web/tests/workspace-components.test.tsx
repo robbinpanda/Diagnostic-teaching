@@ -4,14 +4,16 @@ import { resolve } from "node:path";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CheckpointModal } from "../components/CheckpointModal";
+import { LearningCardExportDialog } from "../components/LearningCardExportDialog";
 import { StudyCardModal } from "../components/StudyCardModal";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import { MessageTimeline } from "../components/workspace/MessageTimeline";
 import { ModelProfilePicker } from "../components/workspace/ModelProfilePicker";
+import { boxFromPoints, ProblemImageSelector } from "../components/ProblemImageSelector";
 import { SessionSidebar } from "../components/workspace/SessionSidebar";
 import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
 import type { ModelProfile, SessionHistoryItem } from "../lib/api";
-import { cardFixture, checkpointFixture } from "./fixtures";
+import { cardFixture, checkpointFixture, knowledgeFolderFixture } from "./fixtures";
 
 const profile: ModelProfile = {
   id: "profile-1",
@@ -185,14 +187,27 @@ test("workspace sidebars render active sessions and filtered cards", () => {
   const cards = renderToStaticMarkup(
     <StudyCardSidebar
       cards={[cardFixture]}
-      filteredCards={[cardFixture]}
-      filter="knowledge_card"
+      folders={[knowledgeFolderFixture]}
+      currentFolderId={knowledgeFolderFixture.id}
+      visibleFolders={[]}
+      visibleCards={[cardFixture]}
+      clipboard={null}
       cardBusyId=""
+      folderBusyId=""
+      pasteBusy={false}
       deleteAllCardsBusy={false}
       composerBlocked={false}
       onCollapse={() => {}}
-      onFilterChange={() => {}}
+      onOpenFolder={() => {}}
+      onCreateFolder={async () => true}
+      onRenameFolder={async () => true}
+      onDeleteFolder={() => {}}
       onOpenCard={() => {}}
+      onCopyCard={() => {}}
+      onCutCard={() => {}}
+      onClearClipboard={() => {}}
+      onPasteCard={() => {}}
+      onMoveCard={() => {}}
       onDeleteCard={() => {}}
       onExport={() => {}}
       onDeleteAllCards={() => {}}
@@ -208,8 +223,34 @@ test("scrolling grid lists keep intrinsic row heights", () => {
 
   assert.match(shellStyles, /\.sessionList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.cardList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
+  assert.match(cardStyles, /\.cardFileList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.knowledgeExportBody\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.knowledgeExportCardList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
+});
+
+test("card save and export dialogs expose folder-based navigation", () => {
+  const saveDialog = renderToStaticMarkup(
+    <StudyCardModal
+      card={cardFixture}
+      folders={[knowledgeFolderFixture]}
+      onSave={() => {}}
+    />
+  );
+  assert.match(saveDialog, /保存位置/);
+  assert.match(saveDialog, /默认知识卡片/);
+
+  const exportDialog = renderToStaticMarkup(
+    <LearningCardExportDialog
+      open
+      cards={[cardFixture]}
+      folders={[knowledgeFolderFixture]}
+      onClose={() => {}}
+      onExport={() => {}}
+    />
+  );
+  assert.match(exportDialog, /从卡片库导出/);
+  assert.match(exportDialog, /全部卡片/);
+  assert.match(exportDialog, /默认知识卡片/);
 });
 
 test("model picker exposes image capability and batch management controls", () => {
@@ -246,4 +287,63 @@ test("model picker exposes image capability and batch management controls", () =
   assert.match(pickerSource, /aria-multiselectable/);
   assert.match(conversationStyles, /\.modelPickerCurrentLabel\s*\{[^}]*text-overflow:\s*ellipsis;/);
   assert.match(conversationStyles, /\.modelPicker\s*\{[^}]*max-width:/);
+});
+
+test("problem image selector renders movable and resizable regions", () => {
+  const selector = renderToStaticMarkup(
+    <ProblemImageSelector
+      imageUrl="data:image/png;base64,AAAA"
+      initialRegions={[
+        {
+          id: "problem-1",
+          label: "题目 1",
+          bbox: { x: 0.1, y: 0.2, width: 0.8, height: 0.25 }
+        },
+        {
+          id: "problem-2",
+          label: "题目 2",
+          bbox: { x: 0.1, y: 0.55, width: 0.8, height: 0.3 }
+        }
+      ]}
+      busy={false}
+      onCancel={() => {}}
+      onConfirm={() => {}}
+    />
+  );
+  const dialogStyles = readFileSync(resolve(__dirname, "../../../styles/dialogs.css"), "utf8");
+
+  assert.match(selector, /确认要创建的题目/);
+  assert.match(selector, /将创建 2 个独立答疑/);
+  assert.match(selector, /删除题目 1/);
+  assert.match(selector, /新增题目框/);
+  assert.match(selector, /aria-pressed="false"/);
+  assert.match(selector, /handle-nw/);
+  assert.match(dialogStyles, /\.problemRegion\.selected/);
+  assert.match(dialogStyles, /\.problemSelectorCanvas\.adding/);
+  assert.match(dialogStyles, /\.problemRegionDraft/);
+  assert.match(dialogStyles, /\.handle-e[^}]*cursor:\s*ew-resize/);
+});
+
+test("new problem boxes support reverse dragging and stay inside the image", () => {
+  assert.deepEqual(boxFromPoints(0.8, 0.7, 0.2, 0.1), {
+    x: 0.2,
+    y: 0.1,
+    width: 0.6000000000000001,
+    height: 0.6
+  });
+  assert.deepEqual(boxFromPoints(-0.2, 0.25, 1.3, 0.9), {
+    x: 0,
+    y: 0.25,
+    width: 1,
+    height: 0.65
+  });
+});
+
+test("workspace keeps text and image multi-problem intake wired", () => {
+  const pageSource = readFileSync(resolve(__dirname, "../../../app/page.tsx"), "utf8");
+  assert.match(pageSource, /analyzeProblemText/);
+  assert.match(pageSource, /batchStartSessions/);
+  assert.match(pageSource, /detectProblemImageRegions/);
+  assert.match(pageSource, /<ProblemImageSelector/);
+  assert.match(pageSource, /batchStartImageSessions/);
 });

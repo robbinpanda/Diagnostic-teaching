@@ -10,13 +10,16 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import { useState } from "react";
-import type { KnowledgeCardContent, StudyCard } from "../lib/api";
+import { useEffect, useState } from "react";
+import type { CardFolder, KnowledgeCardContent, StudyCard } from "../lib/api";
+import { defaultFolderForCard } from "../lib/card-folders";
+import { FolderLocationSelect } from "./FolderLocationSelect";
 import { MathText } from "./MathText";
 
 type Props = {
   card: StudyCard | null;
-  onSave?: (card: StudyCard) => void;
+  folders?: CardFolder[];
+  onSave?: (card: StudyCard, folderId?: string) => void;
   onDiscard?: (card: StudyCard) => void;
   onClose?: () => void;
   busy?: boolean;
@@ -224,6 +227,7 @@ function KnowledgeCardEditor({
 
 export function StudyCardModal({
   card,
+  folders = [],
   onSave,
   onDiscard,
   onClose,
@@ -238,6 +242,13 @@ export function StudyCardModal({
   ));
   const [validationError, setValidationError] = useState("");
   const [discardConfirmation, setDiscardConfirmation] = useState(false);
+  const [folderId, setFolderId] = useState("");
+
+  useEffect(() => {
+    if (card && folders.length) {
+      setFolderId(card.folder_id || defaultFolderForCard(folders, card));
+    }
+  }, [card, folders]);
 
   if (!card) return null;
   const currentCard = card;
@@ -259,12 +270,12 @@ export function StudyCardModal({
       setValidationError("");
       setDraft(result.content);
       setDiscardConfirmation(false);
-      onSave({ ...currentCard, content: result.content });
+      onSave({ ...currentCard, content: result.content }, folderId || undefined);
       if (libraryView) setEditing(false);
       return;
     }
     setDiscardConfirmation(false);
-    onSave(currentCard);
+    onSave(currentCard, folderId || undefined);
   }
 
   function handleDiscard() {
@@ -411,6 +422,14 @@ export function StudyCardModal({
               : (isKnowledge ? "保存或舍弃后，AI 都会接着当前对话继续讲解。" : "保存后，本轮答疑完成。")}</span>
             {validationError && <span className="cardValidationError" role="alert">{validationError}</span>}
           </div>
+          {!libraryView && onSave && folders.length > 0 && (
+            <FolderLocationSelect
+              folders={folders}
+              value={folderId}
+              onChange={setFolderId}
+              disabled={busy}
+            />
+          )}
           <div className="studyCardFooterActions">
             {isKnowledge && onDiscard && (
               <button
@@ -425,7 +444,12 @@ export function StudyCardModal({
               </button>
             )}
             {onSave && (
-              <button className="cardSaveButton" type="button" onClick={handleSave} disabled={busy}>
+              <button
+                className="cardSaveButton"
+                type="button"
+                onClick={handleSave}
+                disabled={busy || (folders.length > 0 && !folderId)}
+              >
                 {busy ? <Loader2 size={17} className="spin" /> : <Save size={17} />}
                 {busy ? "处理中" : libraryView ? "保存修改" : "保存到卡片库"}
               </button>

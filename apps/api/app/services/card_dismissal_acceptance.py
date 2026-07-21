@@ -37,6 +37,7 @@ class CardDismissalAcceptanceMixin:
             durable_payload["content"] = content
         if not save_to_library:
             durable_payload["save_to_library"] = False
+        payload_json = _canonical_json(durable_payload)
 
         with self.db.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
