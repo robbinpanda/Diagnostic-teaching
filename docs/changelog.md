@@ -13,6 +13,16 @@
 - 导出界面重构为左侧目录树和右侧文件内容区，支持逐张选择或递归选择整个目录，同时保留有序选择和三种 PDF 排版。
 - 新增文件夹迁移/API/复制移动/原子保存测试，以及前端目录辅助函数、目录式侧栏和导出视图测试。
 
+### 多题检测、可编辑图片框选与批量 Session
+
+- 新增 `POST /api/problem-intake/analyze-text`：使用当前选定模型判断文字为单题或多题，并返回最多 20 项的严格 `problems[]` JSON；每项保留自包含题目和明确属于该题的学生思路，不解题、不编造上下文。
+- 新增 `POST /api/problem-images/detect`：使用选定多模态模型检测整张图片中的独立题目框，统一清洗为归一化坐标并按版面排序；单题也返回一个框。检测提示词把学生过程设为框选的必要组成部分，强制覆盖该题全部演算、草稿、答案和批改痕迹，必要时扩大边界或允许轻微重叠，禁止只紧贴印刷题干。
+- 新增图片框选确认页：可进入新增模式在图片上连续拖拽补框；已有框可点选、拖动平移、从四边/四角缩放，并支持删除按钮或 Delete/Backspace；取消不会创建会话。
+- 新增 `POST /api/sessions/batch-start` 与 `POST /api/sessions/image-batch-start`。批量接纳复用每个子会话的稳定 session/message 幂等键，并在一个 `BEGIN IMMEDIATE` 事务中创建整批 session；图片接口按最终框在后端裁剪，只把对应裁剪图绑定到各自 session。
+- 前端成功建批后打开第一题，同时为所有子 session 并行启动原有答疑 run；其他题立即出现在左栏，继续遵守同 session 串行、跨 session 并行和 `sessionId + runId` 隔离。
+- 保留旧的单题 `/api/sessions/start` 与 `/api/problem-images/analyze` 兼容入口；教学 action、`wait_for_student` 推导、SQLite 权威恢复和只追加诊断日志不变。
+- 增加文字拆题、图片检测、按框裁剪、批量幂等事务与框选组件回归测试，并用真实页面确认两道文字题会创建两个左栏 session。
+
 ## v2.4 — 2026-07-20
 
 ### 模型选择器与批量配置管理

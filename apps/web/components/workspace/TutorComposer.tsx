@@ -83,7 +83,7 @@ export function TutorComposer({
             }
           }}
           disabled={composerBlocked}
-          placeholder={sessionId ? "继续说说你的想法…" : "输入题目和你想到哪一步，或上传题目图片…"}
+          placeholder={sessionId ? "继续说说你的想法…" : "输入一道或多道题目，或上传题目图片…"}
           rows={3}
         />
         <div className="composerToolbar">
@@ -139,7 +139,7 @@ export function TutorComposer({
           </button>
         </div>
       </div>
-      <p className="composerHint">Enter 发送 · Shift + Enter 换行 · 开始答疑前需同时识别题目与当前思路</p>
+      <p className="composerHint">Enter 发送 · 文字自动拆题 · 图片确认框选后按题目数创建答疑</p>
     </div>
   );
 }

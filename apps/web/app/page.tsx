@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckpointModal } from "../components/CheckpointModal";
 import { CardMoveDialog } from "../components/CardMoveDialog";
 import { ModelConfigDialog } from "../components/ModelConfigDialog";
+import { ProblemImageSelector } from "../components/ProblemImageSelector";
 import { StudyCardModal } from "../components/StudyCardModal";
 import {
   LearningCardExportDialog,
@@ -20,22 +21,49 @@ import { useSessionRuntime } from "../hooks/useSessionRuntime";
 import { useStudyCards } from "../hooks/useStudyCards";
 import {
   acceptStudentMessage,
-  analyzeProblemImage,
+  analyzeProblemText,
   answerCheckpoint,
+  batchStartImageSessions,
+  batchStartSessions,
   deleteAllSessions,
   deleteSession,
+  detectProblemImageRegions,
   dismissKnowledgeCardAndContinue,
   fetchSession,
   fetchSessionHistory,
   saveCard,
-  startSession,
+  DetectedProblemRegion,
   SessionHistoryItem,
+  SessionStartInput,
+  SessionStartResult,
   StudyCard
 } from "../lib/api";
 
 type LearningCardPrintJob = {
   cards: StudyCard[];
   layout: LearningCardExportLayout;
+};
+
+type PendingSessionBatch = {
+  text: string;
+  profileId: string;
+  gradeBand: "junior" | "senior";
+  sessions?: SessionStartInput[];
+};
+
+type PendingImageSelection = {
+  imageUrl: string;
+  contentType: string;
+  filename: string;
+  profileId: string;
+  gradeBand: "junior" | "senior";
+  viewToken: number;
+  regions: DetectedProblemRegion[];
+  startItems?: Array<{
+    session_id: string;
+    client_message_id: string;
+    bbox: DetectedProblemRegion["bbox"];
+  }>;
 };
 
 export default function Home() {
@@ -50,6 +78,8 @@ export default function Home() {
   const [rightOpen, setRightOpen] = useState(true);
   const [learningCardExportOpen, setLearningCardExportOpen] = useState(false);
   const [learningCardPrintJob, setLearningCardPrintJob] = useState<LearningCardPrintJob | null>(null);
+  const [imageSelection, setImageSelection] = useState<PendingImageSelection | null>(null);
+  const [imageConfirmBusy, setImageConfirmBusy] = useState(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const sendInFlightKeysRef = useRef(new Set<string>());
@@ -58,16 +88,7 @@ export default function Home() {
     text: string;
     clientMessageId: string;
   }>());
-  const pendingSessionStartsRef = useRef(new Map<number, {
-    sessionId: string;
-    clientMessageId: string;
-    text: string;
-    profileId: string;
-    gradeBand: "junior" | "senior";
-    problemText: string;
-    initialThought: string;
-    imageUrl: string | null;
-  }>());
+  const pendingSessionBatchesRef = useRef(new Map<number, PendingSessionBatch>());
   const openSessionRequestRef = useRef(0);
   const historyRequestRef = useRef(0);
   const viewTokenRef = useRef(0);
@@ -78,10 +99,8 @@ export default function Home() {
     checkpointStartedAt,
     composerBlocked,
     error,
-    initialThought,
     messages,
     originalProblemImage,
-    problemText,
     runningSessionIds,
     sessionId,
     streamBusy,
@@ -209,7 +228,9 @@ export default function Home() {
     openSessionRequestRef.current += 1;
     const previousViewToken = viewTokenRef.current;
     viewTokenRef.current += 1;
-    pendingSessionStartsRef.current.delete(previousViewToken);
+    pendingSessionBatchesRef.current.delete(previousViewToken);
+    setImageSelection(null);
+    setImageConfirmBusy(false);
     setOpenSessionBusyId("");
     runtime.clearSession();
     setInput("");
@@ -278,16 +299,28 @@ export default function Home() {
     });
   }
 
-  async function finishSessionStart(
-    result: Awaited<ReturnType<typeof startSession>>,
+  async function finishSessionBatchStart(
+    results: SessionStartResult[],
     originatingViewToken: number
   ) {
+    if (!results.length) return;
     if (viewTokenRef.current === originatingViewToken && runtime.isDraftActive()) {
-      runtime.bindStartedSession(result);
-      runtime.finishComposerTask();
+      try {
+        const opened = await fetchSession(results[0].session_id);
+        if (viewTokenRef.current === originatingViewToken && runtime.isDraftActive()) {
+          runtime.loadSession(opened);
+          setSelectedProfileId(opened.model_profile_id);
+          setGradeBand(opened.grade_band);
+        }
+      } catch {
+        if (viewTokenRef.current === originatingViewToken && runtime.isDraftActive()) {
+          runtime.bindStartedSession(results[0]);
+          runtime.finishComposerTask();
+        }
+      }
     }
     await refreshHistory();
-    await runtime.runStream(result.session_id);
+    for (const result of results) void runtime.runStream(result.session_id);
   }
 
   async function handleSend() {
@@ -342,60 +375,66 @@ export default function Home() {
       return;
     }
 
-    const previousStart = pendingSessionStartsRef.current.get(originatingViewToken);
+    const previousBatch = pendingSessionBatchesRef.current.get(originatingViewToken);
     const isStartRetry = Boolean(
-      previousStart
-      && previousStart.text === text
-      && previousStart.profileId === selectedProfileId
-      && previousStart.gradeBand === gradeBand
-      && previousStart.problemText === problemText
-      && previousStart.initialThought === initialThought
-      && previousStart.imageUrl === originalProblemImage
+      previousBatch
+      && previousBatch.text === text
+      && previousBatch.profileId === selectedProfileId
+      && previousBatch.gradeBand === gradeBand
     );
-    const pendingStart = isStartRetry && previousStart
-      ? previousStart
-      : {
-          sessionId: `sess_${crypto.randomUUID().replaceAll("-", "")}`,
-          clientMessageId: crypto.randomUUID(),
-          text,
-          profileId: selectedProfileId,
-          gradeBand,
-          problemText,
-          initialThought,
-          imageUrl: originalProblemImage
-        };
-    pendingSessionStartsRef.current.set(originatingViewToken, pendingStart);
+    let pendingBatch: PendingSessionBatch = isStartRetry && previousBatch
+      ? previousBatch
+      : { text, profileId: selectedProfileId, gradeBand };
+    pendingSessionBatchesRef.current.set(originatingViewToken, pendingBatch);
     if (!isStartRetry) {
       runtime.addMessage(
         "student",
         text,
         undefined,
         undefined,
-        `client:${pendingStart.clientMessageId}`
+        `client:batch-${crypto.randomUUID()}`
       );
     }
     runtime.startComposerTask("start");
     runtime.clearError();
     try {
-      const result = await startSession({
-        session_id: pendingStart.sessionId,
-        client_message_id: pendingStart.clientMessageId,
-        grade_band: pendingStart.gradeBand,
-        subject: "math",
-        model_profile_id: pendingStart.profileId,
-        message: text,
-        problem_text: pendingStart.problemText,
-        student_initial_thought: pendingStart.initialThought,
-        problem_image_data_url: pendingStart.imageUrl
-      });
-      pendingSessionStartsRef.current.delete(originatingViewToken);
-      await finishSessionStart(result, originatingViewToken);
+      if (!pendingBatch.sessions) {
+        const analyzed = await analyzeProblemText({
+          model_profile_id: pendingBatch.profileId,
+          text: pendingBatch.text
+        });
+        pendingBatch = {
+          ...pendingBatch,
+          sessions: analyzed.problems.map((problem) => {
+            const thought = problem.student_initial_thought.trim();
+            return {
+              session_id: `sess_${crypto.randomUUID().replaceAll("-", "")}`,
+              client_message_id: crypto.randomUUID(),
+              grade_band: pendingBatch.gradeBand,
+              subject: "math",
+              model_profile_id: pendingBatch.profileId,
+              message: thought
+                ? `${problem.problem_text}\n\n我的思路：${thought}`
+                : problem.problem_text,
+              problem_text: problem.problem_text,
+              student_initial_thought: thought,
+              problem_image_data_url: null
+            };
+          })
+        };
+        pendingSessionBatchesRef.current.set(originatingViewToken, pendingBatch);
+      }
+      const sessionsToStart = pendingBatch.sessions;
+      if (!sessionsToStart?.length) throw new Error("拆题模型没有返回可创建的题目");
+      const result = await batchStartSessions(sessionsToStart);
+      pendingSessionBatchesRef.current.delete(originatingViewToken);
+      await finishSessionBatchStart(result.sessions, originatingViewToken);
     } catch (nextError) {
       if (viewTokenRef.current === originatingViewToken && runtime.isDraftActive()) {
         setInput((current) => current || text);
-        runtime.failComposerTask(nextError instanceof Error ? nextError.message : "创建答疑会话失败");
+        runtime.failComposerTask(nextError instanceof Error ? nextError.message : "拆题或创建答疑会话失败");
       } else {
-        pendingSessionStartsRef.current.delete(originatingViewToken);
+        pendingSessionBatchesRef.current.delete(originatingViewToken);
       }
     } finally {
       sendInFlightKeysRef.current.delete(operationKey);
@@ -404,62 +443,80 @@ export default function Home() {
 
   async function handleImageFile(file?: File) {
     if (!file || sessionId) return;
-    const visionProfile = selectedProfile?.is_multimodal ? selectedProfile : multimodalProfiles[0];
-    if (!visionProfile) {
-      runtime.setError("上传图片需要多模态模型，请先在模型设置中添加并标记“支持图片识别”。");
+    if (!selectedProfile?.is_multimodal) {
+      runtime.setError(
+        multimodalProfiles.length
+          ? "请先选中一个支持图片识别的多模态模型，再上传题目图片。"
+          : "上传图片需要多模态模型，请先在模型设置中添加并标记“支持图片识别”。"
+      );
       return;
     }
+    const visionProfile = selectedProfile;
     const originatingViewToken = viewTokenRef.current;
     const operationKey = `draft:${originatingViewToken}`;
     if (sendInFlightKeysRef.current.has(operationKey)) return;
     sendInFlightKeysRef.current.add(operationKey);
-    const targetSessionId = `sess_${crypto.randomUUID().replaceAll("-", "")}`;
-    const clientMessageId = crypto.randomUUID();
     const targetGradeBand = gradeBand;
-    const targetInitialThought = initialThought;
-    setSelectedProfileId(visionProfile.id);
     runtime.startComposerTask("image");
     runtime.clearError();
     try {
       const dataUrl = await readFileAsDataUrl(file);
-      if (viewTokenRef.current === originatingViewToken && runtime.isDraftActive()) {
-        runtime.updateDraft({ originalProblemImage: dataUrl });
-        runtime.addMessage(
-          "student",
-          "上传了一张题目图片",
-          undefined,
-          dataUrl,
-          `client:${clientMessageId}`
-        );
-      }
-      const analyzed = await analyzeProblemImage({
+      const detected = await detectProblemImageRegions({
         model_profile_id: visionProfile.id,
         image_base64: dataUrl,
         content_type: file.type || "image/png",
         filename: file.name
       });
-      const result = await startSession({
-        session_id: targetSessionId,
-        client_message_id: clientMessageId,
-        grade_band: targetGradeBand,
-        subject: "math",
-        model_profile_id: visionProfile.id,
-        message: "上传了一张题目图片",
-        problem_text: analyzed.problem_text,
-        student_initial_thought: analyzed.student_work_summary.trim() || targetInitialThought,
-        problem_image_data_url: dataUrl
-      });
-      await finishSessionStart(result, originatingViewToken);
+      if (viewTokenRef.current === originatingViewToken && runtime.isDraftActive()) {
+        setImageSelection({
+          imageUrl: dataUrl,
+          contentType: file.type || "image/png",
+          filename: file.name,
+          profileId: visionProfile.id,
+          gradeBand: targetGradeBand,
+          viewToken: originatingViewToken,
+          regions: detected.problems
+        });
+        runtime.finishComposerTask();
+      }
     } catch (nextError) {
       if (viewTokenRef.current === originatingViewToken && runtime.isDraftActive()) {
-        runtime.updateDraft({ originalProblemImage: null });
-        runtime.failComposerTask(nextError instanceof Error ? nextError.message : "图片识别失败");
+        runtime.failComposerTask(nextError instanceof Error ? nextError.message : "题目框检测失败");
       }
     } finally {
       sendInFlightKeysRef.current.delete(operationKey);
       if (viewTokenRef.current === originatingViewToken && imageInputRef.current) {
         imageInputRef.current.value = "";
       }
+    }
+  }
+
+  async function handleConfirmImageRegions(regions: DetectedProblemRegion[]) {
+    if (!imageSelection || imageConfirmBusy || !regions.length) return;
+    const selection = imageSelection;
+    const startItems = selection.startItems ?? regions.map((region) => ({
+      session_id: `sess_${crypto.randomUUID().replaceAll("-", "")}`,
+      client_message_id: crypto.randomUUID(),
+      bbox: region.bbox
+    }));
+    setImageSelection({ ...selection, regions, startItems });
+    setImageConfirmBusy(true);
+    runtime.clearError();
+    try {
+      const result = await batchStartImageSessions({
+        grade_band: selection.gradeBand,
+        subject: "math",
+        model_profile_id: selection.profileId,
+        source_image_data_url: selection.imageUrl,
+        items: startItems
+      });
+      setImageSelection(null);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      await finishSessionBatchStart(result.sessions, selection.viewToken);
+    } catch (nextError) {
+      runtime.setError(nextError instanceof Error ? nextError.message : "裁剪图片或创建答疑会话失败");
+    } finally {
+      setImageConfirmBusy(false);
     }
   }
 
@@ -622,6 +679,19 @@ export default function Home() {
         onClose={closeProfileDialog}
         onSaved={(profileId) => refreshProfiles(profileId)}
       />
+      {imageSelection && (
+        <ProblemImageSelector
+          imageUrl={imageSelection.imageUrl}
+          initialRegions={imageSelection.regions}
+          busy={imageConfirmBusy}
+          onCancel={() => {
+            if (imageConfirmBusy) return;
+            setImageSelection(null);
+            if (imageInputRef.current) imageInputRef.current.value = "";
+          }}
+          onConfirm={(regions) => void handleConfirmImageRegions(regions)}
+        />
+      )}
       <CheckpointModal checkpoint={checkpoint} onChoose={handleCheckpoint} busy={workflow.mode === "checkpoint" && workflow.phase === "submitting"} />
       <StudyCardModal
         card={activeCard ?? viewingCard}

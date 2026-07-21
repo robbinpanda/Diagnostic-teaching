@@ -3,21 +3,44 @@ import type {
   RestoredSession,
   SessionHistoryItem,
   SessionInputAcceptance,
+  SessionStartInput,
   SessionStartResult
 } from "./types";
 
-export async function startSession(input: {
-  session_id: string;
-  client_message_id: string;
+export async function startSession(input: SessionStartInput): Promise<SessionStartResult> {
+  const response = await fetch(`${API_BASE}/api/sessions/start`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json();
+}
+
+export async function batchStartSessions(
+  sessions: SessionStartInput[]
+): Promise<{ sessions: SessionStartResult[] }> {
+  const response = await fetch(`${API_BASE}/api/sessions/batch-start`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ sessions })
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json();
+}
+
+export async function batchStartImageSessions(input: {
   grade_band: "junior" | "senior";
   subject: "math";
   model_profile_id: string;
-  message: string;
-  problem_text: string;
-  student_initial_thought: string;
-  problem_image_data_url?: string | null;
-}): Promise<SessionStartResult> {
-  const response = await fetch(`${API_BASE}/api/sessions/start`, {
+  source_image_data_url: string;
+  items: Array<{
+    session_id: string;
+    client_message_id: string;
+    bbox: { x: number; y: number; width: number; height: number };
+  }>;
+}): Promise<{ sessions: SessionStartResult[] }> {
+  const response = await fetch(`${API_BASE}/api/sessions/image-batch-start`, {
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify(input)

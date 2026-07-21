@@ -27,6 +27,24 @@ export type Checkpoint = {
   difficulty: "easy" | "medium";
 };
 
+export type ProblemBoundingBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type DetectedProblemRegion = {
+  id: string;
+  label: string;
+  bbox: ProblemBoundingBox;
+};
+
+export type SplitTextProblem = {
+  problem_text: string;
+  student_initial_thought: string;
+};
+
 export type KnowledgeCardContent = {
   type: "knowledge_card";
   title: string;
@@ -133,6 +151,18 @@ export type SessionStartResult = {
   student_initial_thought: string;
   message_id: string;
   action_id: string;
+};
+
+export type SessionStartInput = {
+  session_id: string;
+  client_message_id: string;
+  grade_band: "junior" | "senior";
+  subject: "math";
+  model_profile_id: string;
+  message: string;
+  problem_text: string;
+  student_initial_thought: string;
+  problem_image_data_url?: string | null;
 };
 
 export type SessionInputAcceptance = {

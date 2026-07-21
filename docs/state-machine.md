@@ -25,8 +25,20 @@ sequenceDiagram
   participant Log as JSONL + Markdown
   participant LLM as 语言模型
 
-  Student->>API: POST /api/sessions/start 发送首条消息
-  API->>DB: 原子创建 session + session_inputs + STUDENT_RESPONSE
+  alt 新建文字答疑
+    Student->>API: POST /api/problem-intake/analyze-text
+    API->>LLM: 仅请求 problems[]
+    LLM-->>API: 单题/多题结构化结果
+    Student->>API: POST /api/sessions/batch-start
+  else 新建图片答疑
+    Student->>API: POST /api/problem-images/detect
+    API->>LLM: 仅请求归一化 bbox[]
+    LLM-->>API: 单题/多题框
+    Student->>API: 编辑确认后 POST /api/sessions/image-batch-start
+  else 兼容单题调用方
+    Student->>API: POST /api/sessions/start
+  end
+  API->>DB: 原子创建每题 session + session_inputs + STUDENT_RESPONSE
   API-->>Student: accepted / duplicate + session_id
   Student->>API: 提交普通消息 / 答检查点 / 关闭知识卡继续
   API->>DB: session_inputs + 业务结果原子落库
@@ -291,7 +303,7 @@ checkpoint answer 会在原子事务中依次追加 `checkpoint.completed` 和�
 
 - 事件的 session 或 run 与当前视图不匹配时不会修改当前 timeline；切换 session 或新建答疑只换视图，不 abort 其他 session 的 fetch。重新打开仍在生成的 session 时，先加载 SQLite 快照，再按该 session 的本地活动 run 重新接收后续事件。
 - 同一 session 启动新 run 时只 supersede 该 session 的旧 fetch；不同 session 不互相取消。显式停止只对当前打开的 session 先请求服务端 interrupt，再收束对应本地 fetch；页面卸载才取消全部本地连接。
-- 图片上传在选择文件时预分配 session id，并把读图、识别、建会话与首轮生成绑定到该 id。用户切走、新建答疑或查看卡片后，原任务继续在后台完成；异步回调通过视图 token 和 session id 隔离，不能覆盖后来的草稿或会话。
+- 图片上传先只做题目框检测，不预建 session。检测结果仅在原草稿视图仍有效时打开编辑确认页；用户可以新增、删除、平移或缩放题目框，确认后前端才为每个最终框分配稳定 session/message id，后端裁剪并原子批量创建。第一题绑定当前视图，其余 session 可并行生成；取消或切走检测草稿不会留下空 session。
 - `decision` 负责用后端最终 message/action 校准当前气泡；`message_reset` 只重置当前未完成 action 的重试拼接；`message_done` 后同 action 的迟到 delta/decision/reset 不再修改已完成消息。
 - checkpoint/card 采用 first-wins，同 ID 重复通知不重复打开交互；error 终止当前 run，但保留进入下一次 run 的恢复路径。
 - session-events SSE 已通过 `id`/`seq` 重放稳定业务边界；chat SSE 的高频 delta 仍可能不带身份。reducer 会去重已有序号并记录缺口，未带 id/seq 的 delta 严格按到达顺序拼接，不能据此声称字符流 exactly-once。

@@ -16,6 +16,7 @@ from app.routes import (
     inputs,
     model_profiles,
     problem_images,
+    problem_intake,
     session_events,
     sessions,
 )
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
 
     app.include_router(model_profiles.router)
     app.include_router(problem_images.router)
+    app.include_router(problem_intake.router)
     app.include_router(sessions.router)
     app.include_router(inputs.router)
     app.include_router(session_events.router)
