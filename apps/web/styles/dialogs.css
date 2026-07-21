@@ -382,6 +382,37 @@
   padding: 18px 21px 24px;
 }
 
+.studyCardFooter {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 20px 16px;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.97);
+  backdrop-filter: blur(8px);
+}
+
+.studyCardFooter .folderLocationSelect {
+  flex: 1;
+}
+
+.studyCardSaveButton {
+  min-height: 38px;
+}
+
+.savedCardLocation {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .studyCardBody section {
   border: 1px solid var(--line);
   border-radius: 11px;

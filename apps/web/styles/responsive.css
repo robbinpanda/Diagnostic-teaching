@@ -135,6 +135,27 @@
     grid-template-columns: 1fr;
   }
 
+  .exportFileBrowser {
+    grid-template-columns: 1fr;
+  }
+
+  .exportFolderTree {
+    max-height: 130px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .studyCardFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .studyCardFooter .folderLocationSelect,
+  .studyCardFooter select,
+  .studyCardSaveButton {
+    width: 100%;
+  }
+
   .knowledgeExportFooter {
     align-items: stretch;
     flex-direction: column;

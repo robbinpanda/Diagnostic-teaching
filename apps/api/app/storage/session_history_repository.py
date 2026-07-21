@@ -298,8 +298,8 @@ class SessionHistoryRepositoryMixin:
                     """
                     INSERT INTO study_cards (
                       id, session_id, live_session_id, card_type, title, content_json,
-                      source_action_id, source_message_id, created_at, saved_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      source_action_id, source_message_id, created_at, saved_at, folder_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         card_map[card["id"]],
@@ -312,6 +312,7 @@ class SessionHistoryRepositoryMixin:
                         message_map.get(card["source_message_id"], card["source_message_id"]),
                         card["created_at"],
                         card["saved_at"],
+                        card["folder_id"],
                     ),
                 )
 
