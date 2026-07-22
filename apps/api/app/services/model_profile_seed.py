@@ -51,12 +51,29 @@ def load_seed_profiles(input_path: Path) -> list[ModelProfileCreate]:
         raw_models = raw_provider.get("models")
         if not isinstance(raw_models, list) or not raw_models:
             raise ValueError(f"providers[{provider_index}].models 必须是非空数组")
-        models = [str(model).strip() for model in raw_models]
-        if any(not model for model in models):
+        models: list[tuple[str, bool]] = []
+        for raw_model in raw_models:
+            if isinstance(raw_model, str):
+                models.append((raw_model.strip(), False))
+                continue
+            if isinstance(raw_model, dict):
+                model_name = raw_model.get("model")
+                is_multimodal = raw_model.get("is_multimodal", False)
+                if not isinstance(model_name, str) or not isinstance(is_multimodal, bool):
+                    raise ValueError(
+                        f"providers[{provider_index}].models 的 object 必须包含 model 和布尔 is_multimodal"
+                    )
+                models.append((model_name.strip(), is_multimodal))
+                continue
+            raise ValueError(
+                f"providers[{provider_index}].models 只能包含 model 字符串或 object"
+            )
+        if any(not model for model, _ in models):
             raise ValueError(f"providers[{provider_index}].models 不能包含空 model")
-        if len(set(models)) != len(models):
+        model_names = [model for model, _ in models]
+        if len(set(model_names)) != len(model_names):
             raise ValueError(f"providers[{provider_index}].models 不能重复")
-        for model in models:
+        for model, is_multimodal in models:
             try:
                 profiles.append(
                     ModelProfileCreate(
@@ -69,7 +86,7 @@ def load_seed_profiles(input_path: Path) -> list[ModelProfileCreate]:
                         timeout_ms=60000,
                         temperature=0.2,
                         max_output_tokens=8000,
-                        is_multimodal=False,
+                        is_multimodal=is_multimodal,
                     )
                 )
             except ValidationError as exc:
@@ -117,7 +134,12 @@ async def probe_seed_profiles(
     return list(await asyncio.gather(*(probe(profile) for profile in profiles)))
 
 
-def prepare_seed_bundle(input_path: Path, output_directory: Path) -> list[SeedProbeResult]:
+def prepare_seed_bundle(
+    input_path: Path,
+    output_directory: Path,
+    *,
+    allow_unavailable: bool = False,
+) -> list[SeedProbeResult]:
     profiles = load_seed_profiles(input_path.resolve())
     results = asyncio.run(probe_seed_profiles(profiles))
     unavailable = [
@@ -125,7 +147,7 @@ def prepare_seed_bundle(input_path: Path, output_directory: Path) -> list[SeedPr
         for result in results
         if not result.text_ok
     ]
-    if unavailable:
+    if unavailable and not allow_unavailable:
         joined = "、".join(unavailable)
         raise RuntimeError(f"以下模型未通过文字连接测试，已停止构建：{joined}")
 
@@ -140,12 +162,18 @@ def prepare_seed_bundle(input_path: Path, output_directory: Path) -> list[SeedPr
     database = Database(working_database_path)
     repository = ModelProfileRepository(database, SecretBox(secret_path))
     seeded_profiles = [
-        result.profile.model_copy(update={"is_multimodal": result.multimodal_ok})
+        result.profile.model_copy(
+            update={"is_multimodal": result.multimodal_ok or result.profile.is_multimodal}
+        )
         for result in results
     ]
     rows = repository.create_many(seeded_profiles)
     for row, result in zip(rows, results, strict=True):
-        repository.update_test_status(row["id"], "ok", result.text_latency_ms)
+        repository.update_test_status(
+            row["id"],
+            "ok" if result.text_ok else "error",
+            result.text_latency_ms,
+        )
     del rows, repository, database
     gc.collect()
     _finalize_seed_database(working_database_path, database_path)
@@ -176,4 +204,6 @@ def public_probe_summary(result: SeedProbeResult) -> dict[str, Any]:
         "text_latency_ms": result.text_latency_ms,
         "multimodal_ok": result.multimodal_ok,
         "multimodal_latency_ms": result.multimodal_latency_ms,
+        "multimodal_override": result.profile.is_multimodal,
+        "seeded_as_multimodal": result.multimodal_ok or result.profile.is_multimodal,
     }

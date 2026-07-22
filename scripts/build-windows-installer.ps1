@@ -3,6 +3,7 @@ param(
     [string]$NodePath = "",
     [string]$PythonPath = "",
     [string]$ModelProfileSeedPath = "",
+    [switch]$AllowUnavailableModelProfiles,
     [switch]$SkipDependencyInstall
 )
 
@@ -107,11 +108,15 @@ New-Item -ItemType Directory -Force -Path $seedDirectory | Out-Null
 if ($ModelProfileSeedPath) {
     $resolvedSeedInput = (Resolve-Path -LiteralPath $ModelProfileSeedPath).Path
     Write-Host "[1/4] Testing models and preparing the encrypted profile seed..."
-    Invoke-Checked $buildPython @(
+    $seedArguments = @(
         (Join-Path $repoRoot "scripts\prepare-windows-model-seed.py"),
         "--input", $resolvedSeedInput,
         "--output-dir", $seedDirectory
     )
+    if ($AllowUnavailableModelProfiles) {
+        $seedArguments += "--allow-unavailable"
+    }
+    Invoke-Checked $buildPython $seedArguments
     if (-not (Test-Path -LiteralPath (Join-Path $seedDirectory "app.db")) -or
         -not (Test-Path -LiteralPath (Join-Path $seedDirectory "app-secret.key"))) {
         throw "The encrypted model profile seed was not produced."

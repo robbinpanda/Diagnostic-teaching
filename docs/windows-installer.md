@@ -40,6 +40,8 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows-installer.ps1 `
 
 构建脚本最多并行检查四个模型：先验证文字连接，再用代码生成的随机颜色/图形图片验证多模态能力。任一模型文字连接失败时构建立即终止；图片探针失败则把该模型保存为非多模态。明文输入文件不会复制到 `dist/`，安装包只携带 `app.db` 中的加密密文和配套密钥。首次启动时仅在用户数据库与密钥都不存在的情况下复制预置数据，升级安装不会覆盖用户已有配置。
 
+如已确认某个暂时拥挤或故障的模型仍需随包分发，可使用 `-AllowUnavailableModelProfiles`：失败项会保留，并将最近测试状态写为 `error`。`models` 中的条目也可写成 `{"model": "模型 ID", "is_multimodal": true}`，用于人工确认图片能力；该覆盖不会把失败的文字连接伪装成成功。
+
 产物：
 
 ```text

@@ -12,7 +12,7 @@ from app.storage.model_profiles import ModelProfileRepository
 from app.storage.security import SecretBox
 
 
-def write_seed_input(path: Path, *, models: list[str] | None = None) -> str:
+def write_seed_input(path: Path, *, models: list[object] | None = None) -> str:
     api_key = "sk-test-seed-key-that-must-not-remain-plaintext"
     path.write_text(
         json.dumps(
@@ -40,6 +40,19 @@ def test_load_seed_profiles_rejects_duplicate_models(tmp_path: Path):
 
     with pytest.raises(ValueError, match="不能重复"):
         load_seed_profiles(input_path)
+
+
+def test_load_seed_profiles_accepts_manual_multimodal_override(tmp_path: Path):
+    input_path = tmp_path / "seed.json"
+    write_seed_input(
+        input_path,
+        models=[{"model": "busy-vision-model", "is_multimodal": True}],
+    )
+
+    profiles = load_seed_profiles(input_path)
+
+    assert profiles[0].model == "busy-vision-model"
+    assert profiles[0].is_multimodal is True
 
 
 def test_prepare_seed_bundle_encrypts_keys_and_persists_probe_result(
@@ -79,3 +92,36 @@ def test_prepare_seed_bundle_encrypts_keys_and_persists_probe_result(
     assert by_model["text-model"]["is_multimodal"] == 0
     assert by_model["vision-model"]["is_multimodal"] == 1
     assert {row["last_test_status"] for row in rows} == {"ok"}
+
+
+def test_allow_unavailable_seeds_error_status_and_manual_multimodal_override(
+    monkeypatch, tmp_path: Path
+):
+    input_path = tmp_path / "seed.json"
+    output_directory = tmp_path / "bundle"
+    write_seed_input(
+        input_path,
+        models=[{"model": "busy-vision-model", "is_multimodal": True}],
+    )
+
+    async def fake_probe(profiles):
+        return [
+            SeedProbeResult(
+                profile=profiles[0],
+                text_ok=False,
+                text_latency_ms=503,
+                multimodal_ok=False,
+                multimodal_latency_ms=None,
+            )
+        ]
+
+    monkeypatch.setattr(model_profile_seed, "probe_seed_profiles", fake_probe)
+    prepare_seed_bundle(input_path, output_directory, allow_unavailable=True)
+
+    repository = ModelProfileRepository(
+        Database(output_directory / "app.db"),
+        SecretBox(output_directory / "app-secret.key"),
+    )
+    row = repository.list_public()[0]
+    assert row["last_test_status"] == "error"
+    assert row["is_multimodal"] == 1

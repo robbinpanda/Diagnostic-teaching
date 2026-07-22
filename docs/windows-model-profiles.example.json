@@ -8,8 +8,14 @@
       "models": [
         "mimo-v2.5-pro",
         "deepseek-v4-pro",
-        "kimi-k2.7-code",
-        "kimi-k3"
+        {
+          "model": "kimi-k2.7-code",
+          "is_multimodal": true
+        },
+        {
+          "model": "kimi-k3",
+          "is_multimodal": true
+        }
       ]
     },
     {

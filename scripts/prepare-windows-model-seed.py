@@ -18,9 +18,18 @@ def main() -> int:
     )
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument(
+        "--allow-unavailable",
+        action="store_true",
+        help="Seed profiles that fail the text probe and mark their last test status as error.",
+    )
     args = parser.parse_args()
 
-    results = prepare_seed_bundle(args.input, args.output_dir)
+    results = prepare_seed_bundle(
+        args.input,
+        args.output_dir,
+        allow_unavailable=args.allow_unavailable,
+    )
     print(json.dumps([public_probe_summary(result) for result in results], ensure_ascii=False))
     return 0
 
