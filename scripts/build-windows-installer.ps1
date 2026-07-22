@@ -3,6 +3,7 @@ param(
     [string]$NodePath = "",
     [string]$PythonPath = "",
     [string]$ModelProfileSeedPath = "",
+    [string]$ModelProfileSeedBundlePath = "",
     [switch]$AllowUnavailableModelProfiles,
     [switch]$SkipDependencyInstall
 )
@@ -18,6 +19,7 @@ $buildDirectory = Join-Path $repoRoot ".build"
 $pythonEnvironment = Join-Path $buildDirectory "windows-python"
 $windowsDist = Join-Path $repoRoot "dist\windows"
 $seedDirectory = Join-Path $windowsDist "seed"
+$seedBundleStagingDirectory = Join-Path $buildDirectory "model-seed-bundle-input"
 
 function Resolve-Executable([string]$ExplicitPath, [string]$CommandName) {
     if ($ExplicitPath) {
@@ -47,6 +49,26 @@ function Remove-BuildOutput([string]$TargetPath) {
     if (Test-Path -LiteralPath $fullTarget) {
         Remove-Item -LiteralPath $fullTarget -Recurse -Force
     }
+}
+
+if ($ModelProfileSeedPath -and $ModelProfileSeedBundlePath) {
+    throw "ModelProfileSeedPath and ModelProfileSeedBundlePath cannot be used together."
+}
+
+$stagedSeedBundle = $false
+if ($ModelProfileSeedBundlePath) {
+    $resolvedSeedBundle = (Resolve-Path -LiteralPath $ModelProfileSeedBundlePath).Path
+    $sourceSeedDatabase = Join-Path $resolvedSeedBundle "app.db"
+    $sourceSeedSecret = Join-Path $resolvedSeedBundle "app-secret.key"
+    if (-not (Test-Path -LiteralPath $sourceSeedDatabase -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $sourceSeedSecret -PathType Leaf)) {
+        throw "ModelProfileSeedBundlePath must contain app.db and app-secret.key."
+    }
+    Remove-BuildOutput $seedBundleStagingDirectory
+    New-Item -ItemType Directory -Force -Path $seedBundleStagingDirectory | Out-Null
+    Copy-Item -LiteralPath $sourceSeedDatabase -Destination $seedBundleStagingDirectory
+    Copy-Item -LiteralPath $sourceSeedSecret -Destination $seedBundleStagingDirectory
+    $stagedSeedBundle = $true
 }
 
 $node = Resolve-Executable $NodePath "node"
@@ -122,8 +144,13 @@ if ($ModelProfileSeedPath) {
         throw "The encrypted model profile seed was not produced."
     }
 }
+elseif ($stagedSeedBundle) {
+    Write-Host "[1/4] Reusing the supplied encrypted model profile seed bundle..."
+    Copy-Item -LiteralPath (Join-Path $seedBundleStagingDirectory "app.db") -Destination $seedDirectory
+    Copy-Item -LiteralPath (Join-Path $seedBundleStagingDirectory "app-secret.key") -Destination $seedDirectory
+}
 else {
-    Write-Warning "No ModelProfileSeedPath was supplied; this installer will not preconfigure personal models."
+    Write-Warning "No model profile seed was supplied; this installer will not preconfigure personal models."
 }
 
 Write-Host "[2/4] Building the static web app..."

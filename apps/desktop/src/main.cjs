@@ -1,5 +1,5 @@
 const { randomBytes } = require("node:crypto");
-const { appendFileSync, copyFileSync, existsSync, mkdirSync, rmSync } = require("node:fs");
+const { appendFileSync, mkdirSync } = require("node:fs");
 const { createServer } = require("node:net");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
@@ -58,27 +58,6 @@ function wait(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function installBundledModelSeed(dataDirectory) {
-  const databasePath = path.join(dataDirectory, "app.db");
-  const secretPath = path.join(dataDirectory, "app-secret.key");
-  if (existsSync(databasePath) || existsSync(secretPath)) return;
-
-  const seedDirectory = path.join(process.resourcesPath, "seed");
-  const seedDatabasePath = path.join(seedDirectory, "app.db");
-  const seedSecretPath = path.join(seedDirectory, "app-secret.key");
-  if (!existsSync(seedDatabasePath) || !existsSync(seedSecretPath)) return;
-
-  try {
-    copyFileSync(seedDatabasePath, databasePath);
-    copyFileSync(seedSecretPath, secretPath);
-  } catch (error) {
-    rmSync(databasePath, { force: true });
-    rmSync(secretPath, { force: true });
-    throw error;
-  }
-  writeLog("[seed] installed encrypted bundled model profiles for a fresh user");
-}
-
 async function waitForApi(child) {
   const deadline = Date.now() + API_START_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -102,7 +81,6 @@ async function startApi() {
   const logDirectory = path.join(userData, "session-logs");
   mkdirSync(dataDirectory, { recursive: true });
   mkdirSync(logDirectory, { recursive: true });
-  installBundledModelSeed(dataDirectory);
 
   apiUrl = `http://127.0.0.1:${port}`;
   shutdownToken = randomBytes(32).toString("hex");
@@ -113,6 +91,9 @@ async function startApi() {
     env: {
       ...process.env,
       APP_SECRET_PATH: path.join(dataDirectory, "app-secret.key"),
+      BUNDLED_MODEL_SEED_DATABASE_PATH: path.join(resources, "seed", "app.db"),
+      BUNDLED_MODEL_SEED_SECRET_PATH: path.join(resources, "seed", "app-secret.key"),
+      BUNDLED_MODEL_SEED_VERSION: app.getVersion(),
       DATABASE_URL: `sqlite:///${path.join(dataDirectory, "app.db")}`,
       DESKTOP_SHUTDOWN_TOKEN: shutdownToken,
       DESKTOP_WEB_ROOT: path.join(resources, "web"),

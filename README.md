@@ -22,7 +22,7 @@ SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 re
 
 Windows 10/11 x64 用户可直接运行 NSIS 安装包，无需预装 Node.js、Python、Conda 或数据库。Electron 启动随包 FastAPI sidecar，在随机 `127.0.0.1` 端口同源加载静态前端；会话、日志和加密密钥保存在当前 Windows 用户的应用数据目录，卸载默认保留数据。
 
-安装版没有登录、遥测、自动更新或外部页面跳转。渲染进程只能访问本机 sidecar；sidecar 关闭 `models.dev` 刷新，运行时外网请求只会发生在用户测试或使用已配置的 LLM API 时。构建时可从 Git 忽略的本地文件逐模型执行文字与随机图片探针，并把通过检查的个人模型配置写入加密 SQLite 预置包；构建、安装、数据位置和签名说明见 `docs/windows-installer.md`。
+安装版没有登录、遥测、自动更新或外部页面跳转。渲染进程只能访问本机 sidecar；sidecar 关闭 `models.dev` 刷新，运行时外网请求只会发生在用户测试或使用已配置的 LLM API 时。构建时可从 Git 忽略的本地文件逐模型执行文字与随机图片探针，并把通过检查的个人模型配置写入加密 SQLite 预置包；0.4.0 起，覆盖安装会把新版预置模型安全合并到已有数据库，同时保留会话、卡片和用户自建模型。构建、安装、数据位置和签名说明见 `docs/windows-installer.md`。
 
 教学上下文的前置 intake 已取消；新增的拆题阶段只决定“一段输入要创建几个 session”，不参与教学 action。文字首发先调用 `POST /api/problem-intake/analyze-text`，由当前选定模型返回严格 `problems[]` JSON；单题返回一项，多题返回多个自包含题目，再由 `POST /api/sessions/batch-start` 在同一 SQLite 事务中为每题创建正式 session、写入 `session_inputs` 并保存首条 `STUDENT_RESPONSE`。每个子会话都有稳定 session id 与 `client_message_id`，整批重试不会重复创建。进入正式 session 后，题目和学生思路仍由答疑模型按完整对话语义更新；`context_status=need_problem|need_thought` 时后端强制只允许 `ASK_OPEN_QUESTION`，两项明确后进入 `ready`。
 

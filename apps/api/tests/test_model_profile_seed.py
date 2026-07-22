@@ -5,10 +5,16 @@ from pathlib import Path
 
 import pytest
 
+from app.core.schemas import ModelProfileCreate, ModelProfileUpdate
 from app.services import model_profile_seed
-from app.services.model_profile_seed import SeedProbeResult, load_seed_profiles, prepare_seed_bundle
+from app.services.model_profile_seed import (
+    SeedProbeResult,
+    load_seed_profiles,
+    prepare_seed_bundle,
+    sync_bundled_model_seed,
+)
 from app.storage.database import Database
-from app.storage.model_profiles import ModelProfileRepository
+from app.storage.model_profiles import BUNDLED_PERSONAL_TAG, ModelProfileRepository
 from app.storage.security import SecretBox
 
 
@@ -125,3 +131,97 @@ def test_allow_unavailable_seeds_error_status_and_manual_multimodal_override(
     row = repository.list_public()[0]
     assert row["last_test_status"] == "error"
     assert row["is_multimodal"] == 1
+
+
+def test_bundled_seed_updates_existing_profiles_once_and_preserves_custom_profiles(
+    monkeypatch, tmp_path: Path
+):
+    input_path = tmp_path / "seed.json"
+    bundle_directory = tmp_path / "bundle"
+    raw_api_key = write_seed_input(input_path, models=["text-model", "new-model"])
+
+    async def fake_probe(profiles):
+        return [
+            SeedProbeResult(
+                profile=profile,
+                text_ok=True,
+                text_latency_ms=40 + index,
+                multimodal_ok=profile.model == "new-model",
+                multimodal_latency_ms=80 + index,
+            )
+            for index, profile in enumerate(profiles)
+        ]
+
+    monkeypatch.setattr(model_profile_seed, "probe_seed_profiles", fake_probe)
+    prepare_seed_bundle(input_path, bundle_directory)
+
+    user_database = Database(tmp_path / "user" / "app.db")
+    user_repository = ModelProfileRepository(
+        user_database,
+        SecretBox(tmp_path / "user" / "app-secret.key"),
+    )
+    previous = user_repository.create(
+        ModelProfileCreate(
+            display_name="旧预置供应商",
+            base_url="https://old.example.com/v1",
+            api_key="sk-old-bundled-key",
+            model="text-model",
+            tags=["math", BUNDLED_PERSONAL_TAG],
+        )
+    )
+    removed = user_repository.create(
+        ModelProfileCreate(
+            display_name="已移除预置",
+            base_url="https://old.example.com/v1",
+            api_key="sk-old-removed-key",
+            model="removed-model",
+            tags=["math", BUNDLED_PERSONAL_TAG],
+        )
+    )
+    custom = user_repository.create(
+        ModelProfileCreate(
+            display_name="用户自定义",
+            base_url="https://custom.example.com/v1",
+            api_key="sk-user-custom-key",
+            model="custom-model",
+            tags=["math"],
+        )
+    )
+    state_path = tmp_path / "user" / "bundled-model-seed-state.json"
+
+    result = sync_bundled_model_seed(
+        user_repository,
+        bundle_directory / "app.db",
+        bundle_directory / "app-secret.key",
+        state_path,
+        bundle_version="0.4.0",
+    )
+
+    assert result.status == "applied"
+    assert (result.created, result.updated, result.disabled) == (1, 1, 1)
+    updated = user_repository.get(previous["id"])
+    assert updated["display_name"] == "测试供应商"
+    assert updated["base_url"] == "https://example.com/v1"
+    assert updated["last_test_status"] == "ok"
+    assert user_repository.decrypt_api_key(updated) == raw_api_key
+    assert user_repository.get(custom["id"])["display_name"] == "用户自定义"
+    with user_database.connect() as connection:
+        assert connection.execute(
+            "SELECT enabled FROM model_profiles WHERE id = ?", (removed["id"],)
+        ).fetchone()["enabled"] == 0
+
+    user_repository.update(
+        previous["id"],
+        ModelProfileUpdate(display_name="用户在安装后修改的名称"),
+    )
+    second_result = sync_bundled_model_seed(
+        user_repository,
+        bundle_directory / "app.db",
+        bundle_directory / "app-secret.key",
+        state_path,
+        bundle_version="0.4.0",
+    )
+
+    assert second_result.status == "already_applied"
+    assert user_repository.get(previous["id"])["display_name"] == "用户在安装后修改的名称"
+    assert raw_api_key not in state_path.read_text(encoding="utf-8")

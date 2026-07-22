@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import hashlib
 import json
+import os
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +16,7 @@ from app.core.schemas import ModelProfileCreate
 from app.llm.provider import LlmProfile, test_connection, test_multimodal_connection
 from app.routes.model_profiles import multimodal_probe_challenge
 from app.storage.database import Database
-from app.storage.model_profiles import ModelProfileRepository
+from app.storage.model_profiles import BUNDLED_PERSONAL_TAG, ModelProfileRepository
 from app.storage.security import SecretBox
 
 MAX_PARALLEL_PROBES = 4
@@ -29,6 +31,15 @@ class SeedProbeResult:
     text_latency_ms: int | None
     multimodal_ok: bool
     multimodal_latency_ms: int | None
+
+
+@dataclass(frozen=True)
+class BundledSeedSyncResult:
+    status: str
+    fingerprint: str | None = None
+    created: int = 0
+    updated: int = 0
+    disabled: int = 0
 
 
 def load_seed_profiles(input_path: Path) -> list[ModelProfileCreate]:
@@ -82,7 +93,7 @@ def load_seed_profiles(input_path: Path) -> list[ModelProfileCreate]:
                         base_url=base_url,
                         api_key=api_key,
                         model=model,
-                        tags=["math", "bundled-personal"],
+                        tags=["math", BUNDLED_PERSONAL_TAG],
                         timeout_ms=60000,
                         temperature=0.2,
                         max_output_tokens=8000,
@@ -178,6 +189,114 @@ def prepare_seed_bundle(
     gc.collect()
     _finalize_seed_database(working_database_path, database_path)
     return results
+
+
+def sync_bundled_model_seed(
+    repository: ModelProfileRepository,
+    seed_database_path: Path,
+    seed_secret_path: Path,
+    state_path: Path,
+    *,
+    bundle_version: str,
+) -> BundledSeedSyncResult:
+    """Apply each encrypted installer snapshot once to a user's existing database."""
+    database_exists = seed_database_path.is_file()
+    secret_exists = seed_secret_path.is_file()
+    if not database_exists and not secret_exists:
+        return BundledSeedSyncResult(status="not_bundled")
+    if not database_exists or not secret_exists:
+        raise RuntimeError("安装包中的模型预置数据库或密钥不完整")
+
+    fingerprint = _seed_bundle_fingerprint(seed_database_path, seed_secret_path)
+    if _read_seed_state_fingerprint(state_path) == fingerprint:
+        return BundledSeedSyncResult(status="already_applied", fingerprint=fingerprint)
+
+    seed_secrets = SecretBox(seed_secret_path)
+    seed_profiles: list[tuple[ModelProfileCreate, str | None, int | None]] = []
+    connection = sqlite3.connect(
+        f"{seed_database_path.resolve().as_uri()}?mode=ro",
+        uri=True,
+    )
+    connection.row_factory = sqlite3.Row
+    try:
+        rows = connection.execute(
+            "SELECT * FROM model_profiles WHERE tags_json LIKE ? ORDER BY created_at ASC",
+            (f'%"{BUNDLED_PERSONAL_TAG}"%',),
+        ).fetchall()
+    finally:
+        connection.close()
+    if not rows:
+        raise RuntimeError("安装包模型预置库中没有可导入的个人模型")
+
+    for row in rows:
+        try:
+            tags = json.loads(row["tags_json"])
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("安装包模型预置标签无效") from exc
+        if not isinstance(tags, list) or BUNDLED_PERSONAL_TAG not in tags:
+            raise RuntimeError("安装包模型预置缺少 bundled-personal 标签")
+        seed_profiles.append(
+            (
+                ModelProfileCreate(
+                    display_name=row["display_name"],
+                    provider=row["provider"],
+                    base_url=row["base_url"],
+                    api_key=seed_secrets.decrypt(row["api_key_ciphertext"]),
+                    model=row["model"],
+                    tags=tags,
+                    timeout_ms=row["timeout_ms"],
+                    temperature=row["temperature"],
+                    max_output_tokens=row["max_output_tokens"],
+                    is_multimodal=bool(row["is_multimodal"]),
+                ),
+                row["last_test_status"],
+                row["last_test_latency_ms"],
+            )
+        )
+
+    created_ids, updated_ids, disabled_ids = repository.sync_bundled_personal_profiles(
+        seed_profiles
+    )
+    _write_seed_state(state_path, bundle_version=bundle_version, fingerprint=fingerprint)
+    return BundledSeedSyncResult(
+        status="applied",
+        fingerprint=fingerprint,
+        created=len(created_ids),
+        updated=len(updated_ids),
+        disabled=len(disabled_ids),
+    )
+
+
+def _seed_bundle_fingerprint(database_path: Path, secret_path: Path) -> str:
+    digest = hashlib.sha256()
+    for path in (database_path, secret_path):
+        with path.open("rb") as source:
+            while chunk := source.read(1024 * 1024):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _read_seed_state_fingerprint(state_path: Path) -> str | None:
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    fingerprint = payload.get("fingerprint") if isinstance(payload, dict) else None
+    return fingerprint if isinstance(fingerprint, str) else None
+
+
+def _write_seed_state(state_path: Path, *, bundle_version: str, fingerprint: str) -> None:
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = state_path.with_name(f"{state_path.name}.tmp")
+    temporary_path.write_text(
+        json.dumps(
+            {"bundle_version": bundle_version, "fingerprint": fingerprint},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    os.replace(temporary_path, state_path)
 
 
 def _finalize_seed_database(working_path: Path, output_path: Path) -> None:

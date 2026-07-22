@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -19,16 +20,22 @@ def test_desktop_settings_disable_catalog_network(monkeypatch, tmp_path: Path):
     assert load_settings().opencode_catalog_refresh_enabled is False
 
 
-def test_desktop_bundle_installs_encrypted_seed_only_for_fresh_users():
+def test_desktop_bundle_passes_encrypted_seed_to_the_upgrade_aware_api_sync():
     root = Path(__file__).resolve().parents[2]
     main_source = (root / "desktop" / "src" / "main.cjs").read_text(encoding="utf-8")
     builder_config = (root / "desktop" / "electron-builder.yml").read_text(encoding="utf-8")
+    package = json.loads((root / "desktop" / "package.json").read_text(encoding="utf-8"))
 
-    assert "installBundledModelSeed(dataDirectory)" in main_source
-    assert "existsSync(databasePath) || existsSync(secretPath)" in main_source
-    assert "copyFileSync(seedDatabasePath, databasePath)" in main_source
-    assert "copyFileSync(seedSecretPath, secretPath)" in main_source
-    assert "rmSync(databasePath, { force: true })" in main_source
+    assert package["version"] == "0.4.0"
+    assert "BUNDLED_MODEL_SEED_DATABASE_PATH" in main_source
+    assert "BUNDLED_MODEL_SEED_SECRET_PATH" in main_source
+    assert "BUNDLED_MODEL_SEED_VERSION: app.getVersion()" in main_source
+    assert "installBundledModelSeed" not in main_source
+    assert "appId: cn.ai4edu.diagnostic-teaching" in builder_config
+    assert "oneClick: false" in builder_config
+    assert "perMachine: false" in builder_config
+    assert "allowToChangeInstallationDirectory: true" in builder_config
+    assert "deleteAppDataOnUninstall: false" in builder_config
     assert "from: ../../dist/windows/seed" in builder_config
 
 
