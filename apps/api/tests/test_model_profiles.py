@@ -94,7 +94,7 @@ def test_builtin_opencode_models_have_expected_multimodal_checkbox():
     capabilities = {model.model: model.is_multimodal for model in BUILTIN_FREE_MODELS}
 
     assert capabilities == {
-        "hy3": False,
+        "deepseek-v4-flash-free": False,
         "mimo-v2.5-free": True,
     }
 

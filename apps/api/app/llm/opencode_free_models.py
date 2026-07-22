@@ -35,8 +35,8 @@ class OpenCodeFreeModel:
 # curated pair. Development builds may still replace it from models.dev.
 BUILTIN_FREE_MODELS = (
     OpenCodeFreeModel(
-        model="hy3",
-        name="HY3",
+        model="deepseek-v4-flash-free",
+        name="DeepSeek V4 Flash Free",
         provider="openai_compatible",
         base_url="https://opencode.ai/zen/v1",
         is_multimodal=False,

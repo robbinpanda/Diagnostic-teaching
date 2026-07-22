@@ -12,7 +12,7 @@
 
 Electron 不提供登录、遥测、自动更新或打开外部网页的能力。窗口启用 Chromium sandbox、关闭 Node 集成和开发者工具，拒绝权限请求、弹窗、外部导航及所有非当前本机 sidecar 的网络请求。静态页面还带有 `connect-src 'self'` CSP。
 
-后端的运行时外网出口只有 `app/llm/provider.py` 中的模型连接测试与 LLM 调用。桌面主进程固定设置 `OPENCODE_CATALOG_REFRESH_ENABLED=0`，所以不会请求 `models.dev`；安装版只保留随包快照中的 `hy3` 和 `mimo-v2.5-free`，只有用户真正选择模型进行测试或答疑时才访问对应 LLM API。
+后端的运行时外网出口只有 `app/llm/provider.py` 中的模型连接测试与 LLM 调用。桌面主进程固定设置 `OPENCODE_CATALOG_REFRESH_ENABLED=0`，所以不会请求 `models.dev`；安装版只保留随包快照中的 `deepseek-v4-flash-free` 和 `mimo-v2.5-free`，只有用户真正选择模型进行测试或答疑时才访问对应 LLM API。
 
 ## 构建
 
