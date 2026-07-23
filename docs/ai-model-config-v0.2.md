@@ -2,7 +2,7 @@
 
 方案版本：v0.4
 文档状态：现行实现说明
-最后核对：2026-07-20
+最后核对：2026-07-23
 适用项目：诊断式数学答疑 MVP
 
 ## 1. 结论
@@ -44,7 +44,7 @@ SESSION_LOG_DIR=./logs/sessions
 | 加密主密钥 | `data/app-secret.key` | 是 | 首次启动生成，`data/` 加入 `.gitignore` |
 | 模型预设 | `config/model-profiles.example.json` | 否 | 只放可选模板，不放真实 key |
 | 应用配置 | `.env` | 尽量否 | 只放运行参数 |
-| OpenCode 免费模型目录缓存 | `data/opencode-models.json` | 否 | 在线刷新成功后保存；离线时使用最近缓存或内置快照 |
+| OpenCode 免费模型目录缓存 | `data/opencode-models.json` | 否 | 在线刷新成功后保存；离线时使用上一次成功写入的缓存或内置快照 |
 
 本地 MVP 的目标是避免 key 进入浏览器存储、日志和 git。它不是企业级密钥管理方案；后续正式部署应接入云厂商 Secret Manager、KMS 或平台环境变量。
 
@@ -85,7 +85,7 @@ OpenCode 托管免费模型可从同一个设置入口查看，但供应商、Ba
 
 ### 4.2 OpenCode 免费模型同步
 
-实现与 OpenCode 源码的无密钥路径一致：目录来自 `models.dev/api.json`，无账户时使用公共值 `public`，只保留 `cost.input == 0` 的模型；本项目再排除 `alpha/deprecated` 和当前不支持的协议。应用启动时先使用最近磁盘缓存或内置快照，随后立即在线刷新，并每 60 分钟刷新一次。
+实现与 OpenCode 源码的无密钥路径一致：目录来自 `models.dev/api.json`，无账户时使用公共值 `public`，只保留 `cost.input == 0` 的模型；本项目再排除 `alpha/deprecated` 和当前不支持的协议。应用启动时先使用上一次成功写入的磁盘缓存或内置快照，随后立即在线刷新，并每 60 分钟刷新一次。
 
 2026-07-19 内置快照如下；在线目录变化后会自动增删托管项：
 

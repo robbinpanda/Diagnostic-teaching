@@ -95,6 +95,14 @@ scripts/start-dev.cmd
 http://127.0.0.1:3000
 ```
 
+后端冒烟检查：
+
+```bat
+curl.exe http://127.0.0.1:8010/api/health
+```
+
+正常响应为 `{"ok":true}`。
+
 如果窗口提示：
 
 ```txt

@@ -42,6 +42,8 @@ apps/api/app/services/input_acceptance.py
 
 首条普通消息使用 `POST /api/sessions/start`：浏览器同时提供稳定的 `sess_<uuid>` 和 `client_message_id`，服务端在一个 `BEGIN IMMEDIATE` 事务中创建 session、写 `session_inputs`、写第一条 `STUDENT_RESPONSE` 并追加 durable events。响应丢失后原请求重试返回 `duplicate`；不会生成第二个 session。后续普通消息继续使用 `POST /api/sessions/{session_id}/inputs`。
 
+兼容路由 `POST /api/sessions` 仍可只创建 session，但不会接纳首条 student message，也不具备 `/api/sessions/start` 的客户端幂等键语义。新客户端提交首条普通消息时必须使用 `/api/sessions/start`。
+
 `session_inputs` 保存：
 
 ```text
