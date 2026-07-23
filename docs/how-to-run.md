@@ -59,7 +59,9 @@ npm exec tsc -- --noEmit
 
 手工验证多 session 并发时，可在 session A 发送消息并看到“正在思考”后，直接从左栏新建或打开 session B，再在 B 发起生成。A 的列表项应继续显示“正在思考”，两边互不取消；重新打开 A 时会先显示 SQLite 已提交内容并继续接收其活动流。选择列表项不会自动收起左栏。点击停止只停止当前打开的 session。
 
-验证图片非阻塞流程时，上传题图后无需等待识别结束，立即点击“新建答疑”或打开右侧知识卡片。图片任务应继续在后台完成，随后以独立 session 出现在左栏；它的识别结果和首轮回复不能覆盖后来打开的新草稿。
+验证文字多题时，在新答疑输入框一次粘贴两道带独立题号的题目并发送。当前所选模型应先完成拆题，左栏随后出现两个 session；第一题自动打开，两题可同时显示“正在思考”，每个 session 的首条学生消息与标题只包含自己的题目。同一大题的共享题干和多个小问应保留在一个 session。
+
+验证图片多题时，先选中明确标记“支持上传图片”的多模态模型再上传 PNG/JPEG/WebP。检测完成后必须先出现题目框确认页，不应立即创建 session：点选框后可按 Delete/Backspace 删除，拖动框内可平移，拖动四边或角点可缩放。确认后左栏出现与保留框数量相同的 session；逐一打开时，首条消息展示的图片应只是对应框的裁剪内容，且所有 session 使用同一答疑模型。取消确认不应创建任何 session。
 
 提交代码前还应执行完整工程门禁：
 
@@ -155,15 +157,16 @@ scripts\inspect-session.cmd sess_c4052d2538a6
 
 该脚本会自动定位 `ai4edu-tutor` Conda 环境，并读取 `.env` 中自定义的 `DATABASE_URL` 与 `SESSION_LOG_DIR`。
 
-你重点看七张表：
+你重点看八张表：
 
 1. `sessions`：`context_status`、当前教学阶段、题目/思路语义摘要、模型与可选原图。
 2. `session_inputs`：已可靠接纳的普通消息、checkpoint answer、卡片关闭继续命令，以及幂等键和首次结果。
 3. `messages`：学生消息、AI 回复，以及每条消息的 `action_id / action / in_reply_to_action_id`。
 4. `checkpoints`：每个检查点的问题、选项、正确答案、学生选择，以及产生它的 `source_action_id`。
-5. `study_cards`：全局知识/题目卡片内容、来源 session/action/message，以及是否已由学生关闭归档的 `saved_at`。
-6. `session_events`：按 session 严格递增的 durable change feed，用于有限历史、SSE 断线补发和事件顺序排查；它与 JSONL 诊断日志无关。
-7. `session_runs`：每次生成的 `run_id / attempt / status`、开始结束时间、最后提交 action 下标和结构化错误。
+5. `card_folders`：卡片目录名称、父目录、系统默认目录标记与默认卡片类型。
+6. `study_cards`：全局知识/题目卡片内容、来源 session/action/message、`folder_id`，以及是否已由学生保存归档的 `saved_at`。
+7. `session_events`：按 session 严格递增的 durable change feed，用于有限历史、SSE 断线补发和事件顺序排查；它与 JSONL 诊断日志无关。
+8. `session_runs`：每次生成的 `run_id / attempt / status`、开始结束时间、最后提交 action 下标和结构化错误。
 
 生成过程中可查询或显式停止当前 session：
 
@@ -176,10 +179,12 @@ POST /api/sessions/<session_id>/interrupt
 
 页面左侧会话栏直接读取 SQLite。点击一条会话会打开原 session，并恢复其 messages、待答 checkpoint 和待归档 card，不会因为查看而复制记录；需要显式创建实验分支时仍可调用 `POST /api/sessions/restore`。
 
+右侧卡片库点击已归档卡片后，会在屏幕右侧打开无暗色遮罩的浮层；浮层外的对话仍可滚动和操作。知识卡片可点“修改内容”编辑，再点“保存修改”通过 `PUT /api/cards/<card_id>` 持久化；题目卡片只读。待归档知识卡片的“舍弃”需要连续点击“舍弃”和“确认舍弃”两次才会生效。
+
 需要重置测试数据时：
 
 1. 在左侧会话栏标题旁点击清空按钮，会删除 SQLite 中的全部会话业务态和全部 session 日志，但保留已归档学习卡片和模型配置。
-2. 在右侧学习卡片库点击“清空全部卡片”，会删除全部知识卡片和题目卡片，但保留会话与日志。
+2. 在右侧学习卡片库点击“清空全部卡片”，会删除全部知识卡片和题目卡片，但保留文件夹、会话与日志。
 3. 两个按钮都要求二次确认；答疑正在生成时不能执行。
 
 ## 看全量诊断日志（推荐）
@@ -211,6 +216,7 @@ JSONL 每行一个事件；Markdown 把同一批事件按 system/user/assistant�
 1. `parsed_turn.message` 有内容，但页面没显示：看前端 SSE / `decision.message` 兜底，详见 `docs/state-machine.md`。
 2. `raw_response` 为空或 `error` 非空：多半是模型空流、超时或网络异常，前端应显示错误。
 3. `parse_ok=false`、`used_fallback=true`：模型返回了坏 JSON，后端已尝试恢复 message。
-4. 连续重复同一检查点：检查 history 里是否有 `student: 我在检查点「...」选了：...`。
+4. 连续重复同一检查点：检查 SQLite 是否只有一条 `action=CHECKPOINT_RESPONSE` 的 message；页面应把它渲染为保留原题和选项的已作答 checkpoint，而不是展示内部 `student_message` 文本。
+5. 舍弃知识卡片后仍被阻塞：检查是否存在对应的 `CARD_DISMISSED_CONTINUE` 输入和 `card.discarded` event；被舍弃的待归档卡片行应已删除，且不会出现在 `GET /api/cards`。
 
 历史修复与根因记录见 `docs/changelog.md`。当前完整流程说明见 `docs/state-machine.md` 与 `docs/context-management.md`。

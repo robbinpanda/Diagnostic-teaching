@@ -31,6 +31,15 @@
 }
 
 @media (max-width: 760px) {
+  .cardViewerLayer {
+    inset: 60px 0 8px;
+    padding-right: 8px;
+  }
+
+  .studyCardDialog.cardViewerDialog {
+    width: calc(100vw - 24px);
+  }
+
   .appShell,
   .appShell.leftClosed,
   .appShell.rightClosed,
@@ -80,13 +89,42 @@
     display: none;
   }
 
-  .cardBackdrop {
-    place-items: end center;
-    padding: 12px;
+  .inlineInteraction {
+    width: 100%;
+    margin-left: 0;
   }
 
-  .studyCardDialog {
-    max-height: 92vh;
+  .checkpointFooter,
+  .studyCardFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .checkpointSubmitButton,
+  .cardSaveButton,
+  .cardDiscardButton {
+    width: 100%;
+  }
+
+  .studyCardFooterActions {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .studyCardHeader {
+    gap: 12px;
+    padding: 17px 16px 14px;
+  }
+
+  .studyCardHeaderActions {
+    align-items: flex-end;
+    flex-direction: column-reverse;
+  }
+
+  .studyCardBody,
+  .studyCardFooter {
+    padding-right: 15px;
+    padding-left: 15px;
   }
 }
 
@@ -106,6 +144,11 @@
 
   .chatMessage.student .messageBody {
     max-width: 94%;
+  }
+
+  .chatMessage.student.checkpointResponseMessage .messageBody {
+    width: 100%;
+    max-width: 100%;
   }
 
   .composerActions select {
@@ -133,6 +176,27 @@
   .knowledgeExportCardList,
   .knowledgeExportLayouts {
     grid-template-columns: 1fr;
+  }
+
+  .exportFileBrowser {
+    grid-template-columns: 1fr;
+  }
+
+  .exportFolderTree {
+    max-height: 130px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .studyCardFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .studyCardFooter .folderLocationSelect,
+  .studyCardFooter select,
+  .studyCardSaveButton {
+    width: 100%;
   }
 
   .knowledgeExportFooter {

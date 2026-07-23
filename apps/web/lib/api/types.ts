@@ -27,6 +27,30 @@ export type Checkpoint = {
   difficulty: "easy" | "medium";
 };
 
+export type ProblemBoundingBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type DetectedProblemRegion = {
+  id: string;
+  label: string;
+  bbox: ProblemBoundingBox;
+};
+
+export type SplitTextProblem = {
+  problem_text: string;
+  student_initial_thought: string;
+};
+
+export type AnsweredCheckpoint = {
+  checkpoint: Checkpoint;
+  selected_option_id: string;
+  is_correct: boolean;
+};
+
 export type KnowledgeCardContent = {
   type: "knowledge_card";
   title: string;
@@ -56,8 +80,19 @@ export type StudyCard = {
   source_action_id: string;
   source_message_id: string;
   content: KnowledgeCardContent | ProblemCardContent;
+  folder_id?: string | null;
   created_at: string;
   saved_at?: string | null;
+};
+
+export type CardFolder = {
+  id: string;
+  name: string;
+  parent_id?: string | null;
+  is_system: boolean;
+  default_card_type?: "knowledge_card" | "problem_card" | null;
+  created_at: string;
+  updated_at: string;
 };
 
 type SseEventPayload =
@@ -107,6 +142,7 @@ export type RestoredSession = {
     action_id?: string | null;
     action: string;
     client_message_id?: string | null;
+    checkpoint_result?: AnsweredCheckpoint | null;
   }>;
   pending_checkpoint?: Checkpoint | null;
   pending_card?: StudyCard | null;
@@ -124,6 +160,18 @@ export type SessionStartResult = {
   action_id: string;
 };
 
+export type SessionStartInput = {
+  session_id: string;
+  client_message_id: string;
+  grade_band: "junior" | "senior";
+  subject: "math";
+  model_profile_id: string;
+  message: string;
+  problem_text: string;
+  student_initial_thought: string;
+  problem_image_data_url?: string | null;
+};
+
 export type SessionInputAcceptance = {
   input_id: string;
   kind: "STUDENT_MESSAGE" | "CARD_DISMISSED_CONTINUE";
@@ -135,4 +183,6 @@ export type SessionInputAcceptance = {
   in_reply_to_action_id?: string | null;
   card_id?: string | null;
   card_saved_at?: string | null;
+  folder_id?: string | null;
+  card_discarded?: boolean;
 };

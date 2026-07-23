@@ -9,12 +9,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import load_settings
 from app.llm.opencode_free_models import CATALOG_REFRESH_SECONDS, OpenCodeFreeModelCatalog
 from app.routes import (
+    card_folders,
     cards,
     chat,
     checkpoints,
     inputs,
     model_profiles,
     problem_images,
+    problem_intake,
     session_events,
     sessions,
 )
@@ -72,11 +74,13 @@ def create_app() -> FastAPI:
 
     app.include_router(model_profiles.router)
     app.include_router(problem_images.router)
+    app.include_router(problem_intake.router)
     app.include_router(sessions.router)
     app.include_router(inputs.router)
     app.include_router(session_events.router)
     app.include_router(chat.router)
     app.include_router(checkpoints.router)
+    app.include_router(card_folders.router)
     app.include_router(cards.router)
 
     @app.get("/api/health")

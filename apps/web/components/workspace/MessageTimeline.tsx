@@ -1,6 +1,7 @@
 import { Bot } from "lucide-react";
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import type { ChatMessage } from "../../lib/timeline";
+import { CheckpointModal } from "../CheckpointModal";
 import { MathText } from "../MathText";
 
 const ACTION_LABELS: Record<string, string> = {
@@ -15,13 +16,14 @@ const ACTION_LABELS: Record<string, string> = {
 type Props = {
   messages: ChatMessage[];
   messageEndRef: RefObject<HTMLDivElement | null>;
+  interaction?: ReactNode;
 };
 
-export function MessageTimeline({ messages, messageEndRef }: Props) {
+export function MessageTimeline({ messages, messageEndRef, interaction }: Props) {
   return (
     <div className="messageViewport">
       <div className="messageColumn">
-        {messages.length === 0 && (
+        {messages.length === 0 && !interaction && (
           <div className="welcomeState">
             <div className="welcomeGlyph"><Bot size={30} /></div>
             <h1>从你卡住的地方开始</h1>
@@ -34,21 +36,34 @@ export function MessageTimeline({ messages, messageEndRef }: Props) {
         )}
 
         {messages.map((message) => (
-          <article className={`chatMessage ${message.role}`} key={message.id}>
+          <article
+            className={`chatMessage ${message.role} ${message.checkpointResult ? "checkpointResponseMessage" : ""}`.trim()}
+            key={message.id}
+          >
             <div className="messageAvatar">
               {message.role === "assistant" ? <Bot size={17} /> : message.role === "student" ? "你" : "·"}
             </div>
             <div className="messageBody">
-              {message.imageUrl && <img className="messageImage" src={message.imageUrl} alt="学生上传的题目" />}
-              <div className="messageText"><MathText text={message.text} /></div>
-              {message.role === "assistant" && message.action && (
-                <span className="actionTag" title={`教学 action：${message.action}`}>
-                  {ACTION_LABELS[message.action] ?? message.action}
-                </span>
+              {message.checkpointResult ? (
+                <CheckpointModal
+                  checkpoint={message.checkpointResult.checkpoint}
+                  answer={message.checkpointResult}
+                />
+              ) : (
+                <>
+                  {message.imageUrl && <img className="messageImage" src={message.imageUrl} alt="学生上传的题目" />}
+                  <div className="messageText"><MathText text={message.text} /></div>
+                  {message.role === "assistant" && message.action && (
+                    <span className="actionTag" title={`教学 action：${message.action}`}>
+                      {ACTION_LABELS[message.action] ?? message.action}
+                    </span>
+                  )}
+                </>
               )}
             </div>
           </article>
         ))}
+        {interaction}
         <div ref={messageEndRef} />
       </div>
     </div>

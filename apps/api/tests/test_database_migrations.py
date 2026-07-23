@@ -176,7 +176,7 @@ def test_fresh_database_uses_alembic_and_sqlite_reliability_pragmas(tmp_path: Pa
         assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == SQLITE_BUSY_TIMEOUT_MS
         assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1
         assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == (
-            "0005_conversational_context"
+            "0006_card_folders"
         )
 
         session_fks = {
@@ -199,6 +199,14 @@ def test_fresh_database_uses_alembic_and_sqlite_reliability_pragmas(tmp_path: Pa
         assert ("session_id", "sessions", "CASCADE") in message_fks
         assert ("session_id", "sessions", "CASCADE") in checkpoint_fks
         assert ("live_session_id", "sessions", "SET NULL") in card_fks
+        assert ("folder_id", "card_folders", "RESTRICT") in card_fks
+        defaults = conn.execute(
+            "SELECT name, default_card_type FROM card_folders ORDER BY default_card_type"
+        ).fetchall()
+        assert [tuple(row) for row in defaults] == [
+            ("默认知识卡片", "knowledge_card"),
+            ("默认题目卡片", "problem_card"),
+        ]
 
         message_indexes = {
             row["name"] for row in conn.execute("PRAGMA index_list(messages)")
@@ -238,13 +246,16 @@ def test_legacy_database_upgrades_repeatably_without_losing_rows(tmp_path: Path)
         cards = {
             row["id"]: row
             for row in conn.execute(
-                "SELECT id, session_id, live_session_id, saved_at FROM study_cards"
+                "SELECT id, session_id, live_session_id, saved_at, folder_id FROM study_cards"
             )
         }
         assert cards["card_saved_active"]["live_session_id"] == "sess_active"
         assert cards["card_pending"]["live_session_id"] == "sess_active"
         assert cards["card_saved_orphan"]["session_id"] == "sess_deleted"
         assert cards["card_saved_orphan"]["live_session_id"] is None
+        assert cards["card_saved_active"]["folder_id"] == "folder_default_knowledge"
+        assert cards["card_pending"]["folder_id"] == "folder_default_knowledge"
+        assert cards["card_saved_orphan"]["folder_id"] == "folder_default_problem"
 
 
 def test_database_constraints_cascade_and_preserve_archived_cards(tmp_path: Path):

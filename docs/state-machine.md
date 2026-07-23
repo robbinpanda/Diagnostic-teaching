@@ -1,7 +1,7 @@
 # 答疑状态机与 LLM 主导流程
 
-版本：v1.4
-日期：2026-07-20
+版本：v1.5
+日期：2026-07-21
 适用项目：诊断式数学答疑 MVP
 
 本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行上下文收集与教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作，同时判断 `context_status` 并提供可靠的新语义摘要；后端在上下文未 ready 时只允许开放提问，ready 后再根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop。`EXPLAIN_PRINCIPLE` 必须产生 `knowledge_card`，`EXPLAIN_LOCAL` 可按知识复用价值选择产生 `knowledge_card`，`SUMMARIZE` 必须产生 `problem_card`。**
@@ -25,8 +25,20 @@ sequenceDiagram
   participant Log as JSONL + Markdown
   participant LLM as 语言模型
 
-  Student->>API: POST /api/sessions/start 发送首条消息
-  API->>DB: 原子创建 session + session_inputs + STUDENT_RESPONSE
+  alt 新建文字答疑
+    Student->>API: POST /api/problem-intake/analyze-text
+    API->>LLM: 仅请求 problems[]
+    LLM-->>API: 单题/多题结构化结果
+    Student->>API: POST /api/sessions/batch-start
+  else 新建图片答疑
+    Student->>API: POST /api/problem-images/detect
+    API->>LLM: 仅请求归一化 bbox[]
+    LLM-->>API: 单题/多题框
+    Student->>API: 编辑确认后 POST /api/sessions/image-batch-start
+  else 兼容单题调用方
+    Student->>API: POST /api/sessions/start
+  end
+  API->>DB: 原子创建每题 session + session_inputs + STUDENT_RESPONSE
   API-->>Student: accepted / duplicate + session_id
   Student->>API: 提交普通消息 / 答检查点 / 关闭知识卡继续
   API->>DB: session_inputs + 业务结果原子落库
@@ -45,8 +57,8 @@ sequenceDiagram
   end
   API-->>Student: checkpoint_ready / card_ready / 等待开放问题回复
   opt EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / SUMMARIZE 产出卡片
-    Student->>API: 关闭卡片并调用 card save
-    API->>DB: saved_at 入库，卡片进入右侧列表
+    Student->>API: 检查/编辑内嵌卡片并显式保存或二次确认舍弃
+    API->>DB: 编辑内容 + saved_at 原子入库，卡片进入右侧列表
     Student->>API: knowledge_card 继续生成；problem_card 结束
   end
 ```
@@ -61,9 +73,9 @@ sequenceDiagram
 - LLM 每轮决定 `state_hint`、`action`、`message`、`breakpoint_description`、`checkpoint`、`knowledge_card`、`problem_card`。
 - 后端不信任模型给出的等待判断；`wait_for_student` 由后端根据 action 强制推导。
 - `ASK_OPEN_QUESTION` 和 `ASK_MULTIPLE_CHOICE` 是阻塞动作，会停下等待学生。
-- `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是教学语义上的非阻塞动作。`RESPOND_TO_CHECKPOINT` 直接继续；`EXPLAIN_PRINCIPLE` 必须弹出 `knowledge_card`，`EXPLAIN_LOCAL` 仅在模型判断本次内容值得独立记忆和迁移复用时弹出，关闭归档后继续。
+- `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是教学语义上的非阻塞动作。`RESPOND_TO_CHECKPOINT` 直接继续；`EXPLAIN_PRINCIPLE` 必须内嵌展示 `knowledge_card`，`EXPLAIN_LOCAL` 仅在模型判断本次内容值得独立记忆和迁移复用时展示，确认归档后继续。
 - 连续 3 个非阻塞动作后，下一轮 prompt 会要求模型在“自然总结”和“获取必要的新证据”之间选择；若仍输出非阻塞动作，后端会转成 `ASK_OPEN_QUESTION`。
-- `SUMMARIZE` 是终止动作，不等待学生回答，但会弹出 `problem_card`；关闭归档后流程结束。
+- `SUMMARIZE` 是终止动作，不等待学生回答，但会内嵌展示 `problem_card`；确认归档后流程结束。
 - `SUMMARIZE` 不要求学生先独立给出最终答案，也不要求额外插入确认性问题；当前结论或卡点已经讲清即可自然收束。
 - 项目不主动截断、压缩或摘要历史；模型供应商自身的硬上下文限制仍然存在。
 
@@ -217,6 +229,8 @@ RESPOND_TO_CHECKPOINT
 
 checkpoint 类似一次需要结果的调用，但结果来自学生，而不是电脑工具。下一轮 LLM 同时看到可读的学生选择和结构化的正误、误区、耗时、event 与 next_state_hint。
 
+前端不把 `CHECKPOINT_RESPONSE.content` 的内部可读文本直接渲染成普通学生气泡。实时提交时使用当前 checkpoint 与 answer 响应生成一张锁定的用户作答卡片；`GET /api/sessions/{id}` 和显式 restore 会把 message metadata 与对应 checkpoint 行重新组合为 `messages[].checkpoint_result`。因此提交后以及重新打开历史时都保留原题、全部选项和学生选择；选对的已选项标绿，选错的已选项标红，但不会向前端泄露其他选项的 `is_correct/misconception`。
+
 普通开放消息使用同一 durable input 边界：前端生成 `client_message_id` 后调用 `POST /api/sessions/{session_id}/inputs`。`(session_id, client_message_id)` 在 SQLite 唯一；同 ID 同内容是安全重试，同 ID 不同内容是 409 冲突。兼容入口 `/api/chat/stream` 仍接受 message，但内部同样先调用输入接纳服务，再尝试占用生成锁。
 
 ## 8. knowledge_card 与 problem_card
@@ -228,13 +242,18 @@ checkpoint 类似一次需要结果的调用，但结果来自学生，而不是
 
 `EXPLAIN_PRINCIPLE` 必须输出 knowledge card；`EXPLAIN_LOCAL` 由模型判断是否输出。局部讲解中易混且可迁移的辨析（例如韦达定理“和用 $-b/a$、积用 $c/a$”）适合出卡；一次性代入、算术计算、符号改写或纯本题过渡不出卡。可选卡仍必须结构化 message 中的同一个知识点，不得扩大讲解范围。
 
-生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null`，不会出现在右侧卡片库。知识卡片点大叉后，前端提交 `CARD_DISMISSED_CONTINUE`；后端在同一事务写 `saved_at` 与 `session_inputs` 控制命令，再由前端调用 `/api/chat/stream`。Problem card 仍只归档、不继续。未归档卡片存在时，`/api/chat/stream` 返回 409，避免绕过确认继续生成。
+生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null` 并预绑定默认文件夹。知识卡片随消息时间线内嵌展示，保存时带最终 `content/folder_id` 的 `CARD_DISMISSED_CONTINUE` 原子更新内容、位置与归档时间；二次确认舍弃会写控制命令后删除待归档卡片。Problem card 选择位置后只归档、不继续。未解决的待归档卡片存在时，`/api/chat/stream` 返回 409。
+
+全局卡片库中的查看不属于阻塞教学工作流；已归档 knowledge card 可在右侧浮层中编辑并通过 `PUT /api/cards/{id}` 更新。
+
+Checkpoint 同样嵌入消息时间线，只有点击“提交答案”才调用 answer 接口。
 
 卡片接口：
 
 ```text
 GET    /api/cards?card_type=knowledge_card|problem_card
 POST   /api/cards/{card_id}/save
+PUT    /api/cards/{card_id}              # 修改已归档 knowledge card
 POST   /api/sessions/{session_id}/inputs  # CARD_DISMISSED_CONTINUE
 DELETE /api/cards
 DELETE /api/cards/{card_id}
@@ -283,7 +302,7 @@ run.completed
 session.idle
 ```
 
-checkpoint answer 会在原子事务中依次追加 `checkpoint.completed` 和对应的 student `message.completed`；卡片归档追加 `card.saved`。run 失败时追加 `error.occurred -> run.completed(status=failed) -> session.idle`。
+checkpoint answer 会在原子事务中依次追加 `checkpoint.completed` 和对应的 student `message.completed`；卡片归档追加 `card.saved`，舍弃追加 `card.discarded`。run 失败时追加 `error.occurred -> run.completed(status=failed) -> session.idle`。
 
 `GET /api/sessions/{session_id}/events/stream` 用 `after_seq` 或 `Last-Event-ID` 先补齐遗漏事件再持续订阅。同一 session 的 `seq` 严格递增；客户端重复收到相同 `seq` 时只应用一次。这个 change feed 不改变六个教学 action，也不让模型控制 `wait_for_student`。完整合同见 `docs/session-events.md`。
 
@@ -291,7 +310,7 @@ checkpoint answer 会在原子事务中依次追加 `checkpoint.completed` 和�
 
 - 事件的 session 或 run 与当前视图不匹配时不会修改当前 timeline；切换 session 或新建答疑只换视图，不 abort 其他 session 的 fetch。重新打开仍在生成的 session 时，先加载 SQLite 快照，再按该 session 的本地活动 run 重新接收后续事件。
 - 同一 session 启动新 run 时只 supersede 该 session 的旧 fetch；不同 session 不互相取消。显式停止只对当前打开的 session 先请求服务端 interrupt，再收束对应本地 fetch；页面卸载才取消全部本地连接。
-- 图片上传在选择文件时预分配 session id，并把读图、识别、建会话与首轮生成绑定到该 id。用户切走、新建答疑或查看卡片后，原任务继续在后台完成；异步回调通过视图 token 和 session id 隔离，不能覆盖后来的草稿或会话。
+- 图片上传先只做题目框检测，不预建 session。检测结果仅在原草稿视图仍有效时打开编辑确认页；用户可以新增、删除、平移或缩放题目框，确认后前端才为每个最终框分配稳定 session/message id，后端裁剪并原子批量创建。第一题绑定当前视图，其余 session 可并行生成；取消或切走检测草稿不会留下空 session。
 - `decision` 负责用后端最终 message/action 校准当前气泡；`message_reset` 只重置当前未完成 action 的重试拼接；`message_done` 后同 action 的迟到 delta/decision/reset 不再修改已完成消息。
 - checkpoint/card 采用 first-wins，同 ID 重复通知不重复打开交互；error 终止当前 run，但保留进入下一次 run 的恢复路径。
 - session-events SSE 已通过 `id`/`seq` 重放稳定业务边界；chat SSE 的高频 delta 仍可能不带身份。reducer 会去重已有序号并记录缺口，未带 id/seq 的 delta 严格按到达顺序拼接，不能据此声称字符流 exactly-once。

@@ -30,8 +30,10 @@ def input_response(result) -> SessionInputAcceptResponse:
         message_id=row["message_id"],
         action_id=result.result.get("action_id"),
         in_reply_to_action_id=result.result.get("in_reply_to_action_id"),
-        card_id=row["card_id"],
+        card_id=result.result.get("card_id") or row["card_id"],
         card_saved_at=result.result.get("card_saved_at"),
+        folder_id=result.result.get("folder_id"),
+        card_discarded=bool(result.result.get("card_discarded", False)),
     )
 
 
@@ -55,6 +57,9 @@ def accept_session_input(
                 session_id,
                 client_command_id=payload.client_command_id,
                 card_id=payload.card_id,
+                folder_id=payload.folder_id,
+                content=payload.content.model_dump() if payload.content else None,
+                save_to_library=payload.save_to_library,
             )
         else:  # pragma: no cover - protected by the discriminated schema
             raise InputValidationError("不支持的输入类型")
