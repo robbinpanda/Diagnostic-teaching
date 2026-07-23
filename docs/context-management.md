@@ -1,8 +1,8 @@
 # 上下文、Session 恢复与诊断日志
 
-版本：v1.5
+版本：v1.6
 
-日期：2026-07-21
+日期：2026-07-23
 
 适用项目：诊断式数学答疑 MVP
 
@@ -14,7 +14,7 @@
 
 | 数据 | 职责 | 是否用于恢复 |
 |---|---|---|
-| SQLite 业务表 | 保存 session、durable `session_inputs`、结构化 messages、checkpoints、study_cards、`session_runs` 和 action 关联 | 是，唯一快照来源 |
+| SQLite 业务表 | 保存 session、durable `session_inputs`、结构化 messages、checkpoints、层级 `card_folders`、study_cards、`session_runs` 和 action 关联 | 是，唯一快照来源 |
 | SQLite `session_events` | 保存稳定业务边界的有序 change feed，供客户端断线补发 | 是，仅用于增量重放 |
 | `<session_id>.jsonl` | 严格的一行一事件机器日志，便于脚本分析和审计 | 否 |
 | `<session_id>.log.md` | 与 JSONL 同步写入、留白充足的人类可读时间线 | 否 |

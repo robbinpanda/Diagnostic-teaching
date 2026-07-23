@@ -44,7 +44,7 @@ python -m alembic -c alembic.ini current
 python -m alembic -c alembic.ini upgrade head
 ```
 
-CLI 与应用使用同一套 `DATABASE_URL` / `.env` 路径解析。schema 后续演进只新增 `apps/api/migrations/versions/` revision，不再修改 `database.py` 临时补列。当前迁移链已在可靠性基线之后依次加入 `session_inputs`、`session_events`、`session_runs` 与会话内 `context_status`。
+CLI 与应用使用同一套 `DATABASE_URL` / `.env` 路径解析。schema 后续演进只新增 `apps/api/migrations/versions/` revision，不再修改 `database.py` 临时补列。当前迁移链已在可靠性基线之后依次加入 `session_inputs`、`session_events`、`session_runs`、会话内 `context_status` 与层级 `card_folders`。
 
 每条应用数据库连接都会设置：
 

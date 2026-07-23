@@ -1,7 +1,7 @@
 # 答疑状态机与 LLM 主导流程
 
-版本：v1.5
-日期：2026-07-21
+版本：v1.6
+日期：2026-07-23
 适用项目：诊断式数学答疑 MVP
 
 本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行上下文收集与教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作，同时判断 `context_status` 并提供可靠的新语义摘要；后端在上下文未 ready 时只允许开放提问，ready 后再根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop。`EXPLAIN_PRINCIPLE` 必须产生 `knowledge_card`，`EXPLAIN_LOCAL` 可按知识复用价值选择产生 `knowledge_card`，`SUMMARIZE` 必须产生 `problem_card`。**
@@ -58,14 +58,18 @@ sequenceDiagram
   API-->>Student: checkpoint_ready / card_ready / 等待开放问题回复
   opt EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / SUMMARIZE 产出卡片
     Student->>API: 检查/编辑内嵌卡片并显式保存或二次确认舍弃
-    API->>DB: 编辑内容 + saved_at 原子入库，卡片进入右侧列表
+    alt 保存
+      API->>DB: 编辑内容 + folder_id + saved_at 原子入库，卡片进入右侧列表
+    else 舍弃
+      API->>DB: 删除待归档卡片 + card.discarded 原子落库
+    end
     Student->>API: knowledge_card 继续生成；problem_card 结束
   end
 ```
 
 关键点：
 
-- 没有前置 intake。首条消息立即创建正式 session，并与对应 `session_inputs`、`STUDENT_RESPONSE` message 在同一事务落库；客户端提供稳定 session id 和 `client_message_id`，相同请求重试返回原结果。
+- 没有正式 session 内的前置教学 intake。文字草稿和题图可以先经过只决定 session 数量的拆题或框选阶段；兼容的单题 `/start` 调用，以及拆题/框选确认后的每个子题，才在接纳事务中创建正式 session，并与对应 `session_inputs`、`STUDENT_RESPONSE` message 原子落库。客户端提供稳定 session id 和 `client_message_id`，相同请求重试返回原结果。
 - `context_status` 取 `need_problem / need_thought / ready`。模型依据完整对话语义更新 `problem_summary / student_thought_summary`，后端把它们与 assistant action 原子写回 `sessions.problem_text / student_initial_thought`。不得按消息序号猜测字段。
 - `need_problem` 或 `need_thought` 时后端清除 checkpoint/card，并强制 action 为 `ASK_OPEN_QUESTION`；只有 `ready` 后才能讲解、出选择题、总结或生成卡片。“完全没思路”是有效的 `student_thought_summary`，可以进入 ready。
 - 正式 session 的输入接纳和模型生成是两个服务边界。`POST /api/sessions/{session_id}/inputs` 与 checkpoint answer 接口先把输入及其业务结果写入 SQLite；`POST /api/chat/stream` 再从权威历史生成。客户端断开 SSE 不会使已经接纳的输入消失。

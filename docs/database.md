@@ -1,7 +1,7 @@
 # SQLite 数据库与 Alembic 迁移
 
-版本：v1.2
-日期：2026-07-21
+版本：v1.3
+日期：2026-07-23
 
 SQLite 是 session 恢复的唯一权威来源。JSONL/Markdown 仍然只是只追加诊断日志，不参与 schema 迁移或业务恢复。
 
@@ -92,4 +92,4 @@ foreign keys 是连接级开关，因此不能只在建库时设置。WAL 是数
 python -m alembic -c alembic.ini revision -m "describe change"
 ```
 
-编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。当前迁移链为可靠性基线 → durable `session_inputs` → `session_events` → `session_runs` → conversational `context_status`；后续 schema 继续通过新的 `down_revision` 串成单一迁移链。
+编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。当前迁移链为可靠性基线 → durable `session_inputs` → `session_events` → `session_runs` → conversational `context_status` → 层级 `card_folders`；后续 schema 继续通过新的 `down_revision` 串成单一迁移链。
