@@ -146,6 +146,8 @@ assistant 带 knowledge_card / problem_card 的教学 action
 
 `app/llm/provider.py` 再按 profile 分发协议：OpenAI-compatible 原样发送到 chat completions；Anthropic 会把 system 从 messages 中提到顶层、合并相邻同角色消息，并把统一 `image_url` data URL 转成 Anthropic base64 image source。协议转换不改变 SQLite 历史结构，也不会把 API key 写入消息或日志。
 
+profile 的统一 `reasoning_effort=minimal|low|medium|high` 由 `app/llm/reasoning.py` 管理，默认值为 `medium`。已识别的 OpenAI reasoning model 使用 `reasoning_effort`，OpenRouter 使用 `reasoning.effort`，DashScope 已识别的 thinking 模型使用 `enable_thinking`，支持 adaptive thinking 的 Anthropic 模型使用 `thinking + output_config.effort`。能力不明确的 OpenAI-compatible、Anthropic 或其他模型不会收到未经确认的请求字段，而是在 system prompt 中追加相应的超低、低或高档指令；中档不追加指令。这与 OpenCode 的原则一致：不假设 Kimi、DeepSeek、Qwen 等都接受同一种协议字段。
+
 应用层不再设置“固定保留 20 条”之类的截断，也不做摘要或压缩。`SessionRepository.list_messages(session_id)` 默认读取该 session 的全部消息并按时间正序发送。
 
 仍需注意：模型服务自身有硬上下文窗口。项目不主动截断，但实际总 token 超过所选模型限制时，供应商仍可能拒绝请求。
@@ -158,9 +160,11 @@ system 消息由四部分组成：
 
 2. `ACTION_PROTOCOL`：像工具说明一样，在第一次及后续每次请求中明确列出每个教学 action 的用途、必需字段、阻塞性和后端行为。
 
-3. `JSON_CONTRACT`：要求模型只返回一个 `TutorTurn` JSON。
+3. `JSON_CONTRACT`：要求模型只返回一个按 action 区分的最小 `TutorTurn` JSON，`message` 排在最前，无关 checkpoint/card 字段不输出 `null`。
 
 4. 当前 action loop 约束：连续非阻塞动作数，以及是否必须转成阻塞动作。
+
+5. 仅对没有明确协议级 effort 映射的模型，按用户选择追加提示词级推理强度要求；`medium` 不追加。
 
 `action` 不是 tool call。它不会操作电脑或调用外部资源，而是教学工作流的控制字段。每条 assistant 消息只能对应一个 action。
 
@@ -437,6 +441,7 @@ provider.chat_stream_completion()
 
 ```text
 run_started
+progress（正在读取题目 / 核对思路 / 选择教学方式 / 组织回复）
 message_delta ...
 message_reset（仅格式重试时可能出现）
 decision
@@ -446,9 +451,11 @@ message_done
 run_interrupted（仅显式中断，且没有当前 step 的完整 action 落库）
 ```
 
-只有学生可见的 `message` 字段会增量展示。若首个模型输出格式不合法并触发重试，`message_reset` 会让前端丢弃该 action 已展示的残片。`state_hint`、`action`、`checkpoint` 和 card 必须等完整 JSON 到达、校验和后端策略归一化后才发出。`card_ready` 后当前 HTTP stream 停止，等待前端保存卡片。
+只有学生可见的 `message` 字段会增量展示。`progress` 只携带后端定义的 stage/label/elapsed_ms；provider reasoning chunk 的原文不会进入 SSE。若首个模型输出格式不合法并触发重试，`message_reset` 会让前端丢弃该 action 已展示的残片。`state_hint`、`action`、`checkpoint` 和 card 必须等完整 JSON 到达、校验和后端策略归一化后才发出。`card_ready` 后当前 HTTP stream 停止，等待前端保存卡片。
 
 `message_delta/message_reset` 是高频瞬时事件，不写 `session_events`。完整 student/assistant message、归一化 action、checkpoint/card、run 完成、error 和 idle 等稳定边界会与业务数据一起写入 SQLite；因此 chat SSE 断开后不需要恢复每个字符，只需重放完整完成事件。
+
+每个 `tutor_turn` 诊断日志记录 `input_to_first_progress_ms`、`input_to_first_reasoning_event_ms`、`input_to_first_content_ms`、`input_to_first_visible_message_ms`、`input_to_interactive_turn_ms` 和 `total_completion_ms`。缺少 provider reasoning 事件时对应指标为 `null`，不能据此推断模型完全没有内部推理。
 
 ### 9.2 durable event 历史与 SSE
 

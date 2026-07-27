@@ -18,11 +18,13 @@ from app.core.schemas import (
     ModelProfileCreateResponse,
     ModelProfileListResponse,
     ModelProfilePublic,
+    ModelProfileReasoningUpdate,
     ModelProfileTestRequest,
     ModelProfileTestResponse,
     ModelProfileUpdate,
 )
 from app.llm.provider import LlmProfile, test_connection, test_multimodal_connection
+from app.llm.reasoning import normalize_reasoning_effort, reasoning_capability
 from app.storage.repositories import host_from_url
 
 router = APIRouter(prefix="/api/model-profiles", tags=["model profiles"])
@@ -109,6 +111,10 @@ def multimodal_probe_challenge() -> tuple[str, str]:
 def to_public(row) -> ModelProfilePublic:
     status = "available" if row["enabled"] else "disabled"
     tags = json.loads(row["tags_json"])
+    capability = reasoning_capability(row["provider"], row["base_url"], row["model"])
+    selected_effort = normalize_reasoning_effort(row["reasoning_effort"])
+    if selected_effort not in capability.efforts:
+        selected_effort = "medium"
     return ModelProfilePublic(
         id=row["id"],
         display_name=row["display_name"],
@@ -125,6 +131,10 @@ def to_public(row) -> ModelProfilePublic:
         max_output_tokens=row["max_output_tokens"],
         is_multimodal=bool(row["is_multimodal"]),
         managed=is_managed_tags(tags),
+        reasoning_effort=selected_effort,
+        reasoning_effort_options=list(capability.efforts),
+        reasoning_control=capability.control,
+        reasoning_control_description=capability.description,
         last_test_status=row["last_test_status"],
         last_test_latency_ms=row["last_test_latency_ms"],
     )
@@ -168,6 +178,7 @@ def create_profiles_batch(
             temperature=payload.temperature,
             max_output_tokens=payload.max_output_tokens,
             is_multimodal=item.is_multimodal,
+            reasoning_effort=payload.reasoning_effort,
         )
         for item in payload.models
     ]
@@ -208,6 +219,29 @@ def update_profile(
     return to_public(row)
 
 
+@router.patch("/{profile_id}/reasoning", response_model=ModelProfilePublic)
+def update_profile_reasoning(
+    profile_id: str,
+    payload: ModelProfileReasoningUpdate,
+    request: Request,
+) -> ModelProfilePublic:
+    try:
+        row = request.app.state.model_profiles.get(profile_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="模型配置不存在") from exc
+    capability = reasoning_capability(row["provider"], row["base_url"], row["model"])
+    if payload.reasoning_effort not in capability.efforts:
+        raise HTTPException(
+            status_code=422,
+            detail=f"该模型仅支持这些推理档位：{', '.join(capability.efforts)}",
+        )
+    updated = request.app.state.model_profiles.update_reasoning_effort(
+        profile_id,
+        payload.reasoning_effort,
+    )
+    return to_public(updated)
+
+
 @router.delete("/{profile_id}", status_code=204)
 def delete_profile(profile_id: str, request: Request) -> Response:
     try:
@@ -246,6 +280,7 @@ async def test_profile(
         timeout_ms=payload.timeout_ms,
         temperature=0,
         max_output_tokens=payload.max_output_tokens,
+        reasoning_effort=payload.reasoning_effort,
     )
     ok, latency, message = await test_connection(profile)
     if latency is None:

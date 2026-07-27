@@ -235,7 +235,7 @@ def test_anthropic_sse_yields_text_deltas_and_stop_reason():
     events = asyncio.run(run())
 
     assert events == [
-        {"delta": "你", "finish_reason": None},
-        {"delta": "好", "finish_reason": None},
+        {"event": "content_delta", "delta": "你", "finish_reason": None},
+        {"event": "content_delta", "delta": "好", "finish_reason": None},
         {"delta": "", "finish_reason": "end_turn"},
     ]

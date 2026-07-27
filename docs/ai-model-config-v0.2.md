@@ -272,7 +272,20 @@ PATCH /api/model-profiles/{profile_id}
 7. `temperature`
 8. `max_output_tokens`
 9. `is_multimodal`，是否支持图片识别
-10. `api_key`，仅在用户重新输入时替换
+10. `reasoning_effort`，`minimal|low|medium|high`，默认 `medium`
+11. `api_key`，仅在用户重新输入时替换
+
+推理档位也可通过专用接口修改：
+
+```http
+PATCH /api/model-profiles/{profile_id}/reasoning
+```
+
+```json
+{"reasoning_effort": "low"}
+```
+
+该接口对 OpenCode 托管 profile 也开放，因为它只保存本地用户偏好，不修改目录同步的 provider、URL、model 或多模态能力。列表响应额外返回 `reasoning_effort_options`、`reasoning_control` 和说明。有明确协议映射的模型发送 provider 参数；未知模型仍显示四档，但后端只用提示词工程控制，不发送未经确认的字段。`medium` 为默认行为，不增加额外提示词。
 
 ### 5.6 批量删除模型配置
 
@@ -333,6 +346,7 @@ CREATE TABLE model_profiles (
   temperature REAL NOT NULL DEFAULT 0.2,
   max_output_tokens INTEGER NOT NULL DEFAULT 8000 CHECK (max_output_tokens > 0),
   is_multimodal INTEGER NOT NULL DEFAULT 0 CHECK (is_multimodal IN (0, 1)),
+  reasoning_effort TEXT NOT NULL DEFAULT 'medium',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

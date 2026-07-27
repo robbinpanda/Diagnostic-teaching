@@ -12,6 +12,7 @@ type Props = {
   gradeBand: "junior" | "senior";
   selectedProfile?: ModelProfile;
   streamBusy: boolean;
+  progressLabel?: string;
   onExpandLeft: () => void;
   onToggleCards: () => void;
 };
@@ -23,6 +24,7 @@ export function ConversationHeader({
   gradeBand,
   selectedProfile,
   streamBusy,
+  progressLabel,
   onExpandLeft,
   onToggleCards
 }: Props) {
@@ -41,7 +43,12 @@ export function ConversationHeader({
         <strong><MathText text={title || "新答疑"} className="titleMathText" /></strong>
         <span>{subtitle}</span>
       </div>
-      {streamBusy && <span className="thinkingStatus"><Loader2 size={14} className="spin" /> 正在思考</span>}
+      {streamBusy && (
+        <span className="thinkingStatus">
+          <Loader2 size={14} className="spin" />
+          {progressLabel || "正在思考"}
+        </span>
+      )}
       <button className="plainIconButton cardPanelToggle" type="button" onClick={onToggleCards} aria-label="切换卡片栏">
         <BookOpen size={18} />
       </button>

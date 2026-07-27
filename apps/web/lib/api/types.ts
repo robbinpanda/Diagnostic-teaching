@@ -14,9 +14,15 @@ export type ModelProfile = {
   max_output_tokens: number;
   is_multimodal: boolean;
   managed: boolean;
+  reasoning_effort: ReasoningEffort;
+  reasoning_effort_options: ReasoningEffort[];
+  reasoning_control: string;
+  reasoning_control_description: string;
   last_test_status?: string | null;
   last_test_latency_ms?: number | null;
 };
+
+export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
 
 export type Checkpoint = {
   id: string;
@@ -100,6 +106,7 @@ type SseEventPayload =
   | { event: "decision"; data: { state_hint?: string; action?: string; action_id?: string; wait_for_student?: boolean; message?: string; breakpoint?: string; confidence?: number; action_index?: number } }
   | { event: "message_delta"; data: { text: string; action_index?: number } }
   | { event: "message_reset"; data: { action_index?: number } }
+  | { event: "progress"; data: { stage: string; label: string; action_index?: number; elapsed_ms?: number } }
   | { event: "checkpoint_ready"; data: Checkpoint }
   | { event: "card_ready"; data: StudyCard }
   | { event: "message_done"; data: { ok: boolean; action_index?: number; wait_for_student?: boolean; will_continue?: boolean; awaiting_card_dismissal?: boolean; continue_after_card?: boolean } }

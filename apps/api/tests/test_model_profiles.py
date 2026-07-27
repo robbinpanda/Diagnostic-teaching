@@ -132,10 +132,92 @@ def test_managed_opencode_profiles_sync_into_sqlite_and_cannot_be_changed(tmp_pa
 
     profile_id = listed[0]["id"]
     updated = client.patch(f"/api/model-profiles/{profile_id}", json={"is_multimodal": False})
+    reasoning_updated = client.patch(
+        f"/api/model-profiles/{profile_id}/reasoning",
+        json={"reasoning_effort": "medium"},
+    )
     deleted = client.delete(f"/api/model-profiles/{profile_id}")
 
     assert updated.status_code == 409
+    assert reasoning_updated.status_code == 200
+    assert reasoning_updated.json()["reasoning_effort"] == "medium"
     assert deleted.status_code == 409
+
+
+def test_managed_gpt_profile_exposes_and_persists_fast_reasoning_effort(tmp_path: Path):
+    app = create_app()
+    app.state.db = Database(tmp_path / "app.db")
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
+    managed = app.state.model_profiles.sync_opencode_free_models(
+        (
+            OpenCodeFreeModel(
+                model="gpt-5.2",
+                name="GPT-5.2",
+                provider="openai_compatible",
+                base_url="https://opencode.ai/zen/v1",
+                is_multimodal=False,
+            ),
+        )
+    )[0]
+    client = TestClient(app)
+
+    listed = client.get("/api/model-profiles").json()["profiles"][0]
+    assert listed["reasoning_effort_options"] == ["minimal", "low", "medium", "high"]
+    assert listed["reasoning_control"] == "openai_effort"
+
+    updated = client.patch(
+        f"/api/model-profiles/{managed['id']}/reasoning",
+        json={"reasoning_effort": "low"},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["reasoning_effort"] == "low"
+    app.state.model_profiles.sync_opencode_free_models(
+        (
+            OpenCodeFreeModel(
+                model="gpt-5.2",
+                name="GPT-5.2",
+                provider="openai_compatible",
+                base_url="https://opencode.ai/zen/v1",
+                is_multimodal=False,
+            ),
+        )
+    )
+    assert app.state.model_profiles.get(managed["id"])["reasoning_effort"] == "low"
+
+
+def test_managed_kimi_profile_uses_prompt_effort_fallback(tmp_path: Path):
+    app = create_app()
+    app.state.db = Database(tmp_path / "app.db")
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
+    managed = app.state.model_profiles.sync_opencode_free_models(
+        (
+            OpenCodeFreeModel(
+                model="kimi-k2.7-code",
+                name="Kimi K2.7 Code",
+                provider="openai_compatible",
+                base_url="https://opencode.ai/zen/v1",
+                is_multimodal=False,
+            ),
+        )
+    )[0]
+    client = TestClient(app)
+
+    listed = client.get("/api/model-profiles").json()["profiles"][0]
+    assert listed["reasoning_effort_options"] == ["minimal", "low", "medium", "high"]
+    assert listed["reasoning_control"] == "prompt_effort"
+
+    updated = client.patch(
+        f"/api/model-profiles/{managed['id']}/reasoning",
+        json={"reasoning_effort": "low"},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["reasoning_effort"] == "low"
 
 
 def test_delete_model_profile_endpoint_hides_profile(tmp_path: Path):

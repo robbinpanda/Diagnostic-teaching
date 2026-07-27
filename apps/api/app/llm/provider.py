@@ -16,6 +16,7 @@ from app.llm.local_demo_provider import (
     local_demo_stream,
     message_text,
 )
+from app.llm.reasoning import reasoning_request_options
 
 __all__ = [
     "IMAGE_ANALYSIS_PROMPT",
@@ -53,6 +54,7 @@ class LlmProfile:
     timeout_ms: int
     temperature: float
     max_output_tokens: int
+    reasoning_effort: str = "medium"
 
 
 class LlmProviderError(RuntimeError):
@@ -453,6 +455,13 @@ async def _openai_chat_stream_completion(
         "max_tokens": requested_max_tokens,
         "stream": True,
     }
+    reasoning_options, _ = reasoning_request_options(
+        profile.provider,
+        profile.base_url,
+        profile.model,
+        profile.reasoning_effort,
+    )
+    payload.update(reasoning_options)
     # connect 慢点不要紧，但读阶段一旦长时间没新 chunk 就要尽快报错；
     # 把 read 设短到比总 timeout 更激进，整体 timeout 仍兜底
     connect_timeout = min(profile.timeout_ms / 1000, 10.0)
@@ -468,6 +477,7 @@ async def _openai_chat_stream_completion(
                     raise LlmProviderError(
                         f"模型请求失败 {response.status_code}: {body.decode('utf-8', 'ignore')[:300]}"
                     )
+                yield {"event": "response_headers", "delta": "", "finish_reason": None}
                 finish_reason: str | None = None
                 saw_any_data = False
                 saw_content = False
@@ -487,10 +497,32 @@ async def _openai_chat_stream_completion(
                         choice = chunk["choices"][0]
                     except (KeyError, IndexError, TypeError):
                         continue
-                    delta = choice.get("delta", {}).get("content") or ""
+                    delta_payload = choice.get("delta")
+                    delta_payload = delta_payload if isinstance(delta_payload, dict) else {}
+                    reasoning = (
+                        delta_payload.get("reasoning_content")
+                        or delta_payload.get("reasoning")
+                        or delta_payload.get("thinking")
+                    )
+                    reasoning_details = delta_payload.get("reasoning_details")
+                    if reasoning or (
+                        isinstance(reasoning_details, list) and reasoning_details
+                    ):
+                        # Never forward raw chain-of-thought. The controller only
+                        # needs to know that the provider entered a reasoning phase.
+                        yield {
+                            "event": "reasoning_delta",
+                            "delta": "",
+                            "finish_reason": None,
+                        }
+                    delta = delta_payload.get("content") or ""
                     if delta:
                         saw_content = True
-                        yield {"delta": delta, "finish_reason": None}
+                        yield {
+                            "event": "content_delta",
+                            "delta": delta,
+                            "finish_reason": None,
+                        }
                     if choice.get("finish_reason"):
                         finish_reason = choice["finish_reason"]
                 if not saw_any_data:
@@ -544,6 +576,7 @@ async def _anthropic_stream_completion(
                         f"Anthropic 模型请求失败 {response.status_code}: "
                         f"{body.decode('utf-8', 'ignore')[:300]}"
                     )
+                yield {"event": "response_headers", "delta": "", "finish_reason": None}
                 async for event in _anthropic_response_events(response, requested_max_tokens):
                     yield event
     except httpx.TimeoutException as exc:
@@ -585,6 +618,13 @@ def anthropic_request_payload(
         "max_tokens": max_tokens,
         "stream": True,
     }
+    reasoning_options, _ = reasoning_request_options(
+        profile.provider,
+        profile.base_url,
+        profile.model,
+        profile.reasoning_effort,
+    )
+    payload.update(reasoning_options)
     if system_parts:
         payload["system"] = "\n\n".join(system_parts)
     return payload
@@ -648,6 +688,18 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
                 error.get("message") if isinstance(error, dict) else str(error or "unknown error")
             )
             raise LlmProviderError(f"Anthropic 流式响应错误：{message}")
+        if event_type == "content_block_delta":
+            delta = event.get("delta")
+            if isinstance(delta, dict) and delta.get("type") in {
+                "thinking_delta",
+                "input_json_delta",
+            }:
+                yield {
+                    "event": "reasoning_delta",
+                    "delta": "",
+                    "finish_reason": None,
+                }
+                continue
         text = ""
         if event_type == "content_block_start":
             block = event.get("content_block")
@@ -665,7 +717,11 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
             finish_reason = finish_reason or "end_turn"
         if text:
             saw_content = True
-            yield {"delta": text, "finish_reason": None}
+            yield {
+                "event": "content_delta",
+                "delta": text,
+                "finish_reason": None,
+            }
 
     if not saw_any_data:
         raise LlmProviderError("Anthropic 流式响应中没有任何 data 事件，请确认 base_url/模型配置")

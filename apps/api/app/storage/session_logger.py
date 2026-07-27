@@ -146,6 +146,8 @@ class SessionLogger:
                     self._indent(json.dumps(record.get("parsed_turn"), ensure_ascii=False, indent=2)),
                     "",
                     f"- Latency: `{record.get('latency_ms')} ms`",
+                    f"- Reasoning effort: `{record.get('reasoning_effort') or 'medium'}`",
+                    f"- Latency metrics: `{json.dumps(record.get('latency_metrics') or {}, ensure_ascii=False)}`",
                     f"- Parse OK: `{record.get('parse_ok')}`",
                     f"- Retried: `{record.get('used_fallback')}`",
                     f"- Error: `{record.get('error') or '-'}`",
@@ -262,6 +264,8 @@ class SessionLogger:
         parse_ok: bool,
         used_fallback: bool,
         error: str | None = None,
+        latency_metrics: dict[str, int | None] | None = None,
+        reasoning_effort: str = "medium",
     ) -> None:
         self._append(
             session_id,
@@ -273,6 +277,8 @@ class SessionLogger:
                 "raw_response": raw_response,
                 "parsed_turn": parsed_turn,
                 "latency_ms": latency_ms,
+                "latency_metrics": latency_metrics or {},
+                "reasoning_effort": reasoning_effort,
                 "parse_ok": parse_ok,
                 "used_fallback": used_fallback,
                 "error": error,

@@ -34,3 +34,19 @@ test("adapter recognizes an explicit server interruption", () => {
   assert.equal(event?.sessionId, "session-a");
   assert.equal(event?.runId, "run-1");
 });
+
+test("adapter recognizes safe progress events", () => {
+  const adapter = createStreamEventAdapter({ sessionId: "session-a", runId: "run-1" });
+  const event = adapter.adapt({
+    event: "progress",
+    data: {
+      stage: "checking_thought",
+      label: "正在核对你的思路",
+      action_index: 0,
+      elapsed_ms: 2300
+    }
+  });
+
+  assert.equal(event?.kind, "progress");
+  assert.equal(event?.actionIndex, 0);
+});

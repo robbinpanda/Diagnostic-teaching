@@ -214,13 +214,13 @@ def build_format_retry_messages(
         retry_instruction = (
             "你刚才返回的 action 不对：action 缺失，或不在允许的 action 列表中。"
             f"action 必须且只能是以下值之一：{'、'.join(sorted(VALID_ACTIONS))}。"
-            "请修正 action，并重新生成本轮完整 TutorTurn JSON。"
-            "只输出一个完整 JSON 对象，不要解释、不要 Markdown，也不要省略任何必需字段。"
+            "请修正 action，并重新生成该 action 对应的最小 JSON。"
+            "只输出一个完整 JSON 对象，不要解释、不要 Markdown，也不要添加无关 null 字段。"
         )
     else:
         retry_instruction = (
             "你刚才的输出不是完整、合法且满足合同的 JSON。请重新生成本轮结果。"
-            "只输出一个完整 JSON 对象，不要解释、不要 Markdown，也不要省略任何必需字段。"
+            "只输出该 action 对应的最小 JSON 对象，不要解释、不要 Markdown，也不要添加无关 null 字段。"
         )
     return [
         *messages,

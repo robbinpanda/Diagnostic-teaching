@@ -278,6 +278,27 @@
   font-size: 11px;
 }
 
+.reasoningEffortControl {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding-left: 8px;
+  color: #6a6b66;
+  background: var(--panel);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.reasoningEffortControl select {
+  height: 30px;
+  border: 0;
+  padding-left: 0;
+  background: transparent;
+}
+
 .modelPicker {
   position: relative;
   min-width: 0;

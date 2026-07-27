@@ -69,6 +69,7 @@ def profile_from_row(request: Request, row) -> LlmProfile:
         timeout_ms=row["timeout_ms"],
         temperature=row["temperature"],
         max_output_tokens=row["max_output_tokens"],
+        reasoning_effort=row["reasoning_effort"],
     )
 
 
@@ -210,7 +211,12 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                 )
                 turn = None
                 async for kind, value in coordinated_generation(coordinator, handle, generation):
-                    if kind == "message_delta":
+                    if kind == "progress":
+                        yield sse(
+                            "progress",
+                            {**value, "action_index": action_index},
+                        )
+                    elif kind == "message_delta":
                         yield sse("message_delta", {"text": value, "action_index": action_index})
                     elif kind == "message_reset":
                         yield sse("message_reset", {"action_index": action_index})

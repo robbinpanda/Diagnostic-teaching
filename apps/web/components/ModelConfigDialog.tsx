@@ -118,6 +118,7 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
               model: entry.model.trim(),
               timeout_ms: Math.min(timeoutMs, 60000),
               max_output_tokens: maxOutputTokens,
+              reasoning_effort: profile?.reasoning_effort ?? "medium",
               probe_multimodal: true,
               require_multimodal: entry.isMultimodal
             });

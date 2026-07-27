@@ -9,6 +9,7 @@ import { StudyCardModal } from "../components/StudyCardModal";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import { MessageTimeline } from "../components/workspace/MessageTimeline";
 import { ModelProfilePicker } from "../components/workspace/ModelProfilePicker";
+import { TutorComposer } from "../components/workspace/TutorComposer";
 import { boxFromPoints, ProblemImageSelector } from "../components/ProblemImageSelector";
 import { SessionSidebar } from "../components/workspace/SessionSidebar";
 import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
@@ -30,7 +31,11 @@ const profile: ModelProfile = {
   temperature: 0.2,
   max_output_tokens: 1000,
   is_multimodal: false,
-  managed: false
+  managed: false,
+  reasoning_effort: "medium",
+  reasoning_effort_options: ["medium"],
+  reasoning_control: "none",
+  reasoning_control_description: "本地演示模型不使用推理预算。"
 };
 
 test("workspace header and timeline preserve teaching context labels", () => {
@@ -49,6 +54,21 @@ test("workspace header and timeline preserve teaching context labels", () => {
   assert.match(header, /一次函数/);
   assert.match(header, /初中数学/);
   assert.match(header, /正在思考/);
+
+  const progressHeader = renderToStaticMarkup(
+    <ConversationHeader
+      leftOpen
+      title="一次函数"
+      sessionId="session-a"
+      gradeBand="junior"
+      selectedProfile={profile}
+      streamBusy
+      progressLabel="正在核对你的思路"
+      onExpandLeft={() => {}}
+      onToggleCards={() => {}}
+    />
+  );
+  assert.match(progressHeader, /正在核对你的思路/);
 
   const timeline = renderToStaticMarkup(
     <MessageTimeline
@@ -287,6 +307,58 @@ test("model picker exposes image capability and batch management controls", () =
   assert.match(pickerSource, /aria-multiselectable/);
   assert.match(conversationStyles, /\.modelPickerCurrentLabel\s*\{[^}]*text-overflow:\s*ellipsis;/);
   assert.match(conversationStyles, /\.modelPicker\s*\{[^}]*max-width:/);
+});
+
+test("composer exposes all four reasoning effort labels for prompt-controlled models", () => {
+  const promptControlledProfile: ModelProfile = {
+    ...profile,
+    id: "profile-prompt-effort",
+    provider: "openai_compatible",
+    base_url: "https://example.com/v1",
+    base_url_host: "example.com",
+    model: "vendor-chat-model",
+    reasoning_effort_options: ["minimal", "low", "medium", "high"],
+    reasoning_control: "prompt_effort",
+    reasoning_control_description: "通过提示词控制推理强度。"
+  };
+  const composer = renderToStaticMarkup(
+    <TutorComposer
+      error={null}
+      sessionId=""
+      originalProblemImage={null}
+      input=""
+      composerBlocked={false}
+      imageInputRef={{ current: null }}
+      imageBusy={false}
+      gradeBand="junior"
+      selectedProfileId={promptControlledProfile.id}
+      selectedProfile={promptControlledProfile}
+      profiles={[promptControlledProfile]}
+      deleteBusy={false}
+      reasoningBusy={false}
+      streamBusy={false}
+      stopBusy={false}
+      startBusy={false}
+      onClearError={() => {}}
+      onRemoveImage={() => {}}
+      onInputChange={() => {}}
+      onSend={() => {}}
+      onImageFile={() => {}}
+      onGradeBandChange={() => {}}
+      onProfileChange={() => {}}
+      onAddProfile={() => {}}
+      onEditProfile={() => {}}
+      onDeleteProfiles={async () => true}
+      onReasoningEffortChange={async () => true}
+      onStop={() => {}}
+    />
+  );
+
+  assert.match(composer, /aria-label="推理强度"/);
+  assert.match(composer, />超低</);
+  assert.match(composer, />低</);
+  assert.match(composer, />中</);
+  assert.match(composer, />高</);
 });
 
 test("problem image selector renders movable and resizable regions", () => {

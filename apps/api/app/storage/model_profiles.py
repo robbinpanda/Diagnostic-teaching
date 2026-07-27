@@ -37,8 +37,8 @@ class ModelProfileRepository:
                     INSERT INTO model_profiles (
                       id, display_name, provider, base_url, model, api_key_ciphertext,
                       api_key_mask, tags_json, enabled, timeout_ms, temperature,
-                      max_output_tokens, is_multimodal, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+                      max_output_tokens, is_multimodal, reasoning_effort, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         profile_id,
@@ -53,6 +53,7 @@ class ModelProfileRepository:
                         payload.temperature,
                         payload.max_output_tokens,
                         int(payload.is_multimodal),
+                        payload.reasoning_effort,
                         ts,
                         ts,
                     ),
@@ -193,6 +194,9 @@ class ModelProfileRepository:
         if "is_multimodal" in changes and changes["is_multimodal"] is not None:
             assignments.append("is_multimodal = ?")
             values.append(int(changes["is_multimodal"]))
+        if "reasoning_effort" in changes and changes["reasoning_effort"] is not None:
+            assignments.append("reasoning_effort = ?")
+            values.append(changes["reasoning_effort"])
         if "api_key" in changes and changes["api_key"]:
             api_key = changes["api_key"].strip()
             assignments.append("api_key_ciphertext = ?")
@@ -214,6 +218,22 @@ class ModelProfileRepository:
                 WHERE id = ? AND deleted_at IS NULL
                 """,
                 tuple(values),
+            )
+        if cursor.rowcount == 0:
+            raise KeyError(profile_id)
+        return self.get(profile_id)
+
+    def update_reasoning_effort(self, profile_id: str, reasoning_effort: str) -> sqlite3.Row:
+        """Persist a user preference even for directory-managed model profiles."""
+        ts = now_iso()
+        with self.db.connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE model_profiles
+                SET reasoning_effort = ?, updated_at = ?
+                WHERE id = ? AND deleted_at IS NULL
+                """,
+                (reasoning_effort, ts, profile_id),
             )
         if cursor.rowcount == 0:
             raise KeyError(profile_id)

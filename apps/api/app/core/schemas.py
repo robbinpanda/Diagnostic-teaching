@@ -6,6 +6,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl
 
 Provider = Literal["openai", "openai_compatible", "anthropic", "local_demo"]
 ContextStatus = Literal["need_problem", "need_thought", "ready"]
+ReasoningEffort = Literal["minimal", "low", "medium", "high"]
 
 
 class ModelProfileCreate(BaseModel):
@@ -19,6 +20,7 @@ class ModelProfileCreate(BaseModel):
     temperature: float = Field(default=0.2, ge=0, le=2)
     max_output_tokens: int = Field(default=8000, ge=100, le=64000)
     is_multimodal: bool = False
+    reasoning_effort: ReasoningEffort = "medium"
 
 
 class ModelProfileBatchItem(BaseModel):
@@ -36,6 +38,7 @@ class ModelProfileBatchCreate(BaseModel):
     timeout_ms: int = Field(default=30000, ge=1000, le=120000)
     temperature: float = Field(default=0.2, ge=0, le=2)
     max_output_tokens: int = Field(default=8000, ge=100, le=64000)
+    reasoning_effort: ReasoningEffort = "medium"
 
 
 class ModelProfileUpdate(BaseModel):
@@ -49,6 +52,13 @@ class ModelProfileUpdate(BaseModel):
     temperature: float | None = Field(default=None, ge=0, le=2)
     max_output_tokens: int | None = Field(default=None, ge=100, le=64000)
     is_multimodal: bool | None = None
+    reasoning_effort: ReasoningEffort | None = None
+
+
+class ModelProfileReasoningUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reasoning_effort: ReasoningEffort
 
 
 class ModelProfileTestRequest(BaseModel):
@@ -61,6 +71,7 @@ class ModelProfileTestRequest(BaseModel):
     max_output_tokens: int = Field(default=8000, ge=100, le=64000)
     probe_multimodal: bool = False
     require_multimodal: bool = False
+    reasoning_effort: ReasoningEffort = "medium"
 
 
 class ModelProfilePublic(BaseModel):
@@ -79,6 +90,10 @@ class ModelProfilePublic(BaseModel):
     max_output_tokens: int
     is_multimodal: bool
     managed: bool = False
+    reasoning_effort: ReasoningEffort = "medium"
+    reasoning_effort_options: list[ReasoningEffort] = ["medium"]
+    reasoning_control: str = "none"
+    reasoning_control_description: str = ""
     last_test_status: str | None = None
     last_test_latency_ms: int | None = None
 
