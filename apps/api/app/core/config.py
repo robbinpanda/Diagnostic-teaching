@@ -17,6 +17,11 @@ class Settings:
     database_path: Path
     secret_path: Path
     session_log_dir: Path
+    sensevoice_model: str
+    sensevoice_vad_model: str
+    sensevoice_device: str
+    sensevoice_max_audio_seconds: int
+    sensevoice_commit_silence_ms: int
 
 
 def _sqlite_path_from_url(value: str | None, root: Path) -> Path:
@@ -39,9 +44,26 @@ def load_settings() -> Settings:
     session_log_dir = Path(os.getenv("SESSION_LOG_DIR", root / "logs" / "sessions"))
     if not session_log_dir.is_absolute():
         session_log_dir = root / session_log_dir
+    try:
+        sensevoice_max_audio_seconds = int(os.getenv("SENSEVOICE_MAX_AUDIO_SECONDS", "60"))
+    except ValueError:
+        sensevoice_max_audio_seconds = 60
+    sensevoice_max_audio_seconds = max(5, min(sensevoice_max_audio_seconds, 300))
+    try:
+        sensevoice_commit_silence_ms = int(
+            os.getenv("SENSEVOICE_COMMIT_SILENCE_MS", "2500")
+        )
+    except ValueError:
+        sensevoice_commit_silence_ms = 2500
+    sensevoice_commit_silence_ms = max(1000, min(sensevoice_commit_silence_ms, 10_000))
     return Settings(
         root=root,
         database_path=database_path,
         secret_path=secret_path,
         session_log_dir=session_log_dir,
+        sensevoice_model=os.getenv("SENSEVOICE_MODEL", "iic/SenseVoiceSmall"),
+        sensevoice_vad_model=os.getenv("SENSEVOICE_VAD_MODEL", "fsmn-vad"),
+        sensevoice_device=os.getenv("SENSEVOICE_DEVICE", "cpu"),
+        sensevoice_max_audio_seconds=sensevoice_max_audio_seconds,
+        sensevoice_commit_silence_ms=sensevoice_commit_silence_ms,
     )

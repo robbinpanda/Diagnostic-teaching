@@ -19,7 +19,9 @@ from app.routes import (
     problem_intake,
     session_events,
     sessions,
+    speech,
 )
+from app.services.sensevoice_transcriber import SenseVoiceTranscriber
 from app.storage.database import Database
 from app.storage.repositories import ModelProfileRepository, SessionRepository
 from app.storage.security import SecretBox
@@ -63,6 +65,13 @@ def create_app() -> FastAPI:
     app.state.recovered_session_runs = app.state.sessions.recover_orphaned_runs()
     app.state.session_logger = session_logger
     app.state.chat_streams = chat.SessionStreamCoordinator()
+    app.state.speech_transcriber = SenseVoiceTranscriber(
+        model=settings.sensevoice_model,
+        vad_model=settings.sensevoice_vad_model,
+        device=settings.sensevoice_device,
+        max_audio_seconds=settings.sensevoice_max_audio_seconds,
+        commit_silence_ms=settings.sensevoice_commit_silence_ms,
+    )
 
     app.add_middleware(
         CORSMiddleware,
@@ -82,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(checkpoints.router)
     app.include_router(card_folders.router)
     app.include_router(cards.router)
+    app.include_router(speech.router)
 
     @app.get("/api/health")
     def health():
