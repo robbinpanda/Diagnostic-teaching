@@ -203,11 +203,11 @@ logs/sessions/<session_id>.jsonl
 
 JSONL 每行一个事件；Markdown 把同一批事件按 system/user/assistant、模型 raw、解析 action、checkpoint 回答分节展示，并在段落间保留空行。两者都是只追加诊断数据，不能作为 session 业务恢复来源。详见 `docs/context-management.md`。
 
-## 为什么之前会闪退
+## 启动窗口行为
 
-之前的 `start-dev.cmd` 是后台启动脚本，双击后主窗口会立刻结束，所以看起来像闪退。现在已经改成双击友好模式，会打开两个可见服务窗口。
+双击 `start-dev.cmd` 会打开两个可见服务窗口，分别运行 API 和 Web。启动入口窗口完成分派后关闭是正常行为；API/Web 服务窗口会保持打开并显示运行日志。
 
-`run-api.cmd` 和 `run-web.cmd` 是单独启动某一个服务用的脚本。现在如果服务启动失败，窗口也会停住并显示错误。
+`run-api.cmd` 和 `run-web.cmd` 用于单独启动某一个服务。服务启动失败时，对应窗口会停住并显示错误。
 
 ## 看卡点为什么有时"没反应"
 

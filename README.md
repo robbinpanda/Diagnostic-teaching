@@ -20,6 +20,8 @@ SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 re
 
 每个 profile 另有持久化的四档推理强度 `minimal / low / medium / high`，前端显示为“超低 / 低 / 中 / 高”，默认是“中”。后端优先按 provider、Base URL 与 model family 映射为 `reasoning_effort`、OpenRouter `reasoning.effort`、DashScope thinking 开关或 Anthropic adaptive thinking；没有明确协议映射的 Kimi 等模型不会盲发未知字段，而是在 system prompt 中使用分档指令控制，且“中”不追加任何指令。同一档位同时作用于正式答疑、上传后的图片题目框检测、兼容图片内容识别接口和模型设置中的图片能力测试；图片调用使用视觉任务专用提示，不会混入 `TutorTurn` 或 `message` 字段要求。OpenCode 托管 profile 仍不能改目录字段或删除，但允许保存本地推理档位偏好。
 
+输入框旁的“初中 / 高中”选择会在创建 session 时固化为 `grade_band`，并随每轮 `SESSION_START` 上下文发送给答疑模型，用于提示知识范围、讲解粒度和推导深度：初中侧重基础概念、直观解释与规范步骤，高中允许使用高中知识、综合方法与完整推导。它不会切换模型或供应商，也不是后端课程知识点白名单；进入答疑后不能修改，避免同一 session 的教学口径中途变化。
+
 教学上下文的前置 intake 已取消；新增的拆题阶段只决定“一段输入要创建几个 session”，不参与教学 action。文字首发先调用 `POST /api/problem-intake/analyze-text`，由当前选定模型返回严格 `problems[]` JSON；单题返回一项，多题返回多个自包含题目，再由 `POST /api/sessions/batch-start` 在同一 SQLite 事务中为每题创建正式 session、写入 `session_inputs` 并保存首条 `STUDENT_RESPONSE`。每个子会话都有稳定 session id 与 `client_message_id`，整批重试不会重复创建。进入正式 session 后，题目和学生思路仍由答疑模型按完整对话语义更新；`context_status=need_problem|need_thought` 时后端强制只允许 `ASK_OPEN_QUESTION`，两项明确后进入 `ready`。
 
 正式 session 的学生输入采用“先接纳、后生成”：普通消息先调用 `POST /api/sessions/{session_id}/inputs`，携带稳定的 `client_message_id`，服务端在一个 SQLite 事务中写入 `session_inputs` 和 `STUDENT_RESPONSE` message；随后 `/api/chat/stream` 只负责读取已落库上下文并生成。首次接纳返回 `201 + accepted`，同 ID 同内容重试返回 `200 + duplicate` 和原始结果，同 ID 不同内容返回 `409 IDEMPOTENCY_KEY_CONFLICT`。旧客户端仍可在 `/api/chat/stream` 中携带 message，后端会先走同一接纳服务。
