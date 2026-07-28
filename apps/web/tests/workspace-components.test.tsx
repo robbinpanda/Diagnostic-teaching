@@ -354,11 +354,20 @@ test("composer exposes all four reasoning effort labels for prompt-controlled mo
     />
   );
 
-  assert.match(composer, /aria-label="推理强度"/);
-  assert.match(composer, />超低</);
-  assert.match(composer, />低</);
-  assert.match(composer, />中</);
-  assert.match(composer, />高</);
+  assert.match(composer, /aria-label="学习阶段：初中"/);
+  assert.match(composer, /帮助导师调整知识范围与讲解方式/);
+  assert.match(composer, /侧重基础概念、直观解释与规范步骤/);
+  assert.match(composer, /允许使用高中知识、综合方法与完整推导/);
+  assert.doesNotMatch(composer, /<select[^>]*aria-label="年级"/);
+  assert.match(composer, /aria-label="推理强度：中"/);
+  assert.match(composer, /aria-haspopup="listbox"/);
+  assert.match(composer, /推理 · <strong>中<\/strong>/);
+  assert.match(composer, /尽量跳过深度思考，优先立即回复/);
+  assert.match(composer, /减少推理与复核，优先回复速度/);
+  assert.match(composer, /保持模型默认行为，平衡速度与质量/);
+  assert.match(composer, /充分推理并仔细检查，优先回答质量/);
+  assert.match(composer, /reasoningRecommendedBadge/);
+  assert.doesNotMatch(composer, /<select[^>]*aria-label="推理强度"/);
 });
 
 test("problem image selector renders movable and resizable regions", () => {

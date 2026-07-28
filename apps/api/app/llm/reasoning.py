@@ -6,6 +6,7 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 ReasoningEffort = Literal["minimal", "low", "medium", "high"]
+ReasoningPromptTask = Literal["tutor_turn", "vision_json", "vision_probe"]
 REASONING_EFFORTS: tuple[ReasoningEffort, ...] = ("minimal", "low", "medium", "high")
 
 
@@ -144,6 +145,8 @@ def reasoning_prompt_instruction(
     base_url: str,
     model: str,
     effort: str,
+    *,
+    task: ReasoningPromptTask = "tutor_turn",
 ) -> str | None:
     """Return safe prompt-level effort guidance when no request mapping exists."""
 
@@ -153,6 +156,39 @@ def reasoning_prompt_instruction(
     normalized = normalize_reasoning_effort(effort)
     if normalized == "medium":
         return None
+
+    if task == "vision_json":
+        if normalized == "minimal":
+            return (
+                "推理强度要求（超低）：能不推理就不要推理，立即检查图片并输出当前图片任务合同要求的最终 JSON。"
+                "只做完成图片识别和满足 JSON 合同所必需的最少判断，不要输出原始思考过程。"
+            )
+        if normalized == "low":
+            return (
+                "推理强度要求（低）：尽量减少内部 reasoning、反复检查和额外推断，"
+                "优先快速识别图片中的可见内容并输出合法的最终 JSON；不要输出原始思考过程。"
+            )
+        return (
+            "推理强度要求（高）：输出前仔细检查图片中的题目区域、印刷文字、手写过程、答案与批改痕迹，"
+            "核对识别结果和当前 JSON 合同后再输出；不要展示原始思考过程，只输出最终 JSON。"
+        )
+
+    if task == "vision_probe":
+        if normalized == "minimal":
+            return (
+                "推理强度要求（超低）：能不推理就不要推理，直接识别图片并按用户要求给出最短最终答案；"
+                "不要解释或输出思考过程。"
+            )
+        if normalized == "low":
+            return (
+                "推理强度要求（低）：尽量减少内部 reasoning 和反复检查，"
+                "快速识别图片并按用户要求给出简短最终答案；不要输出思考过程。"
+            )
+        return (
+            "推理强度要求（高）：仔细核对图片中各对象的颜色、形状与顺序后再给出最终答案；"
+            "仍须遵守用户要求的简短格式，不要输出思考过程。"
+        )
+
     if normalized == "minimal":
         return (
             "推理强度要求（超低）：能不推理就不要推理，不要展开分析过程。"

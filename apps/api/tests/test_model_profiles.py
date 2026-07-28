@@ -580,10 +580,14 @@ def test_text_only_image_result_does_not_crop_even_if_model_returns_bbox(
             "api_key": "vision-key",
             "model": "vision-model",
             "is_multimodal": True,
+            "reasoning_effort": "high",
         },
     )
 
+    captured = {}
+
     async def fake_analyze_problem_image(profile, image_data_url):
+        captured["reasoning_effort"] = profile.reasoning_effort
         return json.dumps(
             {
                 "problem_text": "计算 1+1。",
@@ -616,6 +620,7 @@ def test_text_only_image_result_does_not_crop_even_if_model_returns_bbox(
     assert payload["needs_diagram"] is False
     assert payload["diagram_image_data_url"] is None
     assert payload["student_work_summary"] == ""
+    assert captured["reasoning_effort"] == "high"
 
 
 def test_edit_connection_test_uses_saved_api_key_when_input_is_blank(tmp_path: Path, monkeypatch):

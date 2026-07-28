@@ -153,3 +153,42 @@ def test_legacy_auto_normalizes_to_medium_without_prompt_guidance():
 
     assert options == {}
     assert instruction is None
+
+
+def test_prompt_effort_uses_vision_specific_json_guidance():
+    minimal = reasoning_prompt_instruction(
+        "openai_compatible",
+        "https://example.com/v1",
+        "vendor-vision-model",
+        "minimal",
+        task="vision_json",
+    )
+    high = reasoning_prompt_instruction(
+        "openai_compatible",
+        "https://example.com/v1",
+        "vendor-vision-model",
+        "high",
+        task="vision_json",
+    )
+
+    assert minimal is not None and "立即检查图片" in minimal
+    assert high is not None and "手写过程、答案与批改痕迹" in high
+    assert "TutorTurn" not in minimal
+    assert "message" not in minimal
+    assert "TutorTurn" not in high
+    assert "message" not in high
+
+
+def test_prompt_effort_uses_short_vision_probe_guidance():
+    low = reasoning_prompt_instruction(
+        "openai_compatible",
+        "https://example.com/v1",
+        "vendor-vision-model",
+        "low",
+        task="vision_probe",
+    )
+
+    assert low is not None
+    assert "快速识别图片" in low
+    assert "简短最终答案" in low
+    assert "JSON" not in low

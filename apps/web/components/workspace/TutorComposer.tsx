@@ -3,7 +3,9 @@
 import { ArrowUp, Loader2, Paperclip, Pencil, Plus, Square, X } from "lucide-react";
 import type { RefObject } from "react";
 import type { ModelProfile, ReasoningEffort } from "../../lib/api";
+import { GradeBandPicker } from "./GradeBandPicker";
 import { ModelProfilePicker } from "./ModelProfilePicker";
+import { ReasoningEffortPicker } from "./ReasoningEffortPicker";
 
 type Props = {
   error: string | null;
@@ -108,10 +110,11 @@ export function TutorComposer({
             >
               {imageBusy ? <Loader2 size={17} className="spin" /> : <Paperclip size={17} />}
             </button>
-            <select value={gradeBand} onChange={(event) => onGradeBandChange(event.target.value as typeof gradeBand)} disabled={Boolean(sessionId) || composerBlocked} aria-label="年级">
-              <option value="junior">初中</option>
-              <option value="senior">高中</option>
-            </select>
+            <GradeBandPicker
+              value={gradeBand}
+              disabled={Boolean(sessionId) || composerBlocked}
+              onChange={onGradeBandChange}
+            />
             <ModelProfilePicker
               profiles={profiles}
               selectedProfileId={selectedProfileId}
@@ -123,33 +126,12 @@ export function TutorComposer({
               onDelete={onDeleteProfiles}
             />
             {selectedProfile && selectedProfile.reasoning_effort_options.length > 1 && (
-              <label
-                className="reasoningEffortControl"
-                title={selectedProfile.reasoning_control_description}
-              >
-                <span>推理</span>
-                <select
-                  value={selectedProfile.reasoning_effort}
-                  onChange={(event) => void onReasoningEffortChange(
-                    selectedProfile.id,
-                    event.target.value as ReasoningEffort
-                  )}
-                  disabled={streamBusy || reasoningBusy}
-                  aria-label="推理强度"
-                >
-                  {selectedProfile.reasoning_effort_options.map((effort) => (
-                    <option key={effort} value={effort}>
-                      {effort === "minimal"
-                        ? "超低"
-                        : effort === "low"
-                          ? "低"
-                          : effort === "medium"
-                            ? "中"
-                            : "高"}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <ReasoningEffortPicker
+                profile={selectedProfile}
+                busy={reasoningBusy}
+                disabled={streamBusy}
+                onChange={onReasoningEffortChange}
+              />
             )}
             <button
               className="toolButton"

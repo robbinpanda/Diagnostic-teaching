@@ -18,7 +18,7 @@ SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 re
 
 模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name，并可选择 OpenAI-compatible chat completions 或 Anthropic Messages 协议。多个 model name 的连接测试最多四项并行执行，每个模型独立显示成功或失败并设置是否多模态；图片能力使用每次随机排列的颜色/图形挑战验证模型是否真正读懂图片，而不是只判断请求是否返回文字。模型选择器会根据名称长度自适应宽度，长名称自动省略，多模态项显示“支持上传图片”；管理模式可复选并原子批量删除自定义配置。用户配置显示为“供应商名称 · model name”；OpenCode 托管免费模型显示为 `opencodefree-<model-id>`，由 `models.dev` 目录同步协议与图片能力，且不能手动删除。
 
-每个 profile 另有持久化的四档推理强度 `minimal / low / medium / high`，前端显示为“超低 / 低 / 中 / 高”，默认是“中”。后端优先按 provider、Base URL 与 model family 映射为 `reasoning_effort`、OpenRouter `reasoning.effort`、DashScope thinking 开关或 Anthropic adaptive thinking；没有明确协议映射的 Kimi 等模型不会盲发未知字段，而是在 system prompt 中使用分档指令控制，且“中”不追加任何指令。OpenCode 托管 profile 仍不能改目录字段或删除，但允许保存本地推理档位偏好。
+每个 profile 另有持久化的四档推理强度 `minimal / low / medium / high`，前端显示为“超低 / 低 / 中 / 高”，默认是“中”。后端优先按 provider、Base URL 与 model family 映射为 `reasoning_effort`、OpenRouter `reasoning.effort`、DashScope thinking 开关或 Anthropic adaptive thinking；没有明确协议映射的 Kimi 等模型不会盲发未知字段，而是在 system prompt 中使用分档指令控制，且“中”不追加任何指令。同一档位同时作用于正式答疑、上传后的图片题目框检测、兼容图片内容识别接口和模型设置中的图片能力测试；图片调用使用视觉任务专用提示，不会混入 `TutorTurn` 或 `message` 字段要求。OpenCode 托管 profile 仍不能改目录字段或删除，但允许保存本地推理档位偏好。
 
 教学上下文的前置 intake 已取消；新增的拆题阶段只决定“一段输入要创建几个 session”，不参与教学 action。文字首发先调用 `POST /api/problem-intake/analyze-text`，由当前选定模型返回严格 `problems[]` JSON；单题返回一项，多题返回多个自包含题目，再由 `POST /api/sessions/batch-start` 在同一 SQLite 事务中为每题创建正式 session、写入 `session_inputs` 并保存首条 `STUDENT_RESPONSE`。每个子会话都有稳定 session id 与 `client_message_id`，整批重试不会重复创建。进入正式 session 后，题目和学生思路仍由答疑模型按完整对话语义更新；`context_status=need_problem|need_thought` 时后端强制只允许 `ASK_OPEN_QUESTION`，两项明确后进入 `ready`。
 

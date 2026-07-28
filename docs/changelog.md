@@ -10,6 +10,7 @@
 - 新增 provider-specific 映射层：OpenAI、OpenRouter、DashScope thinking 与 Anthropic adaptive thinking 分别发送对应字段；没有明确协议映射的 Kimi 等模型改用分档 system prompt，`medium` 不增加指令，避免 OpenAI-compatible 端点因未知参数失败。
 - provider stream 识别响应头、reasoning 与正式 content 边界，但不向前端转发原始 CoT。chat SSE 新增固定安全 `progress` 阶段，标题栏从 run 开始持续显示“读取题目 / 核对思路 / 选择教学方式 / 组织回复”。
 - `tutor_turn` 日志新增首进度、首 reasoning、首 content、首可见 message、可交互与总完成耗时，并记录实际选择的 reasoning effort。
+- 推理强度现已覆盖图片题目框检测、兼容图片内容识别和模型设置中的多模态能力测试；图片路由会读取 profile 已保存档位，未知供应商使用视觉任务专用提示词兜底，不再固定为默认中档或混入 `TutorTurn` 字段要求。
 - TutorTurn prompt 改成按 action 区分的最小联合合同，`message` 固定排第一，无关 checkpoint/card 字段不再输出 `null`；历史 assistant 示例同步使用最小结构。已由结构化状态确定的 checkpoint 反馈使用专属小合同，不额外调用一次模型分类 action。
 - 增加 provider 映射、Kimi 未知能力保护、迁移、最小合同、安全进度、timeline 与诊断指标测试。
 

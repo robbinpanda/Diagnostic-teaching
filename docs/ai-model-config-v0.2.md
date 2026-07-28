@@ -285,7 +285,7 @@ PATCH /api/model-profiles/{profile_id}/reasoning
 {"reasoning_effort": "low"}
 ```
 
-该接口对 OpenCode 托管 profile 也开放，因为它只保存本地用户偏好，不修改目录同步的 provider、URL、model 或多模态能力。列表响应额外返回 `reasoning_effort_options`、`reasoning_control` 和说明。有明确协议映射的模型发送 provider 参数；未知模型仍显示四档，但后端只用提示词工程控制，不发送未经确认的字段。`medium` 为默认行为，不增加额外提示词。
+该接口对 OpenCode 托管 profile 也开放，因为它只保存本地用户偏好，不修改目录同步的 provider、URL、model 或多模态能力。列表响应额外返回 `reasoning_effort_options`、`reasoning_control` 和说明。有明确协议映射的模型发送 provider 参数；未知模型仍显示四档，但后端只用提示词工程控制，不发送未经确认的字段。`medium` 为默认行为，不增加额外提示词。保存的档位不仅作用于正式答疑，也作用于图片题目框检测、兼容图片内容识别和多模态能力测试；无协议映射时，后端会按视觉 JSON 或视觉短答案任务追加专用提示词，而不是复用 `TutorTurn` 提示。
 
 ### 5.6 批量删除模型配置
 

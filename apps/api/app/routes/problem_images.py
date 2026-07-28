@@ -31,6 +31,7 @@ def profile_from_row(request: Request, row) -> LlmProfile:
         timeout_ms=row["timeout_ms"],
         temperature=row["temperature"],
         max_output_tokens=row["max_output_tokens"],
+        reasoning_effort=row["reasoning_effort"],
     )
 
 

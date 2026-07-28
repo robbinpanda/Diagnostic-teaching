@@ -146,7 +146,7 @@ assistant 带 knowledge_card / problem_card 的教学 action
 
 `app/llm/provider.py` 再按 profile 分发协议：OpenAI-compatible 原样发送到 chat completions；Anthropic 会把 system 从 messages 中提到顶层、合并相邻同角色消息，并把统一 `image_url` data URL 转成 Anthropic base64 image source。协议转换不改变 SQLite 历史结构，也不会把 API key 写入消息或日志。
 
-profile 的统一 `reasoning_effort=minimal|low|medium|high` 由 `app/llm/reasoning.py` 管理，默认值为 `medium`。已识别的 OpenAI reasoning model 使用 `reasoning_effort`，OpenRouter 使用 `reasoning.effort`，DashScope 已识别的 thinking 模型使用 `enable_thinking`，支持 adaptive thinking 的 Anthropic 模型使用 `thinking + output_config.effort`。能力不明确的 OpenAI-compatible、Anthropic 或其他模型不会收到未经确认的请求字段，而是在 system prompt 中追加相应的超低、低或高档指令；中档不追加指令。这与 OpenCode 的原则一致：不假设 Kimi、DeepSeek、Qwen 等都接受同一种协议字段。
+profile 的统一 `reasoning_effort=minimal|low|medium|high` 由 `app/llm/reasoning.py` 管理，默认值为 `medium`。已识别的 OpenAI reasoning model 使用 `reasoning_effort`，OpenRouter 使用 `reasoning.effort`，DashScope 已识别的 thinking 模型使用 `enable_thinking`，支持 adaptive thinking 的 Anthropic 模型使用 `thinking + output_config.effort`。能力不明确的 OpenAI-compatible、Anthropic 或其他模型不会收到未经确认的请求字段，而是在 system prompt 中追加相应的超低、低或高档指令；中档不追加指令。这一映射覆盖正式答疑、图片题目框检测、兼容图片内容识别和多模态能力测试。提示词兜底按任务区分：答疑使用 `TutorTurn` 指令，图片 JSON 识别使用视觉合同指令，图片能力测试使用短答案指令，避免把 `message` 等答疑字段错误地加入图片识别合同。这与 OpenCode 的原则一致：不假设 Kimi、DeepSeek、Qwen 等都接受同一种协议字段。
 
 应用层不再设置“固定保留 20 条”之类的截断，也不做摘要或压缩。`SessionRepository.list_messages(session_id)` 默认读取该 session 的全部消息并按时间正序发送。
 

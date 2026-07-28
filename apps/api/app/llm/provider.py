@@ -16,7 +16,11 @@ from app.llm.local_demo_provider import (
     local_demo_stream,
     message_text,
 )
-from app.llm.reasoning import reasoning_request_options
+from app.llm.reasoning import (
+    ReasoningPromptTask,
+    reasoning_prompt_instruction,
+    reasoning_request_options,
+)
 
 __all__ = [
     "IMAGE_ANALYSIS_PROMPT",
@@ -188,6 +192,7 @@ async def test_multimodal_connection(
             ],
         }
     ]
+    messages = _messages_with_reasoning_prompt(profile, messages, task="vision_probe")
     started = time.perf_counter()
     latency: int | None = None
     chunks: list[str] = []
@@ -298,7 +303,7 @@ async def analyze_problem_image(profile: LlmProfile, image_data_url: str) -> str
             ensure_ascii=False,
         )
 
-    return await chat_completion(
+    messages = _messages_with_reasoning_prompt(
         profile,
         [
             {"role": "system", "content": IMAGE_ANALYSIS_PROMPT},
@@ -310,6 +315,11 @@ async def analyze_problem_image(profile: LlmProfile, image_data_url: str) -> str
                 ],
             },
         ],
+        task="vision_json",
+    )
+    return await chat_completion(
+        profile,
+        messages,
         max_tokens=min(max(profile.max_output_tokens, 4000), 16000),
         temperature=0,
     )
@@ -329,7 +339,7 @@ async def detect_problem_regions(profile: LlmProfile, image_data_url: str) -> st
             ensure_ascii=False,
         )
 
-    return await chat_completion(
+    messages = _messages_with_reasoning_prompt(
         profile,
         [
             {"role": "system", "content": IMAGE_PROBLEM_DETECTION_PROMPT},
@@ -344,9 +354,42 @@ async def detect_problem_regions(profile: LlmProfile, image_data_url: str) -> st
                 ],
             },
         ],
+        task="vision_json",
+    )
+    return await chat_completion(
+        profile,
+        messages,
         max_tokens=min(max(profile.max_output_tokens, 2000), 8000),
         temperature=0,
     )
+
+
+def _messages_with_reasoning_prompt(
+    profile: LlmProfile,
+    messages: list[dict[str, Any]],
+    *,
+    task: ReasoningPromptTask,
+) -> list[dict[str, Any]]:
+    instruction = reasoning_prompt_instruction(
+        profile.provider,
+        profile.base_url,
+        profile.model,
+        profile.reasoning_effort,
+        task=task,
+    )
+    if not instruction:
+        return messages
+
+    prompted = [dict(message) for message in messages]
+    if (
+        prompted
+        and prompted[0].get("role") == "system"
+        and isinstance(prompted[0].get("content"), str)
+    ):
+        prompted[0]["content"] = f"{prompted[0]['content']}\n\n{instruction}"
+    else:
+        prompted.insert(0, {"role": "system", "content": instruction})
+    return prompted
 
 
 def _local_demo_text_problems(text: str) -> list[str]:
