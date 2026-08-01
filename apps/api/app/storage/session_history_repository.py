@@ -200,8 +200,8 @@ class SessionHistoryRepositoryMixin:
                     INSERT INTO checkpoints (
                       id, session_id, question, options_json, correct_option_id,
                       tested_point, source_action_id, selected_option_id,
-                      is_correct, elapsed_ms, created_at, answered_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      is_correct, elapsed_ms, created_at, answered_at, free_text_response
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         checkpoint_map[checkpoint["id"]],
@@ -216,6 +216,7 @@ class SessionHistoryRepositoryMixin:
                         checkpoint["elapsed_ms"],
                         checkpoint["created_at"],
                         checkpoint["answered_at"],
+                        checkpoint["free_text_response"],
                     ),
                 )
 
@@ -298,8 +299,9 @@ class SessionHistoryRepositoryMixin:
                     """
                     INSERT INTO study_cards (
                       id, session_id, live_session_id, card_type, title, content_json,
-                      source_action_id, source_message_id, created_at, saved_at, folder_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      source_action_id, source_message_id, created_at, saved_at, folder_id,
+                      deferred_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         card_map[card["id"]],
@@ -313,6 +315,7 @@ class SessionHistoryRepositoryMixin:
                         card["created_at"],
                         card["saved_at"],
                         card["folder_id"],
+                        card["deferred_at"],
                     ),
                 )
 

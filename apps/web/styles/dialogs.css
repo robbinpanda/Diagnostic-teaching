@@ -1,4 +1,121 @@
 /* Shared dialogs */
+.problemViewerBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(12, 13, 12, 0.82);
+  backdrop-filter: blur(6px);
+}
+
+.problemViewerDialog {
+  width: min(1280px, 100%);
+  height: min(900px, calc(100vh - 36px));
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+  background: #171916;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
+}
+
+.problemViewerHeader {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 13px 11px 16px;
+  color: #f6f7f4;
+  background: #242622;
+}
+
+.problemViewerHeader > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.problemViewerHeader strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.problemViewerHeader span {
+  color: #afb4ad;
+  font-size: 10px;
+}
+
+.problemViewerControls {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.problemViewerControls button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  display: inline-grid;
+  place-items: center;
+  color: #f6f7f4;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.problemViewerControls button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.problemViewerControls button:disabled {
+  opacity: 0.35;
+}
+
+.problemViewerControls > span {
+  width: 48px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.problemViewerWorkspace {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  cursor: zoom-in;
+  touch-action: none;
+  user-select: none;
+}
+
+.problemViewerWorkspace.zoomed {
+  cursor: grab;
+}
+
+.problemViewerWorkspace.zoomed:active {
+  cursor: grabbing;
+}
+
+.problemViewerWorkspace img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transform-origin: center;
+  transition: transform 100ms ease-out;
+  will-change: transform;
+  pointer-events: none;
+}
+
+.problemViewerWorkspace.zoomed img {
+  transition: none;
+}
+
 .modalBackdrop {
   position: fixed;
   inset: 0;

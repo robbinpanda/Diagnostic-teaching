@@ -9,18 +9,12 @@ export type SessionWorkflowState =
       phase: "streaming" | "stopping";
       sessionId: string;
       runId: string;
-      pendingCard: StudyCard | null;
     })
   | (WorkflowBase & {
       mode: "checkpoint";
       phase: "ready" | "submitting";
       checkpoint: Checkpoint;
       startedAt: number;
-    })
-  | (WorkflowBase & {
-      mode: "card";
-      phase: "ready" | "saving";
-      card: StudyCard;
     });
 
 export type SessionWorkflowAction =
@@ -36,11 +30,7 @@ export type SessionWorkflowAction =
   | { type: "checkpoint_submit_started" }
   | { type: "checkpoint_submitted" }
   | { type: "checkpoint_submit_failed"; message: string }
-  | { type: "card_buffered"; sessionId: string; runId: string; card: StudyCard }
   | { type: "message_done"; sessionId: string; runId: string }
-  | { type: "card_save_started" }
-  | { type: "card_saved" }
-  | { type: "card_save_failed"; message: string }
   | { type: "error_set"; message: string }
   | { type: "error_cleared" };
 
@@ -63,7 +53,6 @@ export function sessionWorkflowReducer(
     case "session_reset":
       return createSessionWorkflowState();
     case "session_loaded":
-      if (action.pendingCard) return { mode: "card", phase: "ready", card: action.pendingCard, error: null };
       if (action.pendingCheckpoint) {
         return {
           mode: "checkpoint",
@@ -88,7 +77,6 @@ export function sessionWorkflowReducer(
         phase: "streaming",
         sessionId: action.sessionId,
         runId: action.runId,
-        pendingCard: null,
         error: null
       };
     case "run_stop_requested":
@@ -96,7 +84,6 @@ export function sessionWorkflowReducer(
       return { ...state, phase: "stopping" };
     case "run_finished":
       if (!isMatchingRun(state, action)) return state;
-      if (state.pendingCard) return { mode: "card", phase: "ready", card: state.pendingCard, error: null };
       return createSessionWorkflowState();
     case "run_failed":
       if (!isMatchingRun(state, action)) return state;
@@ -119,21 +106,8 @@ export function sessionWorkflowReducer(
     case "checkpoint_submit_failed":
       if (state.mode !== "checkpoint" || state.phase !== "submitting") return state;
       return { ...state, phase: "ready", error: action.message };
-    case "card_buffered":
-      if (!isMatchingRun(state, action) || state.pendingCard) return state;
-      return { ...state, pendingCard: action.card };
     case "message_done":
-      if (!isMatchingRun(state, action) || !state.pendingCard) return state;
-      return { mode: "card", phase: "ready", card: state.pendingCard, error: null };
-    case "card_save_started":
-      if (state.mode !== "card" || state.phase !== "ready") return state;
-      return { ...state, phase: "saving", error: null };
-    case "card_saved":
-      if (state.mode !== "card" || state.phase !== "saving") return state;
-      return createSessionWorkflowState();
-    case "card_save_failed":
-      if (state.mode !== "card" || state.phase !== "saving") return state;
-      return { ...state, phase: "ready", error: action.message };
+      return state;
     case "error_set":
       return { ...state, error: action.message };
     case "error_cleared":
@@ -143,5 +117,7 @@ export function sessionWorkflowReducer(
 }
 
 export function isComposerBlocked(state: SessionWorkflowState) {
+  if (state.mode === "checkpoint") return state.phase !== "ready";
+  if (state.mode === "run") return state.phase !== "streaming";
   return state.mode !== "composer" || state.activity !== "idle";
 }

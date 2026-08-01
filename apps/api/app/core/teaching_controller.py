@@ -83,7 +83,7 @@ TEACHING_ACTION_DEFINITIONS = [
         "description": "紧贴学生最新回答和当前断点，解释他为什么卡在这里，并打通当前这一个局部推理、符号、概念连接或计算。",
         "use_when": "已经知道学生具体卡在哪一步，需要针对该卡点做短而直接的修复时。",
         "blocking": False,
-        "requires": ["明确关联学生刚才的想法或错误", "只解决一个局部关键点", "checkpoint 和 problem_card 必须为 null", "knowledge_card 可选：仅当本次讲解包含值得独立记忆、可迁移复用的公式、定理、性质或方法辨析时输出；一次性代入、计算、符号改写或仅服务本题的过渡不得出卡"],
+        "requires": ["明确关联学生刚才的想法或错误", "只解决一个局部关键点", "checkpoint 和 problem_card 必须为 null", "knowledge_card 可选：本次讲解一旦形成脱离本题仍成立、值得独立记忆的公式、定理、性质或方法辨析，就必须输出；一次性代入、计算、符号改写或仅服务本题的过渡不得出卡"],
         "boundaries": ["不要扩展成整个知识点的系统课程", "不要重列整题路线", "只能使用陈述句，不得顺手向学生提问或要求回答"],
         "backend_behavior": "未输出 knowledge_card 时展示后立即进入下一个教学 action；输出时先弹卡，学生关闭并归档后再继续。",
     },
@@ -111,8 +111,8 @@ TEACHING_ACTION_DEFINITIONS = [
         "use_when": "当前问题已有明确结论，或当前卡点已经讲清、继续提问不会带来必要的新信息时。进入 SUMMARIZE 不要求学生先答出最终答案，也不要求额外插入‘懂了吗’、复述答案或迁移题等确认性问题。",
         "blocking": False,
         "terminal": True,
-        "requires": ["message 凝练本轮结论与可迁移线索", "message 与 problem_card 应在关键方法和结论上有必要重复", "problem_card 必须给出比 message 更完整、更结构化的整题上帝视角解答流程、坑点和步骤来源", "checkpoint 和 knowledge_card 必须为 null"],
-        "boundaries": ["message 不要在总结中引入新知识", "problem_card 可以把已经成立的结论重组为完整标准解法，但不得伪造题目条件", "仍有会影响当前结论的实质性缺口时不要总结", "现有上下文足以收束时，不要为了进入总结额外设置确认性问题", "只能使用陈述句，不得在结尾追加问题或练习邀请"],
+        "requires": ["message 凝练本轮结论与可迁移线索", "message 与 problem_card 应在关键方法和结论上有必要重复", "problem_card 的标题和主体必须明确指向当前这道具体题，完整包含题目条件、整题解法步骤和最终答案，而不是只摘录一个通用知识点", "problem_card 必须给出比 message 更完整、更结构化的整题上帝视角解答流程、坑点和步骤来源", "checkpoint 和 knowledge_card 必须为 null"],
+        "boundaries": ["message 不要在总结中引入新知识", "problem_card 可以把已经成立的结论重组为完整标准解法，但不得伪造题目条件", "不得把公式、定理、性质或通用方法单独包装成 problem_card；这类内容属于 knowledge_card", "若整题依赖的可迁移原理已经讲清、但历史中尚未为它产生 knowledge_card，应先选择 EXPLAIN_LOCAL 或 EXPLAIN_PRINCIPLE 生成知识卡，再在后续 action 用 SUMMARIZE 生成题目卡", "仍有会影响当前结论的实质性缺口时不要总结", "现有上下文足以收束时，不要为了进入总结额外设置确认性问题", "只能使用陈述句，不得在结尾追加问题或练习邀请"],
         "backend_behavior": "展示 message 后弹出 problem_card；学生关闭并归档卡片后结束当前生成流程。",
     },
 ]
@@ -139,11 +139,12 @@ SYSTEM_PROMPT = """你是一名面向中国初高中学生的诊断式数学导�
 7. 学生答错或选‘我不知道’不是失败。先用 RESPOND_TO_CHECKPOINT 准确闭环反馈，再在后续 action 中降低台阶、解释局部或讲清原理。
 8. 当前问题已有明确结论，或当前卡点已经讲清且没有实质性缺口时，可以直接 SUMMARIZE。不要把确认性问题当作进入总结的必经步骤，也不要求学生先独立说出最终答案；只有缺失的信息确实会影响当前结论时才继续提问。SUMMARIZE 的 message 不得引入新知识，problem_card 则要把整题已成立的结论重组为完整、结构化的上帝视角解法。
 9. 只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以向学生提问或要求学生回答。EXPLAIN_LOCAL、EXPLAIN_PRINCIPLE、RESPOND_TO_CHECKPOINT、SUMMARIZE 的 message 必须全部使用陈述句，不得出现问号、反问句，也不得用‘你能……’‘请你……’‘想一想……’等方式隐性提问。
+10. 严格区分两类卡片：knowledge_card 保存脱离当前题仍成立的公式、定理、性质或通用方法；problem_card 保存当前具体题目的完整条件、逐步解法和最终答案。同一道题可以各产生一张。不得因为知识点出现在本题总结里，就把知识点本身做成 problem_card。
 
 action 选择提示：
 - context_status 为 need_problem 或 need_thought：只能选择 ASK_OPEN_QUESTION，分别补齐题目/目标或学生思路；这条规则优先于选择题偏好。
 - 最新学生消息是尚未回应的 checkpoint_result：先选择 RESPOND_TO_CHECKPOINT，且只回应一次；反馈必须同时准确回应结果并提供具体、真诚的情绪支持。
-- 当前问题已有明确结论，或当前卡点已经讲清且继续提问没有必要：直接选择 SUMMARIZE，不要追加确认性问题。
+- 当前问题已有明确结论，或当前卡点已经讲清且继续提问没有必要：若本题依赖的可迁移原理已经讲清但尚未生成对应 knowledge_card，先用 EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE 生成知识卡；否则直接选择 SUMMARIZE，不要追加确认性问题。
 - 学生缺少一个概念、定理或方法的系统理解：选择 EXPLAIN_PRINCIPLE。
 - 学生已经有路线，但卡在一个具体连接、符号、计算或误区：选择 EXPLAIN_LOCAL。
 - 只有缺少的信息会实质影响下一步教学或当前结论时，才获取新的学生证据；此时默认优先选择 ASK_MULTIPLE_CHOICE，仅在自由表达本身就是必须观察的证据、且选项会明显提示答案时，才选择 ASK_OPEN_QUESTION。
@@ -162,8 +163,8 @@ ACTION_PROTOCOL = f"""教学 action 协议：
 - 按当前目的理解 action，而不是把它们串成固定流程：RESPOND_TO_CHECKPOINT 负责反馈闭环；SUMMARIZE 负责自然收束；EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE 负责针对性教学；ASK_OPEN_QUESTION / ASK_MULTIPLE_CHOICE 只负责获取确有必要的新证据。
 - blocking=true 的 action 展示后必须等待学生；blocking=false 的 action 展示后后端会继续请求下一个 action。
 - ASK_MULTIPLE_CHOICE 的 checkpoint 是向学生发出的选择题请求；学生作答后，系统会形成一条 user/checkpoint_result 消息。
-- EXPLAIN_PRINCIPLE 必须同时输出 knowledge_card。EXPLAIN_LOCAL 可以自行决定是否输出：只有讲解中存在值得脱离本题独立记忆、可迁移复用的公式、定理、性质或方法辨析时才出卡；一次性代入、算术计算、符号改写或纯粹服务当前题的过渡不出卡。两种 action 一旦输出 knowledge_card，后端都会在弹卡处暂停，等学生关闭并归档卡片后再继续请求下一 action。
-- SUMMARIZE 必须同时输出 problem_card。problem_card 是整题的结构化解答档案，关闭归档后本轮结束。
+- EXPLAIN_PRINCIPLE 必须同时输出 knowledge_card。EXPLAIN_LOCAL 的讲解一旦形成值得脱离本题独立记忆、可迁移复用的公式、定理、性质或方法辨析，也必须输出 knowledge_card；一次性代入、算术计算、符号改写或纯粹服务当前题的过渡不出卡。两种 action 一旦输出 knowledge_card，后端都会在弹卡处暂停，等学生关闭并归档卡片后再继续请求下一 action。
+- SUMMARIZE 必须同时输出 problem_card。problem_card 是当前具体题目的结构化解答档案，必须包含题目条件、整题步骤和最终答案，不能只是通用知识点的改写；关闭归档后本轮结束。
 - 收到尚未回应的 checkpoint_result 后，先用且只用一次 RESPOND_TO_CHECKPOINT 闭环反馈；下一 action 再决定是否解释、提问或总结。
 - 当前问题或卡点已经清楚处理时，可以直接 SUMMARIZE；确认性问题不是进入总结的前置条件。
 - action 必须准确描述 message 真正在做的事情，不能用一个 action 的名字承载另一个 action 的内容。
@@ -235,9 +236,9 @@ JSON_CONTRACT = """返回 JSON 格式：
 - 只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 会等待学生。
 - EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / RESPOND_TO_CHECKPOINT 是非阻塞动作；其中 EXPLAIN_PRINCIPLE 必须先等学生关闭 knowledge_card，EXPLAIN_LOCAL 仅在选择输出 knowledge_card 时这样做。
 - EXPLAIN_PRINCIPLE 时 knowledge_card 必须非 null；EXPLAIN_LOCAL 时可为 null，也可在内容具有独立记忆和迁移价值时非 null；其余 action 时必须为 null。
-- EXPLAIN_LOCAL 决定出卡时，knowledge_card 必须结构化 message 中同一个可复用知识点，不得为了出卡扩大讲解范围。像韦达定理中“和用 $-b/a$、积用 $c/a$”这类易混且可迁移的辨析适合出卡；一次性代入或计算不适合。
+- EXPLAIN_LOCAL 讲出可复用知识点时，knowledge_card 必须结构化 message 中同一个知识点，不得为了出卡扩大讲解范围。像韦达定理中“和用 $-b/a$、积用 $c/a$”或“无滑动皮带传动中两轮边缘通过的弧长相等”这类可迁移关系必须出知识卡；一次性代入或计算不适合。
 - SUMMARIZE 时 problem_card 必须非 null，其余 action 时必须为 null。
-- SUMMARIZE 的 message 与 problem_card 应共享关键方法和结论；problem_card 在此基础上提供更完整的结构化解法。
+- SUMMARIZE 的 message 与 problem_card 应共享关键方法和结论；problem_card 在此基础上提供当前具体题目的完整条件、结构化步骤和最终答案。仅描述通用公式、定理、性质或方法的内容必须归入 knowledge_card，不能伪装成 problem_card。
 - ASK_MULTIPLE_CHOICE 时 checkpoint 必须非 null，其余 action 时 checkpoint 必须为 null。
 - 只有两个 ASK action 可以提问；其余 action 的 message 必须为纯陈述句且不得出现问号。
 """
@@ -249,8 +250,28 @@ def build_messages(
     *,
     nonblocking_streak: int = 0,
     force_blocking: bool = False,
+    suppress_cards: bool = False,
 ) -> list[dict[str, Any]]:
     history = _without_legacy_initial_thought(session, history)
+    pending_interruption = None
+    history_by_id = {_row_value(row, "id"): row for row in history}
+    for row in reversed(history):
+        if _row_value(row, "action") != "INTERRUPTED_EXPLANATION":
+            continue
+        metadata = _message_metadata(row)
+        resume_state = metadata.get("resume_state")
+        if resume_state in {"awaiting_question", "detour_active", "resuming"}:
+            pending_interruption = {
+                "message_id": _row_value(row, "id"),
+                "partial_message": _row_value(row, "content", ""),
+                "resume_state": resume_state,
+                "question_message": _row_value(
+                    history_by_id.get(metadata.get("interruption_question_message_id"), {}),
+                    "content",
+                    "",
+                ),
+            }
+        break
     loop_instruction = (
         "本轮已经连续执行了 3 个非阻塞教学动作。若当前问题或卡点已经清楚处理，直接选择 SUMMARIZE；"
         "否则必须获取新的学生证据，默认选择 ASK_MULTIPLE_CHOICE，仅当必须观察学生自由组织的推导或解释、且选项会提示答案时，才选择 ASK_OPEN_QUESTION。"
@@ -288,12 +309,45 @@ def build_messages(
             {"type": "image_url", "image_url": {"url": problem_image_data_url}},
         ]
 
-    system = f"{SYSTEM_PROMPT}\n{ACTION_PROTOCOL}\n{JSON_CONTRACT}\n\n当前工作流约束：{loop_instruction}"
+    card_instruction = (
+        "\n当前已有一张尚未处理的学习卡片。本轮绝对不得生成 knowledge_card 或 problem_card；"
+        "不得选择 EXPLAIN_PRINCIPLE 或 SUMMARIZE。可以继续局部讲解、提问或检查理解。"
+        if suppress_cards
+        else ""
+    )
+    system = f"{SYSTEM_PROMPT}\n{ACTION_PROTOCOL}\n{JSON_CONTRACT}\n\n当前工作流约束：{loop_instruction}{card_instruction}"
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user_content},
         *(render_history_message(row) for row in history),
     ]
+    interruption_instruction = None
+    if pending_interruption:
+        if pending_interruption["resume_state"] == "detour_active":
+            interruption_instruction = {
+                "kind": "student_interruption_detour",
+                "priority": "highest",
+                "interrupted_partial_explanation": pending_interruption["partial_message"],
+                "student_interruption_question": pending_interruption["question_message"],
+                "instruction": (
+                    "学生刚刚主动打断了原讲解。必须优先、直接回应 student_interruption_question，"
+                    "并结合它之后属于同一支线的最新学生消息或 checkpoint_result，"
+                    "不得接续原讲解，不得 SUMMARIZE 当前题目。若学生是在更正刚才的选项或表达，"
+                    "先明确承认并按更正后的原意回应。只有这条支线问题已经完整解决时，才在 debug "
+                    "中输出 interruption_detour_resolved=true；未解决时不得输出该标记。"
+                ),
+            }
+        elif pending_interruption["resume_state"] == "resuming":
+            interruption_instruction = {
+                "kind": "resume_interrupted_explanation",
+                "priority": "highest",
+                "interrupted_partial_explanation": pending_interruption["partial_message"],
+                "instruction": (
+                    "支线问题已经解决。现在自然回到被打断的原讲解，从断点之后继续，"
+                    "不要逐字重复已显示片段。完成本次返回动作时在 debug 中输出 "
+                    "interruption_resume_completed=true。"
+                ),
+            }
     if nonblocking_streak > 0:
         workflow_continue = {
             "kind": "workflow_continue",
@@ -314,6 +368,13 @@ def build_messages(
             {
                 "role": "user",
                 "content": json.dumps(workflow_continue, ensure_ascii=False),
+            }
+        )
+    if interruption_instruction:
+        messages.append(
+            {
+                "role": "user",
+                "content": json.dumps(interruption_instruction, ensure_ascii=False),
             }
         )
     return messages
@@ -423,6 +484,10 @@ def render_history_message(row: Row | dict) -> dict[str, str]:
     if isinstance(checkpoint_result, dict):
         envelope["kind"] = "checkpoint_result"
         envelope["checkpoint_result"] = checkpoint_result
+    checkpoint_free_text = metadata.get("checkpoint_free_text_response")
+    if isinstance(checkpoint_free_text, dict):
+        envelope["kind"] = "checkpoint_free_text_response"
+        envelope["checkpoint_free_text_response"] = checkpoint_free_text
     return {"role": role, "content": json.dumps(envelope, ensure_ascii=False)}
 
 
@@ -434,6 +499,8 @@ async def generate_tutor_turn_stream(
     logger: SessionLogger | None = None,
     nonblocking_streak: int = 0,
     force_blocking: bool = False,
+    suppress_cards: bool = False,
+    interruption_state: str | None = None,
 ) -> AsyncIterator:
     """流式答疑生成器：边从 LLM 收增量边 yield message 可见字符，最后 yield 完整 TutorTurn。
 
@@ -446,7 +513,13 @@ async def generate_tutor_turn_stream(
     保证结构化字段不被增量解析的边界问题污染。LLM 空响应会抛 LlmProviderError，
     由 chat 路由转成 SSE error 事件，而不是静默断流。
     """
-    messages = build_messages(session, history, nonblocking_streak=nonblocking_streak, force_blocking=force_blocking)
+    messages = build_messages(
+        session,
+        history,
+        nonblocking_streak=nonblocking_streak,
+        force_blocking=force_blocking,
+        suppress_cards=suppress_cards,
+    )
     started = time.perf_counter()
     raw = ""
     used_fallback = False
@@ -493,6 +566,21 @@ async def generate_tutor_turn_stream(
 
             if attempt:
                 turn_final.debug["format_retry_count"] = attempt
+            if suppress_cards:
+                suppressed = bool(turn_final.knowledge_card or turn_final.problem_card)
+                turn_final.knowledge_card = None
+                turn_final.problem_card = None
+                if turn_final.action in {"EXPLAIN_PRINCIPLE", "SUMMARIZE"}:
+                    turn_final.action = "EXPLAIN_LOCAL"
+                    turn_final.wait_for_student = False
+                    suppressed = True
+                if suppressed:
+                    turn_final.debug["card_generation_suppressed"] = True
+            if interruption_state == "detour_active" and turn_final.action == "SUMMARIZE":
+                turn_final.action = "EXPLAIN_LOCAL"
+                turn_final.problem_card = None
+                turn_final.wait_for_student = False
+                turn_final.debug["interruption_summary_suppressed"] = True
             parse_ok = True
             emitted_message = "".join(emitted_message_parts)
             if turn_final.message:

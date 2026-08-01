@@ -10,16 +10,18 @@ const ACTION_LABELS: Record<string, string> = {
   EXPLAIN_LOCAL: "局部讲解",
   EXPLAIN_PRINCIPLE: "原理讲解",
   RESPOND_TO_CHECKPOINT: "检查点反馈",
-  SUMMARIZE: "总结"
+  SUMMARIZE: "总结",
+  INTERRUPTED_EXPLANATION: "讲解被新问题打断"
 };
 
 type Props = {
   messages: ChatMessage[];
   messageEndRef: RefObject<HTMLDivElement | null>;
   interaction?: ReactNode;
+  onOpenImage?: (imageUrl: string) => void;
 };
 
-export function MessageTimeline({ messages, messageEndRef, interaction }: Props) {
+export function MessageTimeline({ messages, messageEndRef, interaction, onOpenImage }: Props) {
   return (
     <div className="messageViewport">
       <div className="messageColumn">
@@ -51,7 +53,17 @@ export function MessageTimeline({ messages, messageEndRef, interaction }: Props)
                 />
               ) : (
                 <>
-                  {message.imageUrl && <img className="messageImage" src={message.imageUrl} alt="学生上传的题目" />}
+                  {message.imageUrl && (
+                    <button
+                      className="messageImageButton"
+                      type="button"
+                      onClick={() => onOpenImage?.(message.imageUrl!)}
+                      aria-label="放大查看题目图片"
+                    >
+                      <img className="messageImage" src={message.imageUrl} alt="学生上传的题目" />
+                      <span>点击放大</span>
+                    </button>
+                  )}
                   <div className="messageText"><MathText text={message.text} /></div>
                   {message.role === "assistant" && message.action && (
                     <span className="actionTag" title={`教学 action：${message.action}`}>

@@ -138,3 +138,21 @@ test("a failed run can be replaced by a clean recovery run", () => {
   assert.equal(state.lastError, null);
   assert.equal(state.messages.at(-1)?.text, "已恢复");
 });
+
+test("student-message interruption preserves visible partial explanation", () => {
+  let state = createTimelineState("session-a");
+  state = timelineReducer(state, { type: "run_started", sessionId: "session-a", runId: "run-1" });
+  state = reduceEvent(state, streamEvent("message_delta", { text: "先看这一部分" }));
+
+  state = timelineReducer(state, {
+    type: "run_cancelled",
+    sessionId: "session-a",
+    runId: "run-1",
+    preservePartial: true
+  });
+
+  assert.equal(state.messages.length, 1);
+  assert.equal(state.messages[0].text, "先看这一部分");
+  assert.equal(state.messages[0].action, "INTERRUPTED_EXPLANATION");
+  assert.equal(state.messages[0].streamState, "complete");
+});

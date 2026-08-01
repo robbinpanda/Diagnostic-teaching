@@ -10,8 +10,10 @@ import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import { MessageTimeline } from "../components/workspace/MessageTimeline";
 import { ModelProfilePicker } from "../components/workspace/ModelProfilePicker";
 import { boxFromPoints, ProblemImageSelector } from "../components/ProblemImageSelector";
+import { clampImageScale, ProblemImageViewer } from "../components/ProblemImageViewer";
 import { SessionSidebar } from "../components/workspace/SessionSidebar";
 import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
+import { getPastedImageFiles } from "../components/workspace/TutorComposer";
 import type { ModelProfile, SessionHistoryItem } from "../lib/api";
 import { cardFixture, checkpointFixture, knowledgeFolderFixture } from "./fixtures";
 
@@ -42,13 +44,16 @@ test("workspace header and timeline preserve teaching context labels", () => {
       gradeBand="junior"
       selectedProfile={profile}
       streamBusy
+      problemImageUrl="data:image/png;base64,AAAA"
       onExpandLeft={() => {}}
       onToggleCards={() => {}}
+      onViewProblemImage={() => {}}
     />
   );
   assert.match(header, /一次函数/);
   assert.match(header, /初中数学/);
   assert.match(header, /正在思考/);
+  assert.match(header, /查看题目/);
 
   const timeline = renderToStaticMarkup(
     <MessageTimeline
@@ -58,6 +63,33 @@ test("workspace header and timeline preserve teaching context labels", () => {
   );
   assert.match(timeline, /先看等式两边/);
   assert.match(timeline, /原理讲解/);
+});
+
+test("problem image viewer exposes persistent access and bounded zoom controls", () => {
+  const viewer = renderToStaticMarkup(
+    <ProblemImageViewer imageUrl="data:image/png;base64,AAAA" onClose={() => {}} />
+  );
+  const timeline = renderToStaticMarkup(
+    <MessageTimeline
+      messages={[{
+        id: "student-image",
+        role: "student",
+        text: "上传了一张题目图片",
+        imageUrl: "data:image/png;base64,AAAA"
+      }]}
+      messageEndRef={{ current: null }}
+      onOpenImage={() => {}}
+    />
+  );
+
+  assert.match(viewer, /题目图片/);
+  assert.match(viewer, /缩小图片/);
+  assert.match(viewer, /放大图片/);
+  assert.match(viewer, /重置图片视图/);
+  assert.match(timeline, /放大查看题目图片/);
+  assert.equal(clampImageScale(0.25), 1);
+  assert.equal(clampImageScale(3), 3);
+  assert.equal(clampImageScale(8), 5);
 });
 
 test("checkpoint and pending card interactions render inside the conversation without backdrops", () => {
@@ -94,7 +126,7 @@ test("checkpoint and pending card interactions render inside the conversation wi
   );
   assert.match(card, /对话中的知识卡片/);
   assert.match(card, /修改内容/);
-  assert.match(card, /保存到卡片库/);
+  assert.match(card, /保存为知识卡片/);
   assert.match(card, /舍弃/);
   assert.doesNotMatch(card, /modalBackdrop/);
 
@@ -346,4 +378,19 @@ test("workspace keeps text and image multi-problem intake wired", () => {
   assert.match(pageSource, /detectProblemImageRegions/);
   assert.match(pageSource, /<ProblemImageSelector/);
   assert.match(pageSource, /batchStartImageSessions/);
+  assert.match(pageSource, /pendingComposerImage/);
+  assert.match(pageSource, /handlePastedImages/);
+});
+
+test("composer paste handling extracts images without consuming ordinary text", () => {
+  const imageFile = { name: "clipboard.png", type: "image/png" } as File;
+  const files = getPastedImageFiles([
+    { kind: "string", type: "text/plain", getAsFile: () => null },
+    { kind: "file", type: "image/png", getAsFile: () => imageFile }
+  ]);
+
+  assert.deepEqual(files, [imageFile]);
+  assert.deepEqual(getPastedImageFiles([
+    { kind: "string", type: "text/plain", getAsFile: () => null }
+  ]), []);
 });

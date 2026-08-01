@@ -267,7 +267,11 @@ assistant 教学动作类似：
 
 `ASK_MULTIPLE_CHOICE` 对应一个 `checkpoint` 选择题请求，它不是外部工具执行，而是等待学生作答的教学互动。
 
-学生选择后，`POST /api/checkpoints/{checkpoint_id}/answer` 会在一个后端事务链中完成：
+学生可以点击选项，也可以在 checkpoint 等待期间直接输入原文。
+
+自由文字通过普通 `STUDENT_MESSAGE` 接口提交，并在一个事务内把学生原文写入 message 与 `checkpoints.free_text_response`，设置 `answered_at`，追加 `checkpoint.completed(response_mode=free_text)` 和 `message.completed`。该路径保留 `selected_option_id/is_correct=null`，不会把开放表达误判为某个选项；message metadata 中的 `checkpoint_free_text_response` 明确关联原 checkpoint。刷新或恢复后它不再属于待答 checkpoint，学生原文按普通气泡展示并进入模型历史。
+
+学生点击选项后，`POST /api/checkpoints/{checkpoint_id}/answer` 会在一个后端事务链中完成：
 
 1. 校验 checkpoint 属于当前 session、选项存在，并写 `kind=CHECKPOINT_ANSWER` 的 durable input。
 
@@ -312,16 +316,18 @@ assistant 教学动作类似：
 
 ## 5. 学习卡片的待归档与持久化
 
-`EXPLAIN_PRINCIPLE` 必须带结构化 `knowledge_card`，`EXPLAIN_LOCAL` 可由模型按复用价值选择是否带 `knowledge_card`，`SUMMARIZE` 必须带结构化 `problem_card`。局部讲解只有在包含值得独立记忆、可迁移的公式、定理、性质或方法辨析时出卡；一次性代入、计算或纯本题过渡不出卡。后端在保存 assistant message 时，同一事务把卡片写入 `study_cards`：
+`EXPLAIN_PRINCIPLE` 必须带结构化 `knowledge_card`；`EXPLAIN_LOCAL` 一旦包含值得独立记忆、可迁移的公式、定理、性质或方法辨析也必须带 `knowledge_card`，一次性代入、计算或纯本题过渡则不出卡；`SUMMARIZE` 必须带结构化 `problem_card`。后端在保存 assistant message 时，同一事务把卡片写入 `study_cards`：
+
+两类卡片按用途严格区分：知识卡片保存脱离本题仍成立的原理和方法；题目卡片保存当前具体题目的条件、完整解题步骤和最终答案。若本题依赖的可迁移原理已经讲清但尚未形成知识卡，模型应先用 `EXPLAIN_LOCAL/EXPLAIN_PRINCIPLE` 生成知识卡，后续再用 `SUMMARIZE` 生成题目卡。同一道题允许两类卡片各一张。
 
 ```text
 id / session_id / card_type / title / content_json / folder_id
-source_action_id / source_message_id / created_at / saved_at
+source_action_id / source_message_id / created_at / saved_at / deferred_at
 ```
 
-`saved_at=null` 表示卡片正在对话中等待学生确认。此时卡片不进入右侧已归档列表，后端也拒绝该 session 的新生成请求。知识卡片支持在内嵌编辑器中删改内容；保存时带最终内容与 `folder_id` 的 `CARD_DISMISSED_CONTINUE` 会在同一事务写入 `title/content_json/saved_at/folder_id` 和 durable control input；二次确认舍弃会以 `save_to_library=false` 记录 control input 后删除待归档行；problem card 使用带 `folder_id` 的 `POST /api/cards/{id}/save` 只归档、不继续：
+`saved_at=null` 表示卡片尚未归档，不进入右侧卡片库。卡片刚出现时 `deferred_at=null`；学生可以直接处理卡片，也可以继续在输入框提问。发送新问题会在普通消息接纳事务中写入 `deferred_at` 和 `card.deferred`，前端把卡片折叠为仍可展开的“待处理卡片”。只要该 session 仍有未归档卡片，生成 prompt 与后端归一化会共同禁止产生第二张 knowledge/problem card；这个限制在 run 开始时固定，即使旧卡在多步骤回答中途被保存，本次 run 的后续步骤也不能立即出新卡。知识卡片支持在内嵌编辑器中删改内容；保存时带最终内容与 `folder_id` 的 `CARD_DISMISSED_CONTINUE` 会在同一事务写入 `title/content_json/saved_at/folder_id` 和 durable control input；二次确认舍弃会以 `save_to_library=false` 记录 control input 后删除待归档行；problem card 使用带 `folder_id` 的 `POST /api/cards/{id}/save` 只归档、不继续：
 
-- knowledge card：保存或舍弃后立即以无新增 student message 的 `/api/chat/stream` 继续答疑。
+- knowledge card：若学生尚未继续提问，保存或舍弃后立即以无新增 student message 的 `/api/chat/stream` 继续；若已标记为待处理，稍后保存或舍弃只处理卡片，不重复启动生成。
 - problem card：保存后结束，因为来源 action 是终止动作 `SUMMARIZE`。
 
 前端启动时并行调用 `GET /api/cards` 与 `GET /api/card-folders`；右栏按 `parent_id` 浏览文件夹，点击卡片后在右侧无暗色遮罩的浮层中查看或编辑。已归档 knowledge card 通过 `PUT /api/cards/{id}` 提交完整 `content`；待归档卡片和 problem card 不允许走该更新接口。文件夹通过 `POST/PATCH/DELETE /api/card-folders` 管理，卡片可复制、移动和删除。
@@ -381,6 +387,10 @@ coordinator 只保存当前进程的执行对象、每 session 锁和 provider �
 显式中断调用 `POST /api/sessions/{session_id}/interrupt`。后端先提交 `interrupted/explicit_interrupt`，随后取消 provider 子任务并终止 bounded loop；重复调用或 session 当前空闲时是 no-op。客户端自行关闭 fetch/页面只会触发响应清理，run 记为 `failed/client_disconnected`，不等同于显式中断。
 
 assistant message、checkpoint、pending card 和 `last_committed_action_index` 在受 run 状态保护的 SQLite 事务中提交。未完整解析的 provider 输出、仅发送过 `message_delta` 的半成品和中断后才到达的结果都不会写入 messages。JSONL/Markdown 仍可记录取消前的诊断片段，但不能据此恢复 action。
+
+学生在生成期间发送新问题属于显式的 `student_message_interrupt`：前端把当前 action 已展示的文本随 interrupt 请求提交，后端在把 run 标记为 interrupted 的同一事务中将其保存为 `INTERRUPTED_EXPLANATION` message，并标记 `resume_pending=true`。随后学生原文仍通过普通 durable `STUDENT_MESSAGE` 接纳，确保部分讲解和新问题都进入 SQLite 历史。仅点击停止生成不保存未完成片段。
+
+被打断片段的 message metadata 维护 `awaiting_question → detour_active → resuming → resolved`。第一条打断原文与片段原子关联；`detour_active` 时 prompt 把支线及其最新回复设为最高优先级，后端防御性禁止 `SUMMARIZE`。模型用 `debug.interruption_detour_resolved=true` 表示支线已闭环，下一 action 自动从原片段断点继续；学生也可调用 `POST /api/sessions/{id}/interruptions/resume` 手动返回。返回 action 提交后状态变为 resolved。支线生成期间不允许再次打断，限制为一层；所有支线 message/checkpoint 仍保留在正常历史中。
 
 ## 8. 诊断日志
 
@@ -475,7 +485,7 @@ Last-Event-ID: 42  # 可替代 query
 
 ```text
 useSessionRuntime
-  -> session-workflow.ts       composer/run/checkpoint/card 互斥状态
+  -> session-workflow.ts       composer/run/checkpoint 对话状态；pending card 独立并行
   -> stream-controller.ts      每个 run 独立 AbortController
   -> stream-protocol.ts        SSE -> sessionId/runId/可选 seq 的规范事件
   -> timeline.ts               message 拼接、reset/final 校准、重复与迟到事件规则

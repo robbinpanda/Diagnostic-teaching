@@ -385,6 +385,73 @@ def test_optional_explain_local_card_pauses_then_requests_continuation(tmp_path:
     assert [item["id"] for item in client.get("/api/cards").json()["cards"]] == [card["id"]]
 
 
+def test_card_suppression_stays_enabled_for_whole_run_if_card_is_saved_mid_run(
+    tmp_path: Path,
+    monkeypatch,
+):
+    client, session_id = _bootstrap_app(tmp_path)
+    card_turn = TutorTurn.model_validate(
+        {
+            "state_hint": "explaining",
+            "action": "EXPLAIN_PRINCIPLE",
+            "message": "先说明皮带传动的弧长关系。",
+            "knowledge_card": {
+                "type": "knowledge_card",
+                "title": "皮带传动弧长相等",
+                "knowledge_point": "无滑动皮带传动的弧长关系",
+                "core_idea": "同一时间内两轮边缘通过的弧长相等。",
+                "derivation_steps": [{"title": "列式", "content": "$r_1\\theta_1=r_2\\theta_2$。"}],
+                "when_to_use": ["无滑动皮带传动"],
+                "common_mistakes": [],
+                "connection_to_problem": "用于比较两轮转角。",
+            },
+        }
+    )
+    _, _, card = client.app.state.sessions.record_tutor_action(
+        session_id,
+        card_turn,
+        action_index=0,
+    )
+    accepted = client.post(
+        f"/api/sessions/{session_id}/inputs",
+        json={
+            "kind": "STUDENT_MESSAGE",
+            "client_message_id": "defer-before-run",
+            "message": "为什么弧长相等？",
+        },
+    )
+    assert accepted.status_code == 201
+
+    calls: list[bool] = []
+
+    async def fake_generate_tutor_turn_stream(*args, **kwargs):
+        calls.append(kwargs["suppress_cards"])
+        if len(calls) == 1:
+            client.app.state.sessions.save_card(card["id"], session_id=session_id)
+            turn = TutorTurn(
+                state_hint="explaining",
+                action="EXPLAIN_LOCAL",
+                message="皮带不打滑，所以接触处通过的线长度一致。",
+            )
+        else:
+            turn = TutorTurn(
+                state_hint="checking",
+                action="ASK_OPEN_QUESTION",
+                message="你能用半径和转角写出这个等式吗？",
+                wait_for_student=True,
+            )
+        yield "message_delta", turn.message
+        yield "turn", turn
+
+    monkeypatch.setattr(chat_routes, "generate_tutor_turn_stream", fake_generate_tutor_turn_stream)
+
+    response = client.post("/api/chat/stream", json={"session_id": session_id})
+
+    assert response.status_code == 200
+    assert calls == [True, True]
+    assert client.app.state.sessions.latest_pending_card(session_id) is None
+
+
 def test_checkpoint_answer_is_structured_student_result(tmp_path: Path):
     client, session_id = _bootstrap_app(tmp_path)
     first = client.post("/api/chat/stream", json={"session_id": session_id})

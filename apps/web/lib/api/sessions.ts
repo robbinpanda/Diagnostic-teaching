@@ -143,12 +143,30 @@ export async function dismissKnowledgeCardAndContinue(input: {
   return response.json();
 }
 
-export async function interruptSession(sessionId: string): Promise<{
+export async function interruptSession(
+  sessionId: string,
+  input?: { partial_message?: string; reason?: "user_stop" | "student_message" }
+): Promise<{
   interrupted: boolean;
   active: boolean;
   run_ids: string[];
 }> {
   const response = await fetch(`${API_BASE}/api/sessions/${sessionId}/interrupt`, {
+    method: "POST",
+    ...(input ? {
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    } : {})
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json();
+}
+
+export async function resumeInterruptedExplanation(sessionId: string): Promise<{
+  message_id: string;
+  resume_state: "resuming";
+}> {
+  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}/interruptions/resume`, {
     method: "POST"
   });
   if (!response.ok) throw await responseError(response);

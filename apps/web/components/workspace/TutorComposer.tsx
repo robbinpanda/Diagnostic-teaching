@@ -5,10 +5,19 @@ import type { RefObject } from "react";
 import type { ModelProfile } from "../../lib/api";
 import { ModelProfilePicker } from "./ModelProfilePicker";
 
+type ClipboardItemLike = Pick<DataTransferItem, "kind" | "type" | "getAsFile">;
+
+export function getPastedImageFiles(items: ArrayLike<ClipboardItemLike>): File[] {
+  return Array.from(items)
+    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file));
+}
+
 type Props = {
   error: string | null;
   sessionId: string;
-  originalProblemImage: string | null;
+  pendingImageUrl: string | null;
   input: string;
   composerBlocked: boolean;
   imageInputRef: RefObject<HTMLInputElement | null>;
@@ -26,6 +35,7 @@ type Props = {
   onInputChange: (value: string) => void;
   onSend: () => void;
   onImageFile: (file?: File) => void;
+  onPasteImages: (files: File[]) => void;
   onGradeBandChange: (value: "junior" | "senior") => void;
   onProfileChange: (profileId: string) => void;
   onAddProfile: () => void;
@@ -37,7 +47,7 @@ type Props = {
 export function TutorComposer({
   error,
   sessionId,
-  originalProblemImage,
+  pendingImageUrl,
   input,
   composerBlocked,
   imageInputRef,
@@ -55,6 +65,7 @@ export function TutorComposer({
   onInputChange,
   onSend,
   onImageFile,
+  onPasteImages,
   onGradeBandChange,
   onProfileChange,
   onAddProfile,
@@ -65,10 +76,10 @@ export function TutorComposer({
   return (
     <div className="composerDock">
       {error && <div className="inlineError"><span>{error}</span><button type="button" onClick={onClearError}><X size={15} /></button></div>}
-      {!sessionId && originalProblemImage && (
+      {!sessionId && pendingImageUrl && (
         <div className="attachmentContext">
-          <img src={originalProblemImage} alt="已读取的题目图片" />
-          <div><strong>题目图片已读取</strong><span>原图会随每轮答疑发送给多模态模型</span></div>
+          <img src={pendingImageUrl} alt="待发送的题目图片" />
+          <div><strong>题目图片待发送</strong><span>点击发送后识别并确认题目范围</span></div>
           <button type="button" onClick={onRemoveImage} aria-label="移除图片"><X size={15} /></button>
         </div>
       )}
@@ -76,14 +87,20 @@ export function TutorComposer({
         <textarea
           value={input}
           onChange={(event) => onInputChange(event.target.value)}
+          onPaste={(event) => {
+            const imageFiles = getPastedImageFiles(event.clipboardData.items);
+            if (!imageFiles.length) return;
+            event.preventDefault();
+            onPasteImages(imageFiles);
+          }}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
               onSend();
             }
           }}
-          disabled={composerBlocked}
-          placeholder={sessionId ? "继续说说你的想法…" : "输入一道或多道题目，或上传题目图片…"}
+          disabled={composerBlocked || Boolean(pendingImageUrl)}
+          placeholder={sessionId ? "继续说说你的想法…" : "输入一道或多道题目，或粘贴/上传题目图片…"}
           rows={3}
         />
         <div className="composerToolbar">
@@ -99,7 +116,7 @@ export function TutorComposer({
               className="toolButton"
               type="button"
               onClick={() => imageInputRef.current?.click()}
-              disabled={composerBlocked || Boolean(sessionId)}
+              disabled={composerBlocked || Boolean(sessionId) || Boolean(pendingImageUrl)}
               title="上传题目图片"
             >
               {imageBusy ? <Loader2 size={17} className="spin" /> : <Paperclip size={17} />}
@@ -130,16 +147,22 @@ export function TutorComposer({
           <button
             className="sendButton"
             type="button"
-            onClick={streamBusy ? onStop : onSend}
-            disabled={streamBusy ? stopBusy : composerBlocked || !input.trim()}
-            aria-label={streamBusy ? "停止生成" : "发送"}
-            title={streamBusy ? "停止生成" : "发送"}
+            onClick={streamBusy && !input.trim() ? onStop : onSend}
+            disabled={streamBusy && !input.trim()
+              ? stopBusy
+              : composerBlocked || (!input.trim() && !pendingImageUrl)}
+            aria-label={streamBusy && !input.trim() ? "停止生成" : streamBusy ? "发送并打断讲解" : "发送"}
+            title={streamBusy && !input.trim() ? "停止生成" : streamBusy ? "发送并打断讲解" : "发送"}
           >
-            {streamBusy ? (stopBusy ? <Loader2 size={18} className="spin" /> : <Square size={14} />) : startBusy ? <Loader2 size={18} className="spin" /> : <ArrowUp size={19} />}
+            {streamBusy && !input.trim()
+              ? (stopBusy ? <Loader2 size={18} className="spin" /> : <Square size={14} />)
+              : startBusy
+                ? <Loader2 size={18} className="spin" />
+                : <ArrowUp size={19} />}
           </button>
         </div>
       </div>
-      <p className="composerHint">Enter 发送 · 文字自动拆题 · 图片确认框选后按题目数创建答疑</p>
+      <p className="composerHint">Enter 发送 · 支持粘贴或上传图片 · 图片确认框选后按题目数创建答疑</p>
     </div>
   );
 }

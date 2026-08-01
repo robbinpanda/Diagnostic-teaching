@@ -244,6 +244,7 @@
 }
 
 .conversationTitle {
+  flex: 1;
   min-width: 0;
   display: grid;
   gap: 2px;
@@ -267,7 +268,6 @@
 }
 
 .thinkingStatus {
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -281,9 +281,25 @@
 }
 
 .cardPanelToggle {
-  margin-left: auto;
+  margin-left: 0;
 }
 
-.thinkingStatus + .cardPanelToggle {
-  margin-left: 0;
+.viewProblemButton {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--panel);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.viewProblemButton:hover {
+  border-color: #c8cdc8;
+  background: #f7f8f6;
 }

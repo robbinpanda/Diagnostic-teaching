@@ -5,6 +5,7 @@ import { CardMoveDialog } from "../components/CardMoveDialog";
 import { CheckpointModal } from "../components/CheckpointModal";
 import { ModelConfigDialog } from "../components/ModelConfigDialog";
 import { ProblemImageSelector } from "../components/ProblemImageSelector";
+import { ProblemImageViewer } from "../components/ProblemImageViewer";
 import { StudyCardModal } from "../components/StudyCardModal";
 import {
   LearningCardExportDialog,
@@ -67,6 +68,11 @@ type PendingImageSelection = {
   }>;
 };
 
+type PendingComposerImage = {
+  dataUrl: string;
+  file: File;
+};
+
 export default function Home() {
   const [gradeBand, setGradeBand] = useState<"junior" | "senior">("junior");
   const [input, setInput] = useState("");
@@ -80,6 +86,8 @@ export default function Home() {
   const [learningCardExportOpen, setLearningCardExportOpen] = useState(false);
   const [learningCardPrintJob, setLearningCardPrintJob] = useState<LearningCardPrintJob | null>(null);
   const [imageSelection, setImageSelection] = useState<PendingImageSelection | null>(null);
+  const [viewerImageUrl, setViewerImageUrl] = useState<string | null>(null);
+  const [pendingComposerImage, setPendingComposerImage] = useState<PendingComposerImage | null>(null);
   const [imageConfirmBusy, setImageConfirmBusy] = useState(false);
   const [viewingCardSaveBusy, setViewingCardSaveBusy] = useState(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -97,12 +105,14 @@ export default function Home() {
   const runtime = useSessionRuntime({ onRunSettled: () => void refreshHistory() });
   const {
     activeCard,
+    cardSaveBusy,
     checkpoint,
     checkpointStartedAt,
     composerBlocked,
     error,
     messages,
     originalProblemImage,
+    pendingInterruption,
     runningSessionIds,
     sessionId,
     streamBusy,
@@ -232,6 +242,8 @@ export default function Home() {
     viewTokenRef.current += 1;
     pendingSessionBatchesRef.current.delete(previousViewToken);
     setImageSelection(null);
+    setViewerImageUrl(null);
+    setPendingComposerImage(null);
     setImageConfirmBusy(false);
     setOpenSessionBusyId("");
     runtime.clearSession();
@@ -245,6 +257,8 @@ export default function Home() {
     const requestId = openSessionRequestRef.current + 1;
     openSessionRequestRef.current = requestId;
     viewTokenRef.current += 1;
+    setViewerImageUrl(null);
+    setPendingComposerImage(null);
     setOpenSessionBusyId(nextSessionId);
     runtime.clearError();
     try {
@@ -327,9 +341,17 @@ export default function Home() {
 
   async function handleSend() {
     const text = input.trim();
-    if (!text || composerBlocked) return;
+    if ((!text && !pendingComposerImage) || composerBlocked) return;
     if (!selectedProfileId) {
       runtime.setError("请先在输入框下方选择一个模型；如果还没有模型，请打开设置添加。");
+      return;
+    }
+    if (pendingComposerImage) {
+      if (text) {
+        runtime.setError("图片题目暂不支持同时附带文字，请先清空文字或移除图片。");
+        return;
+      }
+      await handlePendingImageSend(pendingComposerImage);
       return;
     }
     if (originalProblemImage && !selectedProfile?.is_multimodal) {
@@ -343,6 +365,15 @@ export default function Home() {
     setInput("");
     if (sessionId) {
       const targetSessionId = sessionId;
+      if (streamBusy) {
+        const interrupted = await runtime.interruptForStudentMessage();
+        if (!interrupted) {
+          setInput((current) => current || text);
+          sendInFlightKeysRef.current.delete(operationKey);
+          return;
+        }
+      }
+      const respondsToCheckpoint = workflow.mode === "checkpoint" && workflow.phase === "ready";
       const previous = pendingStudentMessagesRef.current.get(targetSessionId);
       const isRetry = previous?.sessionId === sessionId && previous.text === text;
       const pending = isRetry
@@ -358,17 +389,28 @@ export default function Home() {
           `client:${pending.clientMessageId}`
         );
       }
+      if (respondsToCheckpoint) runtime.beginCheckpointSubmission();
       try {
-        await acceptStudentMessage({
+        const accepted = await acceptStudentMessage({
           session_id: targetSessionId,
           client_message_id: pending.clientMessageId,
           message: text
         });
+        if (accepted.deferred_card_id && accepted.card_deferred_at) {
+          runtime.deferPendingCard(accepted.deferred_card_id, accepted.card_deferred_at);
+        }
+        if (accepted.interruption_id) runtime.activateInterruption(accepted.interruption_id);
         pendingStudentMessagesRef.current.delete(targetSessionId);
+        if (respondsToCheckpoint) runtime.completeCheckpointFreeTextSubmission();
         await runtime.runStream(targetSessionId);
       } catch (nextError) {
         if (runtime.isSessionActive(targetSessionId)) {
           setInput((current) => current || text);
+          if (respondsToCheckpoint) {
+            runtime.failCheckpointSubmission(
+              nextError instanceof Error ? nextError.message : "提交文字回应失败"
+            );
+          }
           runtime.setError(nextError instanceof Error ? nextError.message : "提交消息失败");
         }
       } finally {
@@ -444,7 +486,49 @@ export default function Home() {
   }
 
   async function handleImageFile(file?: File) {
-    if (!file || sessionId) return;
+    if (!file) return;
+    if (sessionId) {
+      runtime.setError("当前答疑暂不支持追加图片，请新建答疑后再粘贴或上传。");
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      return;
+    }
+    if (input.trim()) {
+      runtime.setError("请先清空输入框中的文字，再添加题目图片。");
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      return;
+    }
+    if (pendingComposerImage) {
+      runtime.setError("一次只能添加一张题目图片，请先移除当前图片。");
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      return;
+    }
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      runtime.setError("仅支持 PNG、JPEG 或 WebP 格式的题目图片。");
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      return;
+    }
+    runtime.clearError();
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setPendingComposerImage({ dataUrl, file });
+    } catch (nextError) {
+      runtime.setError(nextError instanceof Error ? nextError.message : "图片读取失败");
+    } finally {
+      if (imageInputRef.current) imageInputRef.current.value = "";
+    }
+  }
+
+  function handlePastedImages(files: File[]) {
+    if (!files.length) return;
+    if (files.length > 1) {
+      runtime.setError("一次只能粘贴一张题目图片。");
+      return;
+    }
+    void handleImageFile(files[0]);
+  }
+
+  async function handlePendingImageSend(pendingImage: PendingComposerImage) {
+    if (sessionId) return;
     if (!selectedProfile?.is_multimodal) {
       runtime.setError(
         multimodalProfiles.length
@@ -462,23 +546,23 @@ export default function Home() {
     runtime.startComposerTask("image");
     runtime.clearError();
     try {
-      const dataUrl = await readFileAsDataUrl(file);
       const detected = await detectProblemImageRegions({
         model_profile_id: visionProfile.id,
-        image_base64: dataUrl,
-        content_type: file.type || "image/png",
-        filename: file.name
+        image_base64: pendingImage.dataUrl,
+        content_type: pendingImage.file.type || "image/png",
+        filename: pendingImage.file.name || "clipboard-image.png"
       });
       if (viewTokenRef.current === originatingViewToken && runtime.isDraftActive()) {
         setImageSelection({
-          imageUrl: dataUrl,
-          contentType: file.type || "image/png",
-          filename: file.name,
+          imageUrl: pendingImage.dataUrl,
+          contentType: pendingImage.file.type || "image/png",
+          filename: pendingImage.file.name || "clipboard-image.png",
           profileId: visionProfile.id,
           gradeBand: targetGradeBand,
           viewToken: originatingViewToken,
           regions: detected.problems
         });
+        setPendingComposerImage(null);
         runtime.finishComposerTask();
       }
     } catch (nextError) {
@@ -487,9 +571,6 @@ export default function Home() {
       }
     } finally {
       sendInFlightKeysRef.current.delete(operationKey);
-      if (viewTokenRef.current === originatingViewToken && imageInputRef.current) {
-        imageInputRef.current.value = "";
-      }
     }
   }
 
@@ -556,8 +637,7 @@ export default function Home() {
       !activeCard
       || cardToSave.id !== activeCard.id
       || !sessionId
-      || workflow.mode !== "card"
-      || workflow.phase !== "ready"
+      || cardSaveBusy
     ) return;
     const targetSessionId = sessionId;
     runtime.beginCardSave();
@@ -582,7 +662,9 @@ export default function Home() {
       }
       upsertCard(saved);
       if (runtime.isSessionActive(targetSessionId)) runtime.completeCardSave();
-      if (cardToSave.card_type === "knowledge_card") await runtime.runStream(targetSessionId);
+      if (cardToSave.card_type === "knowledge_card" && !cardToSave.deferred_at) {
+        await runtime.runStream(targetSessionId);
+      }
     } catch (nextError) {
       if (runtime.isSessionActive(targetSessionId)) {
         runtime.failCardSave(nextError instanceof Error ? nextError.message : "保存学习卡片失败");
@@ -596,8 +678,7 @@ export default function Home() {
       || cardToDiscard.id !== activeCard.id
       || cardToDiscard.card_type !== "knowledge_card"
       || !sessionId
-      || workflow.mode !== "card"
-      || workflow.phase !== "ready"
+      || cardSaveBusy
     ) return;
     const targetSessionId = sessionId;
     runtime.beginCardSave();
@@ -610,7 +691,7 @@ export default function Home() {
         save_to_library: false
       });
       if (runtime.isSessionActive(targetSessionId)) runtime.completeCardSave();
-      await runtime.runStream(targetSessionId);
+      if (!cardToDiscard.deferred_at) await runtime.runStream(targetSessionId);
     } catch (nextError) {
       if (runtime.isSessionActive(targetSessionId)) {
         runtime.failCardSave(nextError instanceof Error ? nextError.message : "舍弃知识卡片失败");
@@ -669,39 +750,59 @@ export default function Home() {
           gradeBand={gradeBand}
           selectedProfile={selectedProfile}
           streamBusy={streamBusy}
+          problemImageUrl={originalProblemImage}
           onExpandLeft={() => setLeftOpen(true)}
           onToggleCards={() => setRightOpen((value) => !value)}
+          onViewProblemImage={() => {
+            if (originalProblemImage) setViewerImageUrl(originalProblemImage);
+          }}
         />
 
         <MessageTimeline
           messages={messages}
           messageEndRef={messageEndRef}
-          interaction={checkpoint ? (
-            <CheckpointModal
-              key={checkpoint.id}
-              checkpoint={checkpoint}
-              onSubmit={handleCheckpoint}
-              busy={workflow.mode === "checkpoint" && workflow.phase === "submitting"}
-            />
-          ) : activeCard ? (
-            <StudyCardModal
-              key={activeCard.id}
-              card={activeCard}
-              folders={folders}
-              onSave={(card, folderId) => void handleActiveCardSave(card, folderId)}
-              onDiscard={activeCard.card_type === "knowledge_card"
-                ? (card) => void handleActiveCardDiscard(card)
-                : undefined}
-              busy={workflow.mode === "card" && workflow.phase === "saving"}
-              editable={activeCard.card_type === "knowledge_card"}
-            />
+          onOpenImage={setViewerImageUrl}
+          interaction={(activeCard || checkpoint || pendingInterruption) ? (
+            <>
+              {activeCard && (
+                <StudyCardModal
+                  key={activeCard.id}
+                  card={activeCard}
+                  folders={folders}
+                  onSave={(card, folderId) => void handleActiveCardSave(card, folderId)}
+                  onDiscard={activeCard.card_type === "knowledge_card"
+                    ? (card) => void handleActiveCardDiscard(card)
+                    : undefined}
+                  busy={cardSaveBusy}
+                  editable={activeCard.card_type === "knowledge_card"}
+                />
+              )}
+              {checkpoint && (
+                <CheckpointModal
+                  key={checkpoint.id}
+                  checkpoint={checkpoint}
+                  onSubmit={handleCheckpoint}
+                  busy={workflow.mode === "checkpoint" && workflow.phase === "submitting"}
+                />
+              )}
+              {pendingInterruption && pendingInterruption.resumeState !== "resuming" && (
+                <button
+                  className="resumeExplanationButton"
+                  type="button"
+                  onClick={() => void runtime.resumeInterruption()}
+                  disabled={streamBusy}
+                >
+                  回到原讲解
+                </button>
+              )}
+            </>
           ) : null}
         />
 
         <TutorComposer
           error={error}
           sessionId={sessionId}
-          originalProblemImage={originalProblemImage}
+          pendingImageUrl={pendingComposerImage?.dataUrl ?? null}
           input={input}
           composerBlocked={composerBlocked}
           imageInputRef={imageInputRef}
@@ -715,10 +816,15 @@ export default function Home() {
           stopBusy={stopBusy}
           startBusy={startBusy}
           onClearError={runtime.clearError}
-          onRemoveImage={() => runtime.updateDraft({ originalProblemImage: null, problemText: "" })}
+          onRemoveImage={() => {
+            setPendingComposerImage(null);
+            if (imageInputRef.current) imageInputRef.current.value = "";
+            runtime.clearError();
+          }}
           onInputChange={setInput}
           onSend={() => void handleSend()}
           onImageFile={(file) => void handleImageFile(file)}
+          onPasteImages={handlePastedImages}
           onGradeBandChange={setGradeBand}
           onProfileChange={setSelectedProfileId}
           onAddProfile={openNewProfileDialog}
@@ -774,6 +880,9 @@ export default function Home() {
           }}
           onConfirm={(regions) => void handleConfirmImageRegions(regions)}
         />
+      )}
+      {viewerImageUrl && (
+        <ProblemImageViewer imageUrl={viewerImageUrl} onClose={() => setViewerImageUrl(null)} />
       )}
       <LearningCardExportDialog
         cards={cards}

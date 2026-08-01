@@ -27,6 +27,7 @@ def card_from_row(row) -> StudyCardPublic:
         folder_id=row["folder_id"],
         created_at=row["created_at"],
         saved_at=row["saved_at"],
+        deferred_at=row["deferred_at"],
     )
 
 
