@@ -2,6 +2,28 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v2.7 — 2026-07-30
+
+### 协议级推理档位与逐 profile 能力探测
+
+- 推理强度收敛为 `none / low / high`，默认 `low`；Alembic `0009_reasoning_effort_protocol_probe` 把旧 `minimal` 迁为 `none`、旧 `auto / medium` 迁为 `low`，并新增 `reasoning_effort_options_json` 保存每个 profile 自己的可用档位。
+- 移除供应商、Host、模型名白名单和 prompt effort 兜底。OpenAI / OpenAI-compatible chat completions 统一发送顶层 `reasoning_effort`，Anthropic Messages 统一发送 `output_config.effort`。
+- 添加或编辑模型时，连接测试对完整的 `protocol + Base URL + API key + model` 并发发出三个极简会话，逐档测试 `none / low / high`；报错档位从该 profile 的选项中移除。跳过测试时默认保留三档，因此同一模型经不同账号或代理可以拥有不同能力集合。
+- 图片能力探测会选用刚刚实测通过的档位；前端逐模型展示“实测可用”或“未测试，按协议默认”的档位列表。三个档位全部失败时该项测试失败，不能直接保存该失败状态。
+
+## v2.6 — 2026-07-27
+
+### 可选推理档位与首个反馈优化
+
+- 新增 Alembic `0007_reasoning_effort` 与 `0008_reasoning_effort_levels`，每个模型 profile 持久化 `minimal / low / medium / high`；输入框旁可直接选择“超低 / 低 / 中 / 高”，旧 `auto` 数据升级为默认的 `medium`，OpenCode 托管模型也能保存本地偏好。
+- 新增 provider-specific 映射层：OpenAI、OpenRouter、DashScope thinking 与 Anthropic adaptive thinking 分别发送对应字段；没有明确协议映射的 Kimi 等模型改用分档 system prompt，`medium` 不增加指令，避免 OpenAI-compatible 端点因未知参数失败。
+- provider stream 识别响应头、reasoning 与正式 content 边界，但不向前端转发原始 CoT。chat SSE 新增固定安全 `progress` 阶段，标题栏从 run 开始持续显示“读取题目 / 核对思路 / 选择教学方式 / 组织回复”。
+- `tutor_turn` 日志新增首进度、首 reasoning、首 content、首可见 message、可交互与总完成耗时，并记录实际选择的 reasoning effort。
+- 推理强度现已覆盖图片题目框检测、兼容图片内容识别和模型设置中的多模态能力测试；图片路由会读取 profile 已保存档位，未知供应商使用视觉任务专用提示词兜底，不再固定为默认中档或混入 `TutorTurn` 字段要求。
+- 推理强度和初中/高中选择器统一为模型选择器风格的可访问下拉菜单；学习阶段在新建 session 时固定，作为模型上下文提示知识范围与讲解粒度，进入答疑后不能切换。
+- TutorTurn prompt 改成按 action 区分的最小联合合同，`message` 固定排第一，无关 checkpoint/card 字段不再输出 `null`；历史 assistant 示例同步使用最小结构。已由结构化状态确定的 checkpoint 反馈使用专属小合同，不额外调用一次模型分类 action。
+- 增加 provider 映射、Kimi 未知能力保护、迁移、最小合同、安全进度、timeline 与诊断指标测试。
+
 ## v2.5 — 2026-07-21
 
 ### 对话内检查点与可编辑知识卡片

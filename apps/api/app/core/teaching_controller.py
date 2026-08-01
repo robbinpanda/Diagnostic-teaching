@@ -177,17 +177,7 @@ ACTION_PROTOCOL = f"""教学 action 协议：
 """
 
 
-JSON_CONTRACT = """返回 JSON 格式：
-{
-  "state_hint": "diagnosing|scaffolding|explaining|checking|recovering|summarizing",
-  "context_status": "need_problem|need_thought|ready",
-  "problem_summary": "从对话中确认的完整题目或学习目标；本轮没有新增时可为 null",
-  "student_thought_summary": "学生已经尝试的思路、明确卡点，或明确表示完全没思路；本轮没有新增时可为 null",
-  "action": "ASK_OPEN_QUESTION|ASK_MULTIPLE_CHOICE|EXPLAIN_LOCAL|EXPLAIN_PRINCIPLE|RESPOND_TO_CHECKPOINT|SUMMARIZE",
-  "message": "给学生看的中文内容",
-  "breakpoint_description": "当前卡点，可为 null",
-  "breakpoint_confidence": 0.0,
-  "checkpoint": null 或 {
+CHECKPOINT_OUTPUT_SCHEMA = """{
     "type": "checkpoint_mc",
     "question": "一个和当前题目强相关的小问题",
     "options": [
@@ -198,8 +188,9 @@ JSON_CONTRACT = """返回 JSON 格式：
     "unknown_option": {"id": "UNKNOWN", "text": "我不知道"},
     "tested_point": "这个检查点测试的知识点",
     "difficulty": "easy"
-  },
-  "knowledge_card": null 或 {
+  }"""
+
+KNOWLEDGE_CARD_OUTPUT_SCHEMA = """{
     "type": "knowledge_card",
     "title": "知识卡片标题",
     "knowledge_point": "本卡只讲的一个知识点",
@@ -210,8 +201,9 @@ JSON_CONTRACT = """返回 JSON 格式：
     "when_to_use": ["识别这种方法适用场景的线索"],
     "common_mistakes": ["常见误区；没有时可为空数组"],
     "connection_to_problem": "这个知识点如何支撑当前题的当前一步"
-  },
-  "problem_card": null 或 {
+  }"""
+
+PROBLEM_CARD_OUTPUT_SCHEMA = """{
     "type": "problem_card",
     "title": "题目卡片标题",
     "problem_summary": "不遗漏关键条件的题目摘要",
@@ -222,25 +214,89 @@ JSON_CONTRACT = """返回 JSON 格式：
     "pitfalls": ["需要注意的坑点；没有时可为空数组"],
     "how_to_think": ["从题目条件想到上述步骤的识别线索"],
     "final_answer": "最终答案及必要条件"
-  },
-  "debug": {}
-}
+  }"""
 
-说明：
-- state_hint 只是教学状态提示，不是流程控制器。
-- context_status 表示题目与学生思路是否足以进入正式教学；不得按消息顺序猜测。need_problem / need_thought 时只能 ASK_OPEN_QUESTION。
-- problem_summary / student_thought_summary 是可持久化语义摘要，只在确实识别到相应内容时填写；寒暄和无关文本必须为 null。“完全没思路”应写入 student_thought_summary。
-- action 是本轮唯一教学动作。
-- 不要输出 wait_for_student；后端会根据 action 强制填充。
-- 只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 会等待学生。
-- EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / RESPOND_TO_CHECKPOINT 是非阻塞动作；其中 EXPLAIN_PRINCIPLE 必须先等学生关闭 knowledge_card，EXPLAIN_LOCAL 仅在选择输出 knowledge_card 时这样做。
-- EXPLAIN_PRINCIPLE 时 knowledge_card 必须非 null；EXPLAIN_LOCAL 时可为 null，也可在内容具有独立记忆和迁移价值时非 null；其余 action 时必须为 null。
-- EXPLAIN_LOCAL 决定出卡时，knowledge_card 必须结构化 message 中同一个可复用知识点，不得为了出卡扩大讲解范围。像韦达定理中“和用 $-b/a$、积用 $c/a$”这类易混且可迁移的辨析适合出卡；一次性代入或计算不适合。
-- SUMMARIZE 时 problem_card 必须非 null，其余 action 时必须为 null。
-- SUMMARIZE 的 message 与 problem_card 应共享关键方法和结论；problem_card 在此基础上提供更完整的结构化解法。
-- ASK_MULTIPLE_CHOICE 时 checkpoint 必须非 null，其余 action 时 checkpoint 必须为 null。
-- 只有两个 ASK action 可以提问；其余 action 的 message 必须为纯陈述句且不得出现问号。
+JSON_CONTRACT = f"""返回一个按 action 区分的联合 JSON 合同。所有 action 的字段顺序都先写 message，以便尽早流式展示：
+
+公共字段：
+{{
+  "message": "给学生看的非空中文内容",
+  "action": "六个允许 action 之一",
+  "context_status": "need_problem|need_thought|ready",
+  "state_hint": "diagnosing|scaffolding|explaining|checking|recovering|summarizing"
+}}
+
+仅在确有新信息时增加 problem_summary、student_thought_summary、breakpoint_description、
+breakpoint_confidence。breakpoint_confidence 必须是 0.0 到 1.0（含边界）的 JSON 数字，
+例如 0.8；不能输出 "high"、"medium"、"low" 等字符串。
+不要为了占位输出 null，不要输出 debug 或 wait_for_student。
+
+按 action 只增加以下专属字段：
+- ASK_OPEN_QUESTION：没有专属字段。
+- ASK_MULTIPLE_CHOICE："checkpoint": {CHECKPOINT_OUTPUT_SCHEMA}
+- EXPLAIN_LOCAL：仅当讲解含可迁移知识时增加 "knowledge_card": {KNOWLEDGE_CARD_OUTPUT_SCHEMA}
+- EXPLAIN_PRINCIPLE："knowledge_card": {KNOWLEDGE_CARD_OUTPUT_SCHEMA}
+- RESPOND_TO_CHECKPOINT：没有专属字段。
+- SUMMARIZE："problem_card": {PROBLEM_CARD_OUTPUT_SCHEMA}
+
+禁止输出与本 action 无关的 checkpoint、knowledge_card、problem_card，即使值为 null 也不要输出。
+只有两个 ASK action 可以提问；其余 action 的 message 必须为纯陈述句且不得出现问号。
 """
+
+CONTEXT_COLLECTION_PROMPT = """你是诊断式数学导师，当前只负责补齐正式答疑所需的题目或学生思路。
+必须根据完整对话语义判断，不得按第几条消息猜测。学生明确说完全没思路也算有效思路。
+只输出 ASK_OPEN_QUESTION：一次问一个具体、可直接回答的问题，不讲解、不出选择题、不生成卡片。
+message 必须放在 JSON 第一个字段；不要输出 null 占位、debug、wait_for_student 或原始思考过程。"""
+
+CONTEXT_COLLECTION_CONTRACT = """只返回：
+{
+  "message": "用于补齐当前缺口的开放问题",
+  "action": "ASK_OPEN_QUESTION",
+  "context_status": "need_problem|need_thought|ready",
+  "state_hint": "diagnosing"
+}
+仅在本轮确实识别出可靠信息时增加 problem_summary 或 student_thought_summary。"""
+
+CHECKPOINT_RESPONSE_PROMPT = """你是诊断式数学导师。最新学生消息是一个尚未回应的结构化 checkpoint_result。
+本轮只做反馈闭环：准确回应选择与正误，指出该选项暴露的理解证据或具体误区，并给出基于真实表现的情绪支持。
+不要开始新讲解、提问、总结或生成任何卡片。message 必须是纯陈述句并放在 JSON 第一个字段。
+不要输出 null 占位、debug、wait_for_student 或原始思考过程。"""
+
+CHECKPOINT_RESPONSE_CONTRACT = """只返回：
+{
+  "message": "给学生的简短、具体反馈",
+  "action": "RESPOND_TO_CHECKPOINT",
+  "context_status": "ready",
+  "state_hint": "checking|recovering|scaffolding"
+}
+仅在确有必要时增加 breakpoint_description 或 breakpoint_confidence。
+breakpoint_confidence 必须是 0.0 到 1.0（含边界）的 JSON 数字，例如 0.8；
+不能输出 "high"、"medium"、"low" 等字符串。"""
+
+
+def _has_unanswered_checkpoint_result(history: list[Row]) -> bool:
+    if not history:
+        return False
+    latest = history[-1]
+    return (
+        _row_value(latest, "role") != "assistant"
+        and _row_value(latest, "action") == "CHECKPOINT_RESPONSE"
+    )
+
+
+def _prompt_and_contract_for_request(
+    session: Row | dict,
+    history: list[Row],
+) -> tuple[str, str]:
+    # A newly admitted student message may itself fill the missing problem or
+    # thought, so do not freeze an active turn to ASK_OPEN_QUESTION merely from
+    # the previously persisted context status. The small contract is safe only
+    # when there is no new history to interpret.
+    if _row_value(session, "context_status", "ready") != "ready" and not history:
+        return CONTEXT_COLLECTION_PROMPT, CONTEXT_COLLECTION_CONTRACT
+    if _has_unanswered_checkpoint_result(history):
+        return CHECKPOINT_RESPONSE_PROMPT, CHECKPOINT_RESPONSE_CONTRACT
+    return f"{SYSTEM_PROMPT}\n{ACTION_PROTOCOL}", JSON_CONTRACT
 
 
 def build_messages(
@@ -288,7 +344,8 @@ def build_messages(
             {"type": "image_url", "image_url": {"url": problem_image_data_url}},
         ]
 
-    system = f"{SYSTEM_PROMPT}\n{ACTION_PROTOCOL}\n{JSON_CONTRACT}\n\n当前工作流约束：{loop_instruction}"
+    system_prompt, output_contract = _prompt_and_contract_for_request(session, history)
+    system = f"{system_prompt}\n{output_contract}\n\n当前工作流约束：{loop_instruction}"
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user_content},
@@ -388,25 +445,30 @@ def render_history_message(row: Row | dict) -> dict[str, str]:
         debug: dict[str, Any] = {}
         if rendered_action != action:
             debug["history_original_action"] = action
-        turn_payload = {
-            "state_hint": metadata.get("state_hint") or "diagnosing",
+        turn_payload: dict[str, Any] = {
+            "message": content,
+            "action": rendered_action,
             "context_status": metadata.get("context_status") or "ready",
+            "state_hint": metadata.get("state_hint") or "diagnosing",
+        }
+        optional_fields = {
             "problem_summary": metadata.get("problem_summary"),
             "student_thought_summary": metadata.get("student_thought_summary"),
-            "action": rendered_action,
-            "message": content,
             "breakpoint_description": metadata.get("breakpoint"),
-            "breakpoint_confidence": None,
-            "checkpoint": metadata.get("checkpoint") if rendered_action == "ASK_MULTIPLE_CHOICE" else None,
-            "knowledge_card": (
-                metadata.get("knowledge_card")
-                if action in {"EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE"}
-                and rendered_action in {"EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE"}
-                else None
-            ),
-            "problem_card": metadata.get("problem_card") if rendered_action == "SUMMARIZE" else None,
-            "debug": debug,
         }
+        turn_payload.update({key: value for key, value in optional_fields.items() if value is not None})
+        if rendered_action == "ASK_MULTIPLE_CHOICE" and metadata.get("checkpoint"):
+            turn_payload["checkpoint"] = metadata["checkpoint"]
+        if (
+            action in {"EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE"}
+            and rendered_action in {"EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE"}
+            and metadata.get("knowledge_card")
+        ):
+            turn_payload["knowledge_card"] = metadata["knowledge_card"]
+        if rendered_action == "SUMMARIZE" and metadata.get("problem_card"):
+            turn_payload["problem_card"] = metadata["problem_card"]
+        if debug:
+            turn_payload["debug"] = debug
         return {"role": role, "content": json.dumps(turn_payload, ensure_ascii=False)}
 
     envelope: dict[str, Any] = {
@@ -446,15 +508,43 @@ async def generate_tutor_turn_stream(
     保证结构化字段不被增量解析的边界问题污染。LLM 空响应会抛 LlmProviderError，
     由 chat 路由转成 SSE error 事件，而不是静默断流。
     """
-    messages = build_messages(session, history, nonblocking_streak=nonblocking_streak, force_blocking=force_blocking)
+    messages = build_messages(
+        session,
+        history,
+        nonblocking_streak=nonblocking_streak,
+        force_blocking=force_blocking,
+    )
     started = time.perf_counter()
+    latency_metrics: dict[str, int | None] = {
+        "input_to_first_progress_ms": None,
+        "input_to_first_reasoning_event_ms": None,
+        "input_to_first_content_ms": None,
+        "input_to_first_visible_message_ms": None,
+        "input_to_interactive_turn_ms": None,
+        "total_completion_ms": None,
+    }
+    progress_stages: set[str] = set()
     raw = ""
     used_fallback = False
     parse_ok = True
     error: str | None = None
     turn_final: TutorTurn | None = None
 
+    def elapsed_ms() -> int:
+        return int((time.perf_counter() - started) * 1000)
+
+    def progress(stage: str, label: str) -> tuple[str, dict[str, Any]]:
+        current_elapsed_ms = elapsed_ms()
+        if latency_metrics["input_to_first_progress_ms"] is None:
+            latency_metrics["input_to_first_progress_ms"] = current_elapsed_ms
+        progress_stages.add(stage)
+        return (
+            "progress",
+            {"stage": stage, "label": label, "elapsed_ms": current_elapsed_ms},
+        )
+
     try:
+        yield progress("reading_problem", "正在读取题目")
         request_messages = messages
         for attempt in range(FORMAT_RETRY_LIMIT + 1):
             extractor = MessageStreamExtractor()
@@ -465,11 +555,26 @@ async def generate_tutor_turn_stream(
                 request_messages,
                 max_tokens=profile.max_output_tokens,
             ):
+                provider_event = event.get("event")
+                if provider_event == "reasoning_delta":
+                    if latency_metrics["input_to_first_reasoning_event_ms"] is None:
+                        latency_metrics["input_to_first_reasoning_event_ms"] = elapsed_ms()
+                    if "checking_thought" not in progress_stages:
+                        yield progress("checking_thought", "正在核对你的思路")
+                    continue
                 delta = event.get("delta") or ""
                 if delta:
+                    if latency_metrics["input_to_first_content_ms"] is None:
+                        latency_metrics["input_to_first_content_ms"] = elapsed_ms()
+                    if "choosing_action" not in progress_stages:
+                        yield progress("choosing_action", "正在选择下一步教学方式")
                     raw_parts.append(delta)
                     inc = extractor.feed(delta)
                     if inc:
+                        if latency_metrics["input_to_first_visible_message_ms"] is None:
+                            latency_metrics["input_to_first_visible_message_ms"] = elapsed_ms()
+                        if "composing_reply" not in progress_stages:
+                            yield progress("composing_reply", "正在组织回复")
                         emitted_message_parts.append(inc)
                         yield ("message_delta", inc)
             raw = "".join(raw_parts)
@@ -497,6 +602,10 @@ async def generate_tutor_turn_stream(
             emitted_message = "".join(emitted_message_parts)
             if turn_final.message:
                 if not emitted_message:
+                    if latency_metrics["input_to_first_visible_message_ms"] is None:
+                        latency_metrics["input_to_first_visible_message_ms"] = elapsed_ms()
+                    if "composing_reply" not in progress_stages:
+                        yield progress("composing_reply", "正在组织回复")
                     yield ("message_delta", turn_final.message)
                 elif turn_final.message.startswith(emitted_message):
                     missing_suffix = turn_final.message[len(emitted_message) :]
@@ -508,6 +617,7 @@ async def generate_tutor_turn_stream(
                     # the user never keeps a message that violates final policy.
                     yield ("message_reset", "")
                     yield ("message_delta", turn_final.message)
+            latency_metrics["input_to_interactive_turn_ms"] = elapsed_ms()
             yield ("turn", turn_final)
             return
         raise LlmProviderError("模型未生成有效的教学结果")
@@ -522,6 +632,7 @@ async def generate_tutor_turn_stream(
         raise
     finally:
         latency_ms = int((time.perf_counter() - started) * 1000)
+        latency_metrics["total_completion_ms"] = latency_ms
         if logger is not None:
             parsed_dump: dict[str, Any] | None = None
             try:
@@ -539,4 +650,6 @@ async def generate_tutor_turn_stream(
                 parse_ok=parse_ok,
                 used_fallback=used_fallback,
                 error=error,
+                latency_metrics=latency_metrics,
+                reasoning_effort=profile.reasoning_effort,
             )

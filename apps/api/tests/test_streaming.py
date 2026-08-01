@@ -179,6 +179,56 @@ def test_multimodal_probe_rejects_generic_text_reply(monkeypatch):
     assert "未正确识别测试图片" in message
 
 
+def test_multimodal_probe_does_not_inject_prompt_level_effort_guidance(monkeypatch):
+    captured = {}
+
+    async def fake_chat_stream_completion(profile, messages, *, max_tokens=None, temperature=None):
+        captured["messages"] = messages
+        yield {"delta": "RED_CIRCLE|BLUE_SQUARE", "finish_reason": "stop"}
+
+    monkeypatch.setattr(provider, "chat_stream_completion", fake_chat_stream_completion)
+
+    async def run():
+        return await provider.test_multimodal_connection(
+            replace(_profile("openai_compatible"), reasoning_effort="low"),
+            "data:image/png;base64,dGVzdA==",
+            "RED_CIRCLE|BLUE_SQUARE",
+        )
+
+    ok, _, _ = asyncio.run(run())
+
+    assert ok is True
+    assert captured["messages"][0]["role"] == "user"
+    assert captured["messages"][0]["content"][1]["type"] == "image_url"
+
+
+def test_image_json_calls_keep_their_original_task_prompts(monkeypatch):
+    captured = []
+
+    async def fake_chat_completion(profile, messages, *, max_tokens=None, temperature=None):
+        captured.append(messages)
+        return "{}"
+
+    monkeypatch.setattr(provider, "chat_completion", fake_chat_completion)
+    profile = replace(
+        _profile("openai_compatible"),
+        reasoning_effort="high",
+    )
+
+    async def run():
+        await provider.analyze_problem_image(profile, "data:image/png;base64,dGVzdA==")
+        await provider.detect_problem_regions(profile, "data:image/png;base64,dGVzdA==")
+
+    asyncio.run(run())
+
+    assert len(captured) == 2
+    for messages in captured:
+        system_prompt = messages[0]["content"]
+        assert "数学题图片录入助手" in system_prompt or "数学试题与学生作答区域检测助手" in system_prompt
+        assert "TutorTurn" not in system_prompt
+        assert "message 为第一个字段" not in system_prompt
+
+
 def test_anthropic_payload_moves_system_and_converts_image_data_url():
     profile = _profile("anthropic")
     payload = anthropic_request_payload(
@@ -205,6 +255,7 @@ def test_anthropic_payload_moves_system_and_converts_image_data_url():
     )
     assert payload["system"] == "系统规则"
     assert payload["model"] == "local-demo"
+    assert payload["output_config"] == {"effort": "low"}
     assert [message["role"] for message in payload["messages"]] == ["user", "assistant"]
     user_blocks = payload["messages"][0]["content"]
     assert user_blocks[0] == {"type": "text", "text": "看图"}
@@ -235,7 +286,7 @@ def test_anthropic_sse_yields_text_deltas_and_stop_reason():
     events = asyncio.run(run())
 
     assert events == [
-        {"delta": "你", "finish_reason": None},
-        {"delta": "好", "finish_reason": None},
+        {"event": "content_delta", "delta": "你", "finish_reason": None},
+        {"event": "content_delta", "delta": "好", "finish_reason": None},
         {"delta": "", "finish_reason": "end_turn"},
     ]

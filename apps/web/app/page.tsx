@@ -127,10 +127,12 @@ export default function Home() {
     closeProfileDialog,
     editingProfile,
     deleteBusy,
+    reasoningBusy,
     refreshProfiles,
     openNewProfileDialog,
     openSelectedProfileDialog,
-    deleteProfiles
+    deleteProfiles,
+    setReasoningEffort
   } = profilesState;
   const {
     cards,
@@ -669,6 +671,9 @@ export default function Home() {
           gradeBand={gradeBand}
           selectedProfile={selectedProfile}
           streamBusy={streamBusy}
+          progressLabel={runtime.timeline.run?.status === "streaming"
+            ? runtime.timeline.run.progress?.label
+            : undefined}
           onExpandLeft={() => setLeftOpen(true)}
           onToggleCards={() => setRightOpen((value) => !value)}
         />
@@ -711,6 +716,7 @@ export default function Home() {
           selectedProfile={selectedProfile}
           profiles={profiles}
           deleteBusy={deleteBusy}
+          reasoningBusy={reasoningBusy}
           streamBusy={streamBusy}
           stopBusy={stopBusy}
           startBusy={startBusy}
@@ -724,6 +730,7 @@ export default function Home() {
           onAddProfile={openNewProfileDialog}
           onEditProfile={openSelectedProfileDialog}
           onDeleteProfiles={deleteProfiles}
+          onReasoningEffortChange={setReasoningEffort}
           onStop={() => void runtime.stopStream()}
         />
       </section>

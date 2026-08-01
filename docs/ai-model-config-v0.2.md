@@ -181,14 +181,22 @@ POST /api/model-profiles/test
 {
   "ok": true,
   "latency_ms": 1280,
-  "message": "连接成功；图片探测通过",
+  "message": "文本连接成功；可用推理档位：low, high；已移除报错档位：none；图片探测通过",
+  "reasoning_effort_options": ["low", "high"],
+  "reasoning_effort_results": [
+    {"effort": "none", "ok": false, "latency_ms": 210, "message": "模型请求失败 400"},
+    {"effort": "low", "ok": true, "latency_ms": 980, "message": "连接成功"},
+    {"effort": "high", "ok": true, "latency_ms": 1280, "message": "连接成功"}
+  ],
   "multimodal_ok": true,
   "multimodal_latency_ms": 1520,
   "multimodal_message": "图片内容识别正确"
 }
 ```
 
-`latency_ms` 记录文本测试从发起请求到收到第一个非空可见文本 chunk 的首字延迟（TTFT），不等待完整回复结束。前端传 `probe_multimodal=true` 时，后端会即时生成两个随机排列的 PNG 视觉挑战作为 `image_url` 再请求一次，并校验完整回复中的颜色、形状和顺序；图片探测的 `max_tokens` 沿用模型配置并保证至少 1024、最多 8192，避免推理模型在输出可见答案前被原先固定的 128 token 截断。`require_multimodal=true` 表示图片探测失败应让整项测试失败。
+每次文本连接测试都会针对相同的 `protocol + Base URL + API key + model` 并发发出三个极简会话，并分别传入 `none / low / high`。`reasoning_effort_results` 保留逐档结果，`reasoning_effort_options` 只包含成功档位；相同 model 经不同账号或供应商代理得到不同结果是合法状态。前端保存模型时把成功列表写入对应 profile；如果用户跳过测试，则默认保存三档。
+
+`latency_ms` 取三档探测中最慢一次的首字延迟。前端传 `probe_multimodal=true` 时，后端会选一个已通过的档位，即时生成两个随机排列的 PNG 视觉挑战作为 `image_url` 再请求一次，并校验完整回复中的颜色、形状和顺序；图片探测的 `max_tokens` 沿用模型配置并保证至少 1024、最多 8192，避免推理模型在输出可见答案前被原先固定的 128 token 截断。`require_multimodal=true` 表示图片探测失败应让整项测试失败。
 
 文本和图片探测都使用极短 prompt，避免明显成本。随机挑战图只含纯色几何图形，不含用户数据、API key 或业务题目。
 
@@ -200,7 +208,7 @@ POST /api/model-profiles/test
 POST /api/model-profiles/batch
 ```
 
-请求中的供应商字段只写一次，每个 model name 独立携带多模态标记：
+请求中的供应商字段只写一次，每个 model name 独立携带多模态标记和可选的实测推理档位：
 
 ```json
 {
@@ -209,7 +217,11 @@ POST /api/model-profiles/batch
   "base_url": "https://example-provider.com/v1",
   "api_key": "user-pasted-api-key",
   "models": [
-    {"model": "text-model", "is_multimodal": false},
+    {
+      "model": "text-model",
+      "is_multimodal": false,
+      "reasoning_effort_options": ["low", "high"]
+    },
     {"model": "vision-model", "is_multimodal": true}
   ],
   "tags": ["math"],
@@ -219,7 +231,7 @@ POST /api/model-profiles/batch
 }
 ```
 
-后端在同一 SQLite 事务里创建多个 `model_profiles` 行；任一写入失败时整批回滚。各行共享供应商名称、URL、运行参数和同一 API key 的加密值，但拥有独立 ID、model name、多模态标记和测试状态。
+后端在同一 SQLite 事务里创建多个 `model_profiles` 行；任一写入失败时整批回滚。各行共享供应商名称、URL、运行参数和同一 API key 的加密值，但拥有独立 ID、model name、多模态标记、推理档位能力和测试状态。缺少 `reasoning_effort_options` 表示未测试，后端默认三档均可选。
 
 ### 5.4 单个新增模型配置（兼容接口）
 
@@ -272,7 +284,21 @@ PATCH /api/model-profiles/{profile_id}
 7. `temperature`
 8. `max_output_tokens`
 9. `is_multimodal`，是否支持图片识别
-10. `api_key`，仅在用户重新输入时替换
+10. `reasoning_effort`，`none|low|high`，默认 `low`
+11. `reasoning_effort_options`，当前完整 profile 实测成功的档位；更换 provider、Base URL、API key、model、测试超时或输出上限且不重测时重置为三档
+12. `api_key`，仅在用户重新输入时替换
+
+推理档位也可通过专用接口修改：
+
+```http
+PATCH /api/model-profiles/{profile_id}/reasoning
+```
+
+```json
+{"reasoning_effort": "low"}
+```
+
+该接口对 OpenCode 托管 profile 也开放，因为它只保存本地用户偏好，不修改目录同步的 provider、URL、model 或多模态能力。列表响应额外返回该 profile 已保存的 `reasoning_effort_options`、协议级 `reasoning_control` 和说明。OpenAI / OpenAI-compatible 发送顶层 `reasoning_effort`，Anthropic Messages 发送 `output_config.effort`；不再按供应商或模型名猜测，也不再用提示词模拟。保存的档位作用于正式答疑、文字拆题、图片题目框检测、兼容图片内容识别和多模态能力测试。
 
 ### 5.6 批量删除模型配置
 
@@ -333,6 +359,8 @@ CREATE TABLE model_profiles (
   temperature REAL NOT NULL DEFAULT 0.2,
   max_output_tokens INTEGER NOT NULL DEFAULT 8000 CHECK (max_output_tokens > 0),
   is_multimodal INTEGER NOT NULL DEFAULT 0 CHECK (is_multimodal IN (0, 1)),
+  reasoning_effort TEXT NOT NULL DEFAULT 'low',
+  reasoning_effort_options_json TEXT NOT NULL DEFAULT '["none","low","high"]',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

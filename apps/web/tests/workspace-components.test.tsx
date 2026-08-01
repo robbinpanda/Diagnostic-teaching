@@ -9,6 +9,7 @@ import { StudyCardModal } from "../components/StudyCardModal";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import { MessageTimeline } from "../components/workspace/MessageTimeline";
 import { ModelProfilePicker } from "../components/workspace/ModelProfilePicker";
+import { TutorComposer } from "../components/workspace/TutorComposer";
 import { boxFromPoints, ProblemImageSelector } from "../components/ProblemImageSelector";
 import { SessionSidebar } from "../components/workspace/SessionSidebar";
 import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
@@ -30,7 +31,11 @@ const profile: ModelProfile = {
   temperature: 0.2,
   max_output_tokens: 1000,
   is_multimodal: false,
-  managed: false
+  managed: false,
+  reasoning_effort: "low",
+  reasoning_effort_options: ["none", "low", "high"],
+  reasoning_control: "none",
+  reasoning_control_description: "本地演示模型不使用推理预算。"
 };
 
 test("workspace header and timeline preserve teaching context labels", () => {
@@ -49,6 +54,21 @@ test("workspace header and timeline preserve teaching context labels", () => {
   assert.match(header, /一次函数/);
   assert.match(header, /初中数学/);
   assert.match(header, /正在思考/);
+
+  const progressHeader = renderToStaticMarkup(
+    <ConversationHeader
+      leftOpen
+      title="一次函数"
+      sessionId="session-a"
+      gradeBand="junior"
+      selectedProfile={profile}
+      streamBusy
+      progressLabel="正在核对你的思路"
+      onExpandLeft={() => {}}
+      onToggleCards={() => {}}
+    />
+  );
+  assert.match(progressHeader, /正在核对你的思路/);
 
   const timeline = renderToStaticMarkup(
     <MessageTimeline
@@ -287,6 +307,66 @@ test("model picker exposes image capability and batch management controls", () =
   assert.match(pickerSource, /aria-multiselectable/);
   assert.match(conversationStyles, /\.modelPickerCurrentLabel\s*\{[^}]*text-overflow:\s*ellipsis;/);
   assert.match(conversationStyles, /\.modelPicker\s*\{[^}]*max-width:/);
+});
+
+test("composer exposes the three probed protocol reasoning effort labels", () => {
+  const protocolProfile: ModelProfile = {
+    ...profile,
+    id: "profile-prompt-effort",
+    provider: "openai_compatible",
+    base_url: "https://example.com/v1",
+    base_url_host: "example.com",
+    model: "vendor-chat-model",
+    reasoning_effort_options: ["none", "low", "high"],
+    reasoning_control: "openai_compatible_reasoning_effort",
+    reasoning_control_description: "按协议发送 reasoning_effort。"
+  };
+  const composer = renderToStaticMarkup(
+    <TutorComposer
+      error={null}
+      sessionId=""
+      originalProblemImage={null}
+      input=""
+      composerBlocked={false}
+      imageInputRef={{ current: null }}
+      imageBusy={false}
+      gradeBand="junior"
+      selectedProfileId={protocolProfile.id}
+      selectedProfile={protocolProfile}
+      profiles={[protocolProfile]}
+      deleteBusy={false}
+      reasoningBusy={false}
+      streamBusy={false}
+      stopBusy={false}
+      startBusy={false}
+      onClearError={() => {}}
+      onRemoveImage={() => {}}
+      onInputChange={() => {}}
+      onSend={() => {}}
+      onImageFile={() => {}}
+      onGradeBandChange={() => {}}
+      onProfileChange={() => {}}
+      onAddProfile={() => {}}
+      onEditProfile={() => {}}
+      onDeleteProfiles={async () => true}
+      onReasoningEffortChange={async () => true}
+      onStop={() => {}}
+    />
+  );
+
+  assert.match(composer, /aria-label="学习阶段：初中"/);
+  assert.match(composer, /帮助导师调整知识范围与讲解方式/);
+  assert.match(composer, /侧重基础概念、直观解释与规范步骤/);
+  assert.match(composer, /允许使用高中知识、综合方法与完整推导/);
+  assert.doesNotMatch(composer, /<select[^>]*aria-label="年级"/);
+  assert.match(composer, /aria-label="推理强度：低"/);
+  assert.match(composer, /aria-haspopup="listbox"/);
+  assert.match(composer, /推理 · <strong>低<\/strong>/);
+  assert.match(composer, /请求供应商关闭推理/);
+  assert.match(composer, /较少推理，兼顾回复速度与必要复核/);
+  assert.match(composer, /充分推理并仔细检查，优先回答质量/);
+  assert.match(composer, /reasoningRecommendedBadge/);
+  assert.doesNotMatch(composer, /<select[^>]*aria-label="推理强度"/);
 });
 
 test("problem image selector renders movable and resizable regions", () => {

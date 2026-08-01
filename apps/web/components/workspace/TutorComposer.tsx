@@ -2,8 +2,10 @@
 
 import { ArrowUp, Loader2, Paperclip, Pencil, Plus, Square, X } from "lucide-react";
 import type { RefObject } from "react";
-import type { ModelProfile } from "../../lib/api";
+import type { ModelProfile, ReasoningEffort } from "../../lib/api";
+import { GradeBandPicker } from "./GradeBandPicker";
 import { ModelProfilePicker } from "./ModelProfilePicker";
+import { ReasoningEffortPicker } from "./ReasoningEffortPicker";
 
 type Props = {
   error: string | null;
@@ -18,6 +20,7 @@ type Props = {
   selectedProfile?: ModelProfile;
   profiles: ModelProfile[];
   deleteBusy: boolean;
+  reasoningBusy: boolean;
   streamBusy: boolean;
   stopBusy: boolean;
   startBusy: boolean;
@@ -31,6 +34,7 @@ type Props = {
   onAddProfile: () => void;
   onEditProfile: () => void;
   onDeleteProfiles: (profileIds: string[]) => Promise<boolean>;
+  onReasoningEffortChange: (profileId: string, effort: ReasoningEffort) => Promise<boolean>;
   onStop: () => void;
 };
 
@@ -47,6 +51,7 @@ export function TutorComposer({
   selectedProfile,
   profiles,
   deleteBusy,
+  reasoningBusy,
   streamBusy,
   stopBusy,
   startBusy,
@@ -60,6 +65,7 @@ export function TutorComposer({
   onAddProfile,
   onEditProfile,
   onDeleteProfiles,
+  onReasoningEffortChange,
   onStop
 }: Props) {
   return (
@@ -104,10 +110,11 @@ export function TutorComposer({
             >
               {imageBusy ? <Loader2 size={17} className="spin" /> : <Paperclip size={17} />}
             </button>
-            <select value={gradeBand} onChange={(event) => onGradeBandChange(event.target.value as typeof gradeBand)} disabled={Boolean(sessionId) || composerBlocked} aria-label="年级">
-              <option value="junior">初中</option>
-              <option value="senior">高中</option>
-            </select>
+            <GradeBandPicker
+              value={gradeBand}
+              disabled={Boolean(sessionId) || composerBlocked}
+              onChange={onGradeBandChange}
+            />
             <ModelProfilePicker
               profiles={profiles}
               selectedProfileId={selectedProfileId}
@@ -118,6 +125,14 @@ export function TutorComposer({
               onAdd={onAddProfile}
               onDelete={onDeleteProfiles}
             />
+            {selectedProfile && selectedProfile.reasoning_effort_options.length > 1 && (
+              <ReasoningEffortPicker
+                profile={selectedProfile}
+                busy={reasoningBusy}
+                disabled={streamBusy}
+                onChange={onReasoningEffortChange}
+              />
+            )}
             <button
               className="toolButton"
               type="button"

@@ -2,6 +2,7 @@ import type { Checkpoint, SseEvent, StudyCard } from "./api";
 
 export type StreamEventKind =
   | "decision"
+  | "progress"
   | "message_delta"
   | "message_reset"
   | "checkpoint_ready"
@@ -32,6 +33,7 @@ export type StreamMessageDone = {
 
 export type StreamEventData = {
   decision: StreamDecision;
+  progress: { stage: string; label: string; action_index?: number; elapsed_ms?: number };
   message_delta: { text: string; action_index?: number };
   message_reset: { action_index?: number };
   checkpoint_ready: Checkpoint;
@@ -61,6 +63,7 @@ export type StreamEventAdapter = {
 
 const KNOWN_EVENTS = new Set<StreamEventKind>([
   "decision",
+  "progress",
   "message_delta",
   "message_reset",
   "checkpoint_ready",

@@ -8,7 +8,7 @@
 context_status + problem/thought summary + state_hint + action + message + breakpoint_description + checkpoint + knowledge_card + problem_card
 ```
 
-后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、标注每条 AI 消息对应的教学 action，并把检查点和待归档卡片嵌入消息时间线。
+后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、标注每条 AI 消息对应的教学 action，并把检查点和待归档卡片嵌入消息时间线。模型输出使用按 action 区分的最小联合合同：`message` 固定排在最前，只有需要的 checkpoint/card 字段才出现，其他字段不再用 `null` 占位；后端解析后仍补成统一 `TutorTurn`，因此 SQLite 和前端业务结构保持兼容。
 
 当前已支持：文字单题/多题自动拆分、PNG/JPEG/WebP 题图的多题框检测与可编辑裁剪、按题目批量创建独立答疑 session、OpenAI-compatible / Anthropic 双协议加密模型配置、自动同步的 OpenCode 免费模型、检查点选择题、跨 session 的全局知识卡片/题目卡片库、层级卡片文件夹与复制/剪切/移动、基于目录树选择的学习卡片 PDF 多排版导出、SQLite 历史会话与删除、按 session 严格递增的 durable events 与断线重放 SSE，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
 
@@ -17,6 +17,10 @@ SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 re
 前端会话运行态由 timeline reducer、互斥 workflow 状态机和按 session 隔离的 stream controller 管理。切换会话或新建答疑只切换当前视图，不会关闭其他 session 的 HTTP 流；多个 session 可以同时生成，同一 session 的新 run 仍只会替换该 session 的旧 run。点击停止只中断当前打开的 session，页面卸载才统一收束所有本地流。每个 chat 事件同时绑定 session id 与本地 run id，后台流不能写入后来打开的 session；重新打开仍在生成的 session 时，页面从 SQLite 快照恢复已提交内容并重新接回该 session 的活动流。高频 `message_delta/message_reset` 没有 durable seq；稳定业务边界由独立的 session-events SSE 提供严格递增的 `seq` 和断线重放。
 
 模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name，并可选择 OpenAI-compatible chat completions 或 Anthropic Messages 协议。多个 model name 的连接测试最多四项并行执行，每个模型独立显示成功或失败并设置是否多模态；图片能力使用每次随机排列的颜色/图形挑战验证模型是否真正读懂图片，而不是只判断请求是否返回文字。模型选择器会根据名称长度自适应宽度，长名称自动省略，多模态项显示“支持上传图片”；管理模式可复选并原子批量删除自定义配置。用户配置显示为“供应商名称 · model name”；OpenCode 托管免费模型显示为 `opencodefree-<model-id>`，由 `models.dev` 目录同步协议与图片能力，且不能手动删除。
+
+每个 profile 另有持久化的三档推理强度 `none / low / high`，前端显示为“关闭 / 低 / 高”，默认是“低”。后端不再按供应商名称、Base URL 或 model family 猜测能力：OpenAI 与 OpenAI-compatible chat completions 统一发送顶层 `reasoning_effort`，Anthropic Messages 统一发送 `output_config.effort`。添加模型时，连接测试会针对同一个 `protocol + Base URL + API key + model` 并发发出三个极简会话，分别携带 `none / low / high`；报错档位会从该 profile 的可选项中移除并持久化。用户跳过测试时默认保留三档，符合不同代理对同一模型可能支持不同档位的实际情况。同一已保存档位作用于正式答疑、上传后的图片题目框检测、兼容图片内容识别接口和图片能力测试；不再用 system prompt 模拟推理强度。OpenCode 托管 profile 仍不能改目录字段或删除，但允许保存本地推理档位偏好。
+
+输入框旁的“初中 / 高中”选择会在创建 session 时固化为 `grade_band`，并随每轮 `SESSION_START` 上下文发送给答疑模型，用于提示知识范围、讲解粒度和推导深度：初中侧重基础概念、直观解释与规范步骤，高中允许使用高中知识、综合方法与完整推导。它不会切换模型或供应商，也不是后端课程知识点白名单；进入答疑后不能修改，避免同一 session 的教学口径中途变化。
 
 教学上下文的前置 intake 已取消；新增的拆题阶段只决定“一段输入要创建几个 session”，不参与教学 action。文字首发先调用 `POST /api/problem-intake/analyze-text`，由当前选定模型返回严格 `problems[]` JSON；单题返回一项，多题返回多个自包含题目，再由 `POST /api/sessions/batch-start` 在同一 SQLite 事务中为每题创建正式 session、写入 `session_inputs` 并保存首条 `STUDENT_RESPONSE`。每个子会话都有稳定 session id 与 `client_message_id`，整批重试不会重复创建。进入正式 session 后，题目和学生思路仍由答疑模型按完整对话语义更新；`context_status=need_problem|need_thought` 时后端强制只允许 `ASK_OPEN_QUESTION`，两项明确后进入 `ready`。
 
@@ -31,6 +35,8 @@ Checkpoint answer 也进入 `session_inputs`，并由数据库唯一约束保证
 每次 `POST /api/chat/stream` 现在都有持久化 `run_id` 和递增 `attempt`，状态依次为 `queued -> running -> completed`，异常或中断则进入 `failed / interrupted`。同一 session 的 run 按进入顺序串行，不同 session 可并行；`GET /api/sessions/{session_id}/run` 可查询活动或最新 run，`POST /api/sessions/{session_id}/interrupt` 会显式取消 provider 请求和后续 bounded loop，空闲或重复中断是幂等 no-op。浏览器仅停止读取不会伪装成显式中断，而会记录为结构化 `failed/client_disconnected`。
 
 run 中只有完整解析并通过 SQLite 事务提交的教学 action 才进入会话历史；流式显示到一半的 step 不会写成 assistant message。应用启动时会把上次进程遗留的 `queued/running` run 标为 `failed/process_restarted`，不会静默恢复可能重复的 provider 工作。
+
+生成期间 chat SSE 会发送不含原始思维内容的安全 `progress`：正在读取题目、正在核对你的思路、正在选择下一步教学方式、正在组织回复。provider 的 reasoning chunk 只用于切换固定阶段文案，不把原始 CoT 发到浏览器。每个 `tutor_turn` 日志同时记录 `input_to_first_progress_ms`、`input_to_first_reasoning_event_ms`、`input_to_first_content_ms`、`input_to_first_visible_message_ms`、`input_to_interactive_turn_ms` 与 `total_completion_ms`。
 
 知识卡片策略为：`EXPLAIN_PRINCIPLE` 必须输出，`EXPLAIN_LOCAL` 仅在讲解包含值得独立记忆、可迁移复用的公式、定理、性质或方法辨析时由模型选择输出；任一 knowledge card 都会在消息结束后嵌入对话，学生可修改内容后选择保存文件夹归档，或连续点击两次“舍弃/确认舍弃”不入库。两种选择都会解除当前阻塞并继续答疑。新库自动创建“默认知识卡片”和“默认题目卡片”两个系统文件夹；已归档知识卡片可再次编辑并通过 `PUT /api/cards/{id}` 保存修改，题目卡片保持只读。
 
