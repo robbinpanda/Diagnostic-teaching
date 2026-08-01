@@ -276,28 +276,6 @@ def test_context_collection_uses_small_contract_without_card_schemas():
     assert "problem_card" not in system
 
 
-def test_build_messages_appends_prompt_effort_only_when_provided():
-    session = {
-        "grade_band": "senior",
-        "subject": "math",
-        "problem_text": "求函数最大值。",
-        "student_initial_thought": "我卡在负号。",
-        "context_status": "ready",
-        "phase": "diagnosing",
-        "problem_image_data_url": None,
-    }
-    directive = (
-        "推理强度要求（超低）：能不推理就不要推理，"
-        "立即从 message 字段开始输出。"
-    )
-
-    default_messages = build_messages(session, [])
-    guided_messages = build_messages(session, [], effort_instruction=directive)
-
-    assert "推理强度要求" not in default_messages[0]["content"]
-    assert guided_messages[0]["content"].endswith(directive)
-
-
 def test_unanswered_checkpoint_uses_response_only_contract():
     session = {
         "grade_band": "senior",

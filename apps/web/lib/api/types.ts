@@ -22,7 +22,7 @@ export type ModelProfile = {
   last_test_latency_ms?: number | null;
 };
 
-export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
+export type ReasoningEffort = "none" | "low" | "high";
 
 export type Checkpoint = {
   id: string;

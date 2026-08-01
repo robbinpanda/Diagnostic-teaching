@@ -25,6 +25,7 @@ export async function updateModelProfile(
     temperature: number;
     max_output_tokens: number;
     is_multimodal: boolean;
+    reasoning_effort_options?: ReasoningEffort[];
   }
 ) {
   const response = await fetch(`${API_BASE}/api/model-profiles/${profileId}`, {
@@ -59,7 +60,6 @@ export async function testModelProfile(input: {
   max_output_tokens: number;
   probe_multimodal?: boolean;
   require_multimodal?: boolean;
-  reasoning_effort?: ReasoningEffort;
 }) {
   const response = await fetch(`${API_BASE}/api/model-profiles/test`, {
     method: "POST",
@@ -71,6 +71,13 @@ export async function testModelProfile(input: {
     ok: boolean;
     latency_ms: number | null;
     message: string;
+    reasoning_effort_options: ReasoningEffort[];
+    reasoning_effort_results: Array<{
+      effort: ReasoningEffort;
+      ok: boolean;
+      latency_ms: number | null;
+      message: string;
+    }>;
     multimodal_ok?: boolean | null;
     multimodal_latency_ms?: number | null;
     multimodal_message?: string | null;
@@ -82,7 +89,11 @@ export async function createModelProfiles(input: {
   provider: "openai" | "openai_compatible" | "anthropic" | "local_demo";
   base_url: string;
   api_key: string;
-  models: Array<{ model: string; is_multimodal: boolean }>;
+  models: Array<{
+    model: string;
+    is_multimodal: boolean;
+    reasoning_effort_options?: ReasoningEffort[];
+  }>;
   tags: string[];
   timeout_ms: number;
   temperature: number;

@@ -18,7 +18,7 @@ SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 re
 
 模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name，并可选择 OpenAI-compatible chat completions 或 Anthropic Messages 协议。多个 model name 的连接测试最多四项并行执行，每个模型独立显示成功或失败并设置是否多模态；图片能力使用每次随机排列的颜色/图形挑战验证模型是否真正读懂图片，而不是只判断请求是否返回文字。模型选择器会根据名称长度自适应宽度，长名称自动省略，多模态项显示“支持上传图片”；管理模式可复选并原子批量删除自定义配置。用户配置显示为“供应商名称 · model name”；OpenCode 托管免费模型显示为 `opencodefree-<model-id>`，由 `models.dev` 目录同步协议与图片能力，且不能手动删除。
 
-每个 profile 另有持久化的四档推理强度 `minimal / low / medium / high`，前端显示为“超低 / 低 / 中 / 高”，默认是“中”。后端优先按 provider、Base URL 与 model family 映射为 `reasoning_effort`、OpenRouter `reasoning.effort`、DashScope thinking 开关或 Anthropic adaptive thinking；没有明确协议映射的 Kimi 等模型不会盲发未知字段，而是在 system prompt 中使用分档指令控制，且“中”不追加任何指令。同一档位同时作用于正式答疑、上传后的图片题目框检测、兼容图片内容识别接口和模型设置中的图片能力测试；图片调用使用视觉任务专用提示，不会混入 `TutorTurn` 或 `message` 字段要求。OpenCode 托管 profile 仍不能改目录字段或删除，但允许保存本地推理档位偏好。
+每个 profile 另有持久化的三档推理强度 `none / low / high`，前端显示为“关闭 / 低 / 高”，默认是“低”。后端不再按供应商名称、Base URL 或 model family 猜测能力：OpenAI 与 OpenAI-compatible chat completions 统一发送顶层 `reasoning_effort`，Anthropic Messages 统一发送 `output_config.effort`。添加模型时，连接测试会针对同一个 `protocol + Base URL + API key + model` 并发发出三个极简会话，分别携带 `none / low / high`；报错档位会从该 profile 的可选项中移除并持久化。用户跳过测试时默认保留三档，符合不同代理对同一模型可能支持不同档位的实际情况。同一已保存档位作用于正式答疑、上传后的图片题目框检测、兼容图片内容识别接口和图片能力测试；不再用 system prompt 模拟推理强度。OpenCode 托管 profile 仍不能改目录字段或删除，但允许保存本地推理档位偏好。
 
 输入框旁的“初中 / 高中”选择会在创建 session 时固化为 `grade_band`，并随每轮 `SESSION_START` 上下文发送给答疑模型，用于提示知识范围、讲解粒度和推导深度：初中侧重基础概念、直观解释与规范步骤，高中允许使用高中知识、综合方法与完整推导。它不会切换模型或供应商，也不是后端课程知识点白名单；进入答疑后不能修改，避免同一 session 的教学口径中途变化。
 

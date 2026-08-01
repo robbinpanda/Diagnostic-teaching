@@ -32,8 +32,8 @@ const profile: ModelProfile = {
   max_output_tokens: 1000,
   is_multimodal: false,
   managed: false,
-  reasoning_effort: "medium",
-  reasoning_effort_options: ["medium"],
+  reasoning_effort: "low",
+  reasoning_effort_options: ["none", "low", "high"],
   reasoning_control: "none",
   reasoning_control_description: "本地演示模型不使用推理预算。"
 };
@@ -309,17 +309,17 @@ test("model picker exposes image capability and batch management controls", () =
   assert.match(conversationStyles, /\.modelPicker\s*\{[^}]*max-width:/);
 });
 
-test("composer exposes all four reasoning effort labels for prompt-controlled models", () => {
-  const promptControlledProfile: ModelProfile = {
+test("composer exposes the three probed protocol reasoning effort labels", () => {
+  const protocolProfile: ModelProfile = {
     ...profile,
     id: "profile-prompt-effort",
     provider: "openai_compatible",
     base_url: "https://example.com/v1",
     base_url_host: "example.com",
     model: "vendor-chat-model",
-    reasoning_effort_options: ["minimal", "low", "medium", "high"],
-    reasoning_control: "prompt_effort",
-    reasoning_control_description: "通过提示词控制推理强度。"
+    reasoning_effort_options: ["none", "low", "high"],
+    reasoning_control: "openai_compatible_reasoning_effort",
+    reasoning_control_description: "按协议发送 reasoning_effort。"
   };
   const composer = renderToStaticMarkup(
     <TutorComposer
@@ -331,9 +331,9 @@ test("composer exposes all four reasoning effort labels for prompt-controlled mo
       imageInputRef={{ current: null }}
       imageBusy={false}
       gradeBand="junior"
-      selectedProfileId={promptControlledProfile.id}
-      selectedProfile={promptControlledProfile}
-      profiles={[promptControlledProfile]}
+      selectedProfileId={protocolProfile.id}
+      selectedProfile={protocolProfile}
+      profiles={[protocolProfile]}
       deleteBusy={false}
       reasoningBusy={false}
       streamBusy={false}
@@ -359,12 +359,11 @@ test("composer exposes all four reasoning effort labels for prompt-controlled mo
   assert.match(composer, /侧重基础概念、直观解释与规范步骤/);
   assert.match(composer, /允许使用高中知识、综合方法与完整推导/);
   assert.doesNotMatch(composer, /<select[^>]*aria-label="年级"/);
-  assert.match(composer, /aria-label="推理强度：中"/);
+  assert.match(composer, /aria-label="推理强度：低"/);
   assert.match(composer, /aria-haspopup="listbox"/);
-  assert.match(composer, /推理 · <strong>中<\/strong>/);
-  assert.match(composer, /尽量跳过深度思考，优先立即回复/);
-  assert.match(composer, /减少推理与复核，优先回复速度/);
-  assert.match(composer, /保持模型默认行为，平衡速度与质量/);
+  assert.match(composer, /推理 · <strong>低<\/strong>/);
+  assert.match(composer, /请求供应商关闭推理/);
+  assert.match(composer, /较少推理，兼顾回复速度与必要复核/);
   assert.match(composer, /充分推理并仔细检查，优先回答质量/);
   assert.match(composer, /reasoningRecommendedBadge/);
   assert.doesNotMatch(composer, /<select[^>]*aria-label="推理强度"/);

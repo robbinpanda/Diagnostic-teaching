@@ -2,6 +2,15 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v2.7 — 2026-07-30
+
+### 协议级推理档位与逐 profile 能力探测
+
+- 推理强度收敛为 `none / low / high`，默认 `low`；Alembic `0009_reasoning_effort_protocol_probe` 把旧 `minimal` 迁为 `none`、旧 `auto / medium` 迁为 `low`，并新增 `reasoning_effort_options_json` 保存每个 profile 自己的可用档位。
+- 移除供应商、Host、模型名白名单和 prompt effort 兜底。OpenAI / OpenAI-compatible chat completions 统一发送顶层 `reasoning_effort`，Anthropic Messages 统一发送 `output_config.effort`。
+- 添加或编辑模型时，连接测试对完整的 `protocol + Base URL + API key + model` 并发发出三个极简会话，逐档测试 `none / low / high`；报错档位从该 profile 的选项中移除。跳过测试时默认保留三档，因此同一模型经不同账号或代理可以拥有不同能力集合。
+- 图片能力探测会选用刚刚实测通过的档位；前端逐模型展示“实测可用”或“未测试，按协议默认”的档位列表。三个档位全部失败时该项测试失败，不能直接保存该失败状态。
+
 ## v2.6 — 2026-07-27
 
 ### 可选推理档位与首个反馈优化

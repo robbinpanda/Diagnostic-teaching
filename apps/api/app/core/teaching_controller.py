@@ -30,7 +30,6 @@ from app.core.tutor_turn_policy import (
     validate_checkpoint,
 )
 from app.llm.provider import LlmProfile, LlmProviderError, chat_stream_completion
-from app.llm.reasoning import reasoning_prompt_instruction
 from app.storage.session_logger import SessionLogger
 
 __all__ = [
@@ -306,7 +305,6 @@ def build_messages(
     *,
     nonblocking_streak: int = 0,
     force_blocking: bool = False,
-    effort_instruction: str | None = None,
 ) -> list[dict[str, Any]]:
     history = _without_legacy_initial_thought(session, history)
     loop_instruction = (
@@ -348,8 +346,6 @@ def build_messages(
 
     system_prompt, output_contract = _prompt_and_contract_for_request(session, history)
     system = f"{system_prompt}\n{output_contract}\n\n当前工作流约束：{loop_instruction}"
-    if effort_instruction:
-        system = f"{system}\n\n{effort_instruction}"
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user_content},
@@ -512,18 +508,11 @@ async def generate_tutor_turn_stream(
     保证结构化字段不被增量解析的边界问题污染。LLM 空响应会抛 LlmProviderError，
     由 chat 路由转成 SSE error 事件，而不是静默断流。
     """
-    effort_instruction = reasoning_prompt_instruction(
-        profile.provider,
-        profile.base_url,
-        profile.model,
-        profile.reasoning_effort,
-    )
     messages = build_messages(
         session,
         history,
         nonblocking_streak=nonblocking_streak,
         force_blocking=force_blocking,
-        effort_instruction=effort_instruction,
     )
     started = time.perf_counter()
     latency_metrics: dict[str, int | None] = {

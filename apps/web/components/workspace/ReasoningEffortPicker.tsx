@@ -12,17 +12,13 @@ type Props = {
 };
 
 const EFFORT_COPY: Record<ReasoningEffort, { label: string; description: string }> = {
-  minimal: {
-    label: "超低",
-    description: "尽量跳过深度思考，优先立即回复"
+  none: {
+    label: "关闭",
+    description: "请求供应商关闭推理；仅在该配置实测支持时显示"
   },
   low: {
     label: "低",
-    description: "减少推理与复核，优先回复速度"
-  },
-  medium: {
-    label: "中",
-    description: "保持模型默认行为，平衡速度与质量"
+    description: "较少推理，兼顾回复速度与必要复核"
   },
   high: {
     label: "高",
@@ -129,7 +125,7 @@ export function ReasoningEffortPicker({
                 <span className="modelPickerOptionBody">
                   <span className="reasoningPickerOptionHeading">
                     <span className="modelPickerOptionLabel">{copy.label}</span>
-                    {effort === "medium" && <span className="reasoningRecommendedBadge">默认</span>}
+                    {effort === "low" && <span className="reasoningRecommendedBadge">默认</span>}
                   </span>
                   <span className="modelPickerOptionMeta">{copy.description}</span>
                 </span>

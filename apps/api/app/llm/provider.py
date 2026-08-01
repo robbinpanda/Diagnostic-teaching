@@ -17,8 +17,6 @@ from app.llm.local_demo_provider import (
     message_text,
 )
 from app.llm.reasoning import (
-    ReasoningPromptTask,
-    reasoning_prompt_instruction,
     reasoning_request_options,
 )
 
@@ -58,7 +56,7 @@ class LlmProfile:
     timeout_ms: int
     temperature: float
     max_output_tokens: int
-    reasoning_effort: str = "medium"
+    reasoning_effort: str = "low"
 
 
 class LlmProviderError(RuntimeError):
@@ -192,7 +190,6 @@ async def test_multimodal_connection(
             ],
         }
     ]
-    messages = _messages_with_reasoning_prompt(profile, messages, task="vision_probe")
     started = time.perf_counter()
     latency: int | None = None
     chunks: list[str] = []
@@ -303,20 +300,16 @@ async def analyze_problem_image(profile: LlmProfile, image_data_url: str) -> str
             ensure_ascii=False,
         )
 
-    messages = _messages_with_reasoning_prompt(
-        profile,
-        [
-            {"role": "system", "content": IMAGE_ANALYSIS_PROMPT},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "请分析这张数学题图片，按指定 JSON 返回。"},
-                    {"type": "image_url", "image_url": {"url": image_data_url}},
-                ],
-            },
-        ],
-        task="vision_json",
-    )
+    messages = [
+        {"role": "system", "content": IMAGE_ANALYSIS_PROMPT},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "请分析这张数学题图片，按指定 JSON 返回。"},
+                {"type": "image_url", "image_url": {"url": image_data_url}},
+            ],
+        },
+    ]
     return await chat_completion(
         profile,
         messages,
@@ -339,57 +332,25 @@ async def detect_problem_regions(profile: LlmProfile, image_data_url: str) -> st
             ensure_ascii=False,
         )
 
-    messages = _messages_with_reasoning_prompt(
-        profile,
-        [
-            {"role": "system", "content": IMAGE_PROBLEM_DETECTION_PROMPT},
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "请检测全部独立数学题，并让每个框完整包含该题的学生过程、答案和批改痕迹。",
-                    },
-                    {"type": "image_url", "image_url": {"url": image_data_url}},
-                ],
-            },
-        ],
-        task="vision_json",
-    )
+    messages = [
+        {"role": "system", "content": IMAGE_PROBLEM_DETECTION_PROMPT},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "请检测全部独立数学题，并让每个框完整包含该题的学生过程、答案和批改痕迹。",
+                },
+                {"type": "image_url", "image_url": {"url": image_data_url}},
+            ],
+        },
+    ]
     return await chat_completion(
         profile,
         messages,
         max_tokens=min(max(profile.max_output_tokens, 2000), 8000),
         temperature=0,
     )
-
-
-def _messages_with_reasoning_prompt(
-    profile: LlmProfile,
-    messages: list[dict[str, Any]],
-    *,
-    task: ReasoningPromptTask,
-) -> list[dict[str, Any]]:
-    instruction = reasoning_prompt_instruction(
-        profile.provider,
-        profile.base_url,
-        profile.model,
-        profile.reasoning_effort,
-        task=task,
-    )
-    if not instruction:
-        return messages
-
-    prompted = [dict(message) for message in messages]
-    if (
-        prompted
-        and prompted[0].get("role") == "system"
-        and isinstance(prompted[0].get("content"), str)
-    ):
-        prompted[0]["content"] = f"{prompted[0]['content']}\n\n{instruction}"
-    else:
-        prompted.insert(0, {"role": "system", "content": instruction})
-    return prompted
 
 
 def _local_demo_text_problems(text: str) -> list[str]:

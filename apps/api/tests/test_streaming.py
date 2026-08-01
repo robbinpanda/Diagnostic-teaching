@@ -179,7 +179,7 @@ def test_multimodal_probe_rejects_generic_text_reply(monkeypatch):
     assert "未正确识别测试图片" in message
 
 
-def test_multimodal_probe_adds_prompt_effort_guidance_for_unknown_provider(monkeypatch):
+def test_multimodal_probe_does_not_inject_prompt_level_effort_guidance(monkeypatch):
     captured = {}
 
     async def fake_chat_stream_completion(profile, messages, *, max_tokens=None, temperature=None):
@@ -198,12 +198,11 @@ def test_multimodal_probe_adds_prompt_effort_guidance_for_unknown_provider(monke
     ok, _, _ = asyncio.run(run())
 
     assert ok is True
-    assert captured["messages"][0]["role"] == "system"
-    assert "快速识别图片" in captured["messages"][0]["content"]
-    assert captured["messages"][1]["content"][1]["type"] == "image_url"
+    assert captured["messages"][0]["role"] == "user"
+    assert captured["messages"][0]["content"][1]["type"] == "image_url"
 
 
-def test_image_json_calls_add_task_specific_prompt_effort_guidance(monkeypatch):
+def test_image_json_calls_keep_their_original_task_prompts(monkeypatch):
     captured = []
 
     async def fake_chat_completion(profile, messages, *, max_tokens=None, temperature=None):
@@ -225,7 +224,7 @@ def test_image_json_calls_add_task_specific_prompt_effort_guidance(monkeypatch):
     assert len(captured) == 2
     for messages in captured:
         system_prompt = messages[0]["content"]
-        assert "手写过程、答案与批改痕迹" in system_prompt
+        assert "数学题图片录入助手" in system_prompt or "数学试题与学生作答区域检测助手" in system_prompt
         assert "TutorTurn" not in system_prompt
         assert "message 为第一个字段" not in system_prompt
 
@@ -256,6 +255,7 @@ def test_anthropic_payload_moves_system_and_converts_image_data_url():
     )
     assert payload["system"] == "系统规则"
     assert payload["model"] == "local-demo"
+    assert payload["output_config"] == {"effort": "low"}
     assert [message["role"] for message in payload["messages"]] == ["user", "assistant"]
     user_blocks = payload["messages"][0]["content"]
     assert user_blocks[0] == {"type": "text", "text": "看图"}
