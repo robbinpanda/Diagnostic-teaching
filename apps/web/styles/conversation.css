@@ -260,6 +260,23 @@
   color: #9d5c55;
 }
 
+.toolButton.speechButton.recording {
+  color: #ffffff;
+  background: var(--danger);
+  box-shadow: 0 0 0 4px var(--danger-soft);
+  animation: speechPulse 1.2s ease-in-out infinite;
+}
+
+.toolButton.speechButton.recording:hover:not(:disabled) {
+  background: #a4413b;
+}
+
+@keyframes speechPulse {
+  50% {
+    box-shadow: 0 0 0 7px rgba(181, 73, 65, 0.08);
+  }
+}
+
 .toolButton.danger:hover:not(:disabled) {
   color: var(--danger);
   background: var(--danger-soft);
@@ -728,6 +745,11 @@
   color: var(--faint);
   font-size: 9px;
   text-align: center;
+}
+
+.composerHint.recording {
+  color: var(--danger);
+  font-weight: 650;
 }
 
 .hiddenFileInput {

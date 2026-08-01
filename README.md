@@ -10,7 +10,7 @@ context_status + problem/thought summary + state_hint + action + message + break
 
 后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、标注每条 AI 消息对应的教学 action，并把检查点和待归档卡片嵌入消息时间线。模型输出使用按 action 区分的最小联合合同：`message` 固定排在最前，只有需要的 checkpoint/card 字段才出现，其他字段不再用 `null` 占位；后端解析后仍补成统一 `TutorTurn`，因此 SQLite 和前端业务结构保持兼容。
 
-当前已支持：文字单题/多题自动拆分、PNG/JPEG/WebP 题图的多题框检测与可编辑裁剪、按题目批量创建独立答疑 session、OpenAI-compatible / Anthropic 双协议加密模型配置、自动同步的 OpenCode 免费模型、检查点选择题、跨 session 的全局知识卡片/题目卡片库、层级卡片文件夹与复制/剪切/移动、基于目录树选择的学习卡片 PDF 多排版导出、SQLite 历史会话与删除、按 session 严格递增的 durable events 与断线重放 SSE，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
+当前已支持：SenseVoiceSmall 本地语音转写输入、文字单题/多题自动拆分、PNG/JPEG/WebP 题图的多题框检测与可编辑裁剪、按题目批量创建独立答疑 session、OpenAI-compatible / Anthropic 双协议加密模型配置、自动同步的 OpenCode 免费模型、检查点选择题、跨 session 的全局知识卡片/题目卡片库、层级卡片文件夹与复制/剪切/移动、基于目录树选择的学习卡片 PDF 多排版导出、SQLite 历史会话与删除、按 session 严格递增的 durable events 与断线重放 SSE，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
 
 SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 revision；旧版无 Alembic 标记的数据库会在保留业务数据的前提下建立迁移基线。每条应用连接启用 foreign keys、WAL 与 5 秒 busy timeout，具体约束、备份和 Windows 本地运行行为见 `docs/database.md`。
 
@@ -31,6 +31,8 @@ Checkpoint answer 也进入 `session_inputs`，并由数据库唯一约束保证
 左侧会话栏直接从 SQLite 读取并通过 `GET /api/sessions/{session_id}` 打开原 session，不会仅因查看而复制记录；选择某个 session 后会话栏保持展开，只有用户主动点击收起按钮或初次进入窄屏布局时才收起。原有 `POST /api/sessions/restore` 仍保留给需要显式创建实验分支的调用方。左侧可清空全部会话和 session 日志，右侧可清空全部卡片；两项操作都需要二次确认，且互不删除对方保留的数据。
 
 图片上传不再立即建会话。`POST /api/problem-images/detect` 使用当前选定的多模态模型返回最多 20 个归一化题目框；每个框必须同时覆盖完整题干、该题全部学生演算/草稿/最终答案和批改痕迹，学生过程写在题干下方、右侧或空白处时也不能截掉。前端在原图上叠加框，支持手动拖拽新增框、点选后按 Delete/Backspace 删除、拖动平移、拖动四边和四角缩放。用户确认后，`POST /api/sessions/image-batch-start` 在后端按最终框从原图裁剪，并在同一 SQLite 事务中创建等量 session；每个 session 只保存自己的裁剪题图，全部继续使用同一个多模态答疑模型。前端打开第一题并并行启动各 session，其他题同步出现在左侧列表中。
+
+输入框的麦克风按钮通过 `WS /api/speech/stream` 把浏览器音频持续重采样为 16 kHz 单声道 16 位 PCM，录音连接没有总时长上限。后端复用 FunASR `fsmn-vad` 的连接级流式缓存判断说话起止，发声期间约每 1.2 秒用 `iic/SenseVoiceSmall` 更新临时文字；600 毫秒的 VAD 句尾只进入待确认状态，2.5 秒内重新开口会把前后音频合并，连续静音达到 `SENSEVOICE_COMMIT_SILENCE_MS` 或用户停止后才返回最终文字。为控制本地资源，后端按 `SENSEVOICE_STREAM_SEGMENT_SECONDS`（默认 30 秒）滚动提交连续语音并立即丢弃已处理 PCM，连续静音也会周期性清空；单连接原始音频缓冲默认不超过约 0.92 MiB。推理使用的临时 WAV 会在每次识别结束后自动删除，不写入 `data/`、`logs/` 或 SQLite。中文片段不强制插入空格，临时结果末尾的句号也不会写入输入框；结果仍只供用户校对，不会自动发送。
 
 每次 `POST /api/chat/stream` 现在都有持久化 `run_id` 和递增 `attempt`，状态依次为 `queued -> running -> completed`，异常或中断则进入 `failed / interrupted`。同一 session 的 run 按进入顺序串行，不同 session 可并行；`GET /api/sessions/{session_id}/run` 可查询活动或最新 run，`POST /api/sessions/{session_id}/interrupt` 会显式取消 provider 请求和后续 bounded loop，空闲或重复中断是幂等 no-op。浏览器仅停止读取不会伪装成显式中断，而会记录为结构化 `failed/client_disconnected`。
 
@@ -106,6 +108,7 @@ POST /api/sessions/start 原子创建 session + 接纳首条普通消息
 - Frontend: Next.js + React + TypeScript
 - Math Rendering: KaTeX（聊天气泡和检查点题干/选项支持 `$...$`、`$$...$$`、`\(...\)`、`\[...\]`）
 - Backend: FastAPI
+- Local speech input: FunASR + SenseVoiceSmall + 流式 FSMN-VAD（默认 CPU，不限总录音时长，30 秒有界滚动音频缓冲，1.2 秒刷新临时文字，2.5 秒思考停顿窗口）
 - Database: SQLite + Alembic（session、durable session_inputs、结构化消息、checkpoint、层级 card_folders、全局 study_cards、session_runs 和可重放 session_events 的权威存储，也是历史恢复来源；启用 foreign keys、WAL 和 busy timeout）
 - Run lifecycle: SQLite `session_runs`（run_id、attempt、queued/running/terminal 状态、时间戳和结构化错误）
 - Diagnostic Log: JSONL（机器审计）+ Markdown（留白充足的人类阅读版）
@@ -127,6 +130,8 @@ apps/api   FastAPI 后端
   app/services/input_acceptance.py   durable 输入接纳兼容门面（按输入类型分派）
   app/routes/problem_intake.py       文字单题/多题检测与结构化拆分
   app/routes/problem_images.py       图片题目框检测、题图识别与裁剪
+  app/routes/speech.py               完整 WAV 与 WebSocket 准实时语音 API
+  app/services/sensevoice_transcriber.py  SenseVoiceSmall/流式 VAD、串行推理与结果清洗
   app/storage/repositories.py        SessionRepository / ModelProfileRepository 兼容门面
   app/storage/tutor_actions.py       assistant action、checkpoint、card、event 原子事务
   app/storage/session_*_repository.py run、历史恢复等分域仓储实现
@@ -137,8 +142,10 @@ apps/web   Next.js 前端
   components/workspace/              主工作区的页头、时间线、侧栏与输入区
   components/MathText.tsx            KaTeX 数学公式渲染
   hooks/useSessionRuntime.ts          session/timeline/workflow 的 React 接线
+  hooks/useSpeechInput.ts             麦克风权限、录音生命周期与本地转写接线
   lib/api.ts                          分域 API client 的兼容出口
   lib/api/                            model/session/card/chat 等协议模块
+  lib/audio.ts                        浏览器录音重采样与 16 位 PCM WAV 编码
   lib/timeline.ts                     流式消息拼接与事件确定性 reducer
   lib/session-workflow.ts             composer/run/checkpoint/card 互斥状态机
   lib/stream-controller.ts            按 session 保存 AbortController、支持跨 session 并发与定向停止

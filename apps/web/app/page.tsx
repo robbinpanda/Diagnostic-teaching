@@ -18,6 +18,7 @@ import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
 import { TutorComposer } from "../components/workspace/TutorComposer";
 import { useModelProfiles } from "../hooks/useModelProfiles";
 import { useSessionRuntime } from "../hooks/useSessionRuntime";
+import { useSpeechInput } from "../hooks/useSpeechInput";
 import { useStudyCards } from "../hooks/useStudyCards";
 import {
   acceptStudentMessage,
@@ -94,6 +95,7 @@ export default function Home() {
   const openSessionRequestRef = useRef(0);
   const historyRequestRef = useRef(0);
   const viewTokenRef = useRef(0);
+  const speechBaseInputRef = useRef("");
   const runtime = useSessionRuntime({ onRunSettled: () => void refreshHistory() });
   const {
     activeCard,
@@ -108,6 +110,22 @@ export default function Home() {
     streamBusy,
     workflow
   } = runtime;
+  const speechInput = useSpeechInput({
+    onRecordingStart: () => {
+      speechBaseInputRef.current = input;
+      runtime.clearError();
+    },
+    onTranscript: (transcript) => {
+      const nextText = transcript.trim();
+      if (!nextText) return;
+      const baseText = speechBaseInputRef.current;
+      setInput(baseText.trim()
+        ? `${baseText.trimEnd()} ${nextText}`
+        : nextText);
+      runtime.clearError();
+    },
+    onError: runtime.setError
+  });
   const profilesState = useModelProfiles({
     activeSessionId: sessionId,
     onError: runtime.setError,
@@ -720,6 +738,8 @@ export default function Home() {
           streamBusy={streamBusy}
           stopBusy={stopBusy}
           startBusy={startBusy}
+          speechPhase={speechInput.phase}
+          speechElapsedSeconds={speechInput.elapsedSeconds}
           onClearError={runtime.clearError}
           onRemoveImage={() => runtime.updateDraft({ originalProblemImage: null, problemText: "" })}
           onInputChange={setInput}
@@ -732,6 +752,7 @@ export default function Home() {
           onDeleteProfiles={deleteProfiles}
           onReasoningEffortChange={setReasoningEffort}
           onStop={() => void runtime.stopStream()}
+          onToggleSpeech={speechInput.toggle}
         />
       </section>
 
