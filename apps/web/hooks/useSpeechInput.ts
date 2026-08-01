@@ -11,14 +11,12 @@ import {
 export type SpeechInputPhase = "idle" | "requesting" | "recording" | "transcribing";
 
 type SpeechInputOptions = {
-  maxDurationSeconds?: number;
   onRecordingStart?: () => void;
   onTranscript: (text: string, isFinal: boolean) => void;
   onError: (message: string) => void;
 };
 
 export function useSpeechInput({
-  maxDurationSeconds = 60,
   onRecordingStart,
   onTranscript,
   onError
@@ -32,11 +30,9 @@ export function useSpeechInput({
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const silentGainRef = useRef<GainNode | null>(null);
   const intervalRef = useRef<number | null>(null);
-  const timeoutRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const sessionFinishedRef = useRef(false);
   const transcriptSeenRef = useRef(false);
-  const sentBytesRef = useRef(0);
   const finalSegmentsRef = useRef<string[]>([]);
   const onRecordingStartRef = useRef(onRecordingStart);
   const onTranscriptRef = useRef(onTranscript);
@@ -50,9 +46,7 @@ export function useSpeechInput({
 
   const clearTimers = useCallback(() => {
     if (intervalRef.current !== null) window.clearInterval(intervalRef.current);
-    if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
     intervalRef.current = null;
-    timeoutRef.current = null;
   }, []);
 
   const releaseCapture = useCallback(() => {
@@ -129,20 +123,7 @@ export function useSpeechInput({
         event.inputBuffer.getChannelData(0),
         audioContext.sampleRate
       );
-      const maxBytes = maxDurationSeconds * 16_000 * 2;
-      const remainingBytes = maxBytes - sentBytesRef.current;
-      if (remainingBytes <= 0) {
-        window.setTimeout(stopRecording, 0);
-        return;
-      }
-      const payload = pcm.byteLength > remainingBytes
-        ? pcm.slice(0, remainingBytes)
-        : pcm;
-      if (payload.byteLength) {
-        socket.send(payload);
-        sentBytesRef.current += payload.byteLength;
-      }
-      if (sentBytesRef.current >= maxBytes) window.setTimeout(stopRecording, 0);
+      if (pcm.byteLength) socket.send(pcm);
     };
     source.connect(processor);
     processor.connect(silentGain);
@@ -158,9 +139,8 @@ export function useSpeechInput({
     setPhase("recording");
     const startedAt = Date.now();
     intervalRef.current = window.setInterval(() => {
-      setElapsedSeconds(Math.min(maxDurationSeconds, (Date.now() - startedAt) / 1_000));
+      setElapsedSeconds((Date.now() - startedAt) / 1_000);
     }, 100);
-    timeoutRef.current = window.setTimeout(stopRecording, maxDurationSeconds * 1_000);
   }
 
   function stopRecording() {
@@ -189,7 +169,6 @@ export function useSpeechInput({
     setElapsedSeconds(0);
     sessionFinishedRef.current = false;
     transcriptSeenRef.current = false;
-    sentBytesRef.current = 0;
     finalSegmentsRef.current = [];
     try {
       const stream = await navigator.mediaDevices.getUserMedia({

@@ -111,7 +111,6 @@ export default function Home() {
     workflow
   } = runtime;
   const speechInput = useSpeechInput({
-    maxDurationSeconds: 60,
     onRecordingStart: () => {
       speechBaseInputRef.current = input;
       runtime.clearError();

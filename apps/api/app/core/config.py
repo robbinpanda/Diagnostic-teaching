@@ -20,7 +20,7 @@ class Settings:
     sensevoice_model: str
     sensevoice_vad_model: str
     sensevoice_device: str
-    sensevoice_max_audio_seconds: int
+    sensevoice_stream_segment_seconds: int
     sensevoice_commit_silence_ms: int
 
 
@@ -45,10 +45,14 @@ def load_settings() -> Settings:
     if not session_log_dir.is_absolute():
         session_log_dir = root / session_log_dir
     try:
-        sensevoice_max_audio_seconds = int(os.getenv("SENSEVOICE_MAX_AUDIO_SECONDS", "60"))
+        sensevoice_stream_segment_seconds = int(
+            os.getenv("SENSEVOICE_STREAM_SEGMENT_SECONDS", "30")
+        )
     except ValueError:
-        sensevoice_max_audio_seconds = 60
-    sensevoice_max_audio_seconds = max(5, min(sensevoice_max_audio_seconds, 300))
+        sensevoice_stream_segment_seconds = 30
+    sensevoice_stream_segment_seconds = max(
+        5, min(sensevoice_stream_segment_seconds, 60)
+    )
     try:
         sensevoice_commit_silence_ms = int(
             os.getenv("SENSEVOICE_COMMIT_SILENCE_MS", "2500")
@@ -64,6 +68,6 @@ def load_settings() -> Settings:
         sensevoice_model=os.getenv("SENSEVOICE_MODEL", "iic/SenseVoiceSmall"),
         sensevoice_vad_model=os.getenv("SENSEVOICE_VAD_MODEL", "fsmn-vad"),
         sensevoice_device=os.getenv("SENSEVOICE_DEVICE", "cpu"),
-        sensevoice_max_audio_seconds=sensevoice_max_audio_seconds,
+        sensevoice_stream_segment_seconds=sensevoice_stream_segment_seconds,
         sensevoice_commit_silence_ms=sensevoice_commit_silence_ms,
     )

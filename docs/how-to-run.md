@@ -26,14 +26,16 @@ copy .env.example .env
 | `SENSEVOICE_MODEL` | `iic/SenseVoiceSmall` | SenseVoiceSmall 的 ModelScope ID 或本地模型目录 |
 | `SENSEVOICE_VAD_MODEL` | `fsmn-vad` | FSMN-VAD 的模型 ID 或本地模型目录 |
 | `SENSEVOICE_DEVICE` | `cpu` | 本地转写设备；有匹配 CUDA 的 PyTorch 环境时可改为 `cuda:0` |
-| `SENSEVOICE_MAX_AUDIO_SECONDS` | `60` | 单次录音时长上限，范围 5—300 秒 |
+| `SENSEVOICE_STREAM_SEGMENT_SECONDS` | `30` | 流式录音内部滚动分段时长，范围 5—60 秒；不是用户录音时长上限 |
 | `SENSEVOICE_COMMIT_SILENCE_MS` | `2500` | 最终确认一句话前允许的思考停顿，范围 1000—10000 毫秒 |
 
 进程环境变量优先于 `.env`；真实 `.env`、`data/` 和 `logs/` 都已被 Git 忽略。
 
 ## 本地语音输入（SenseVoiceSmall）
 
-`requirements-dev.txt` 会安装 `torch`、`torchaudio`、`funasr==1.3.29`。启动页面后点击输入框下方的麦克风并授权：浏览器会通过 WebSocket 持续发送重采样后的 16 kHz 单声道 16 位 PCM，FSMN-VAD 判断发声和停顿，SenseVoiceSmall 约每 1.2 秒刷新一次临时文字。短暂停顿只进入待确认状态，默认 2.5 秒内重新开口会继续合并为同一句；连续静音超过该窗口或再次点击麦克风才确认最终文字。结果只回填输入框，不会自动发送，可修改后再按 Enter。
+`requirements-dev.txt` 会安装 `torch`、`torchaudio`、`funasr==1.3.29`。启动页面后点击输入框下方的麦克风并授权：浏览器会通过 WebSocket 持续发送重采样后的 16 kHz 单声道 16 位 PCM，录音不会在 60 秒或其他固定总时长后自动停止，用户再次点击麦克风时才结束。FSMN-VAD 判断发声和停顿，SenseVoiceSmall 约每 1.2 秒刷新一次临时文字。短暂停顿只进入待确认状态，默认 2.5 秒内重新开口会继续合并为同一句；连续静音超过该窗口或再次点击麦克风才确认最终文字。结果只回填输入框，不会自动发送，可修改后再按 Enter。
+
+流式录音不保存原始录音文件。后端默认最多保留当前 30 秒的 PCM（约 0.92 MiB/连接），达到滚动分段边界时会先确认当前文字，再清空已处理音频并继续接收；没有检测到语音的静音窗口也会直接丢弃。SenseVoice 推理所需 WAV 只存在于系统临时目录，并在单次推理结束后自动删除。因此总录音时长不受限，但内存和临时磁盘占用不会随录音时长持续增长。兼容用 `POST /api/speech/transcribe` 仍接受完整 WAV，但请求体最多 16 MiB；长时间麦克风输入应使用 WebSocket 接口。
 
 首次转写会下载 `iic/SenseVoiceSmall` 和 `fsmn-vad`，耗时取决于网络，模型缓存完成后后续转写可离线运行。完全离线的机器可提前下载两个模型，并把 `SENSEVOICE_MODEL`、`SENSEVOICE_VAD_MODEL` 设置为对应本地目录。默认 `SENSEVOICE_DEVICE=cpu`，无需 CUDA；如改用 `cuda:0`，须先按 PyTorch 官方说明安装与显卡驱动匹配的 CUDA 版 `torch/torchaudio`。
 
@@ -45,7 +47,7 @@ POST /api/speech/transcribe  Content-Type: audio/wav
 WS   /api/speech/stream      Binary: 16 kHz mono PCM16
 ```
 
-流式连接建立后服务端先返回带 `partial_interval_ms` 和 `commit_silence_ms` 的 `ready`；发声期间返回可覆盖更新的 `partial`，连续静音超过思考停顿窗口后返回 `final`，客户端发送 `{"type":"stop"}` 后服务端返回 `done` 并关闭连接。手工验证时可说“已知［停顿一秒］椭圆……［停顿一秒］等于一”：短暂停顿不应生成多个最终句号，整段应在长停顿或点击停止后一起确认。
+流式连接建立后服务端先返回带 `partial_interval_ms`、`commit_silence_ms` 和 `stream_segment_seconds` 的 `ready`；发声期间返回可覆盖更新的 `partial`，连续静音超过思考停顿窗口或连续语音达到内部滚动分段边界后返回 `final`，但连接继续接收后续语音。客户端发送 `{"type":"stop"}` 后服务端返回 `done` 并关闭连接。手工验证时可说“已知［停顿一秒］椭圆……［停顿一秒］等于一”：短暂停顿不应生成多个最终句号，整段应在长停顿、滚动边界或点击停止后确认。
 
 ## 数据库迁移与 Windows 本地行为
 

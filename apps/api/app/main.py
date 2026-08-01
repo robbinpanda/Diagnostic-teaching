@@ -69,7 +69,7 @@ def create_app() -> FastAPI:
         model=settings.sensevoice_model,
         vad_model=settings.sensevoice_vad_model,
         device=settings.sensevoice_device,
-        max_audio_seconds=settings.sensevoice_max_audio_seconds,
+        stream_segment_seconds=settings.sensevoice_stream_segment_seconds,
         commit_silence_ms=settings.sensevoice_commit_silence_ms,
     )
 

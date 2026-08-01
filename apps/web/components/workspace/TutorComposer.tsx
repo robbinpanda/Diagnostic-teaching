@@ -178,7 +178,7 @@ export function TutorComposer({
         {speechPhase === "requesting"
           ? "正在启动麦克风和本地 SenseVoiceSmall…"
           : speechPhase === "recording"
-            ? `实时转写中 ${speechElapsedSeconds.toFixed(1)} / 60.0 秒 · 思考停顿 2.5 秒后确认 · 再点一次停止`
+            ? `实时转写中 ${speechElapsedSeconds.toFixed(1)} 秒 · 不限时 · 思考停顿 2.5 秒后确认 · 再点一次停止`
             : speechPhase === "transcribing"
               ? "SenseVoiceSmall 正在确认最后一段语音…"
               : "Enter 发送 · 麦克风本地准实时转写 · 文字自动拆题 · 图片确认框选后按题目数创建答疑"}

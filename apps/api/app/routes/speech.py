@@ -15,6 +15,7 @@ router = APIRouter(prefix="/api/speech", tags=["speech"])
 _BYTES_PER_SECOND = SENSEVOICE_SAMPLE_RATE * 2
 _PARTIAL_INTERVAL_BYTES = int(_BYTES_PER_SECOND * 1.2)
 _MIN_TRANSCRIPTION_BYTES = int(_BYTES_PER_SECOND * 0.35)
+_MAX_WAV_UPLOAD_BYTES = 16 * 1024 * 1024
 _ALLOWED_WEB_ORIGINS = {"http://127.0.0.1:3000", "http://localhost:3000"}
 
 
@@ -26,7 +27,8 @@ def speech_status(request: Request) -> dict[str, object]:
         "loaded": transcriber.loaded,
         "model": transcriber.model_name,
         "device": transcriber.device,
-        "max_audio_seconds": transcriber.max_audio_seconds,
+        "stream_segment_seconds": transcriber.stream_segment_seconds,
+        "max_upload_bytes": _MAX_WAV_UPLOAD_BYTES,
         "commit_silence_ms": transcriber.commit_silence_ms,
     }
 
@@ -38,23 +40,22 @@ async def transcribe_speech(request: Request) -> dict[str, object]:
         raise HTTPException(status_code=415, detail="只支持 16 kHz 单声道 PCM WAV 录音")
 
     transcriber = request.app.state.speech_transcriber
-    max_bytes = transcriber.max_audio_seconds * 16_000 * 2 + 44
     content_length = request.headers.get("content-length")
     if content_length:
         try:
-            if int(content_length) > max_bytes:
+            if int(content_length) > _MAX_WAV_UPLOAD_BYTES:
                 raise HTTPException(
                     status_code=413,
-                    detail=f"单次录音不能超过 {transcriber.max_audio_seconds} 秒",
+                    detail="WAV 文件不能超过 16 MiB，请改用实时语音输入",
                 )
         except ValueError:
             pass
     audio_buffer = bytearray()
     async for chunk in request.stream():
-        if len(audio_buffer) + len(chunk) > max_bytes:
+        if len(audio_buffer) + len(chunk) > _MAX_WAV_UPLOAD_BYTES:
             raise HTTPException(
                 status_code=413,
-                detail=f"单次录音不能超过 {transcriber.max_audio_seconds} 秒",
+                detail="WAV 文件不能超过 16 MiB，请改用实时语音输入",
             )
         audio_buffer.extend(chunk)
 
@@ -124,6 +125,7 @@ async def stream_speech(websocket: WebSocket) -> None:
             "sample_rate": SENSEVOICE_SAMPLE_RATE,
             "partial_interval_ms": 1_200,
             "commit_silence_ms": transcriber.commit_silence_ms,
+            "stream_segment_seconds": transcriber.stream_segment_seconds,
         }
     )
 
@@ -134,11 +136,21 @@ async def stream_speech(websocket: WebSocket) -> None:
     last_partial_byte = 0
     current_partial: str | None = None
     recognized_any = False
-    max_bytes = transcriber.max_audio_seconds * _BYTES_PER_SECOND
+    max_window_bytes = transcriber.stream_segment_seconds * _BYTES_PER_SECOND
+
+    async def reset_stream_window() -> None:
+        nonlocal vad_session, group_start_byte, pending_end_byte, speech_active
+        nonlocal last_partial_byte, current_partial
+        audio_buffer.clear()
+        group_start_byte = None
+        pending_end_byte = None
+        speech_active = False
+        last_partial_byte = 0
+        current_partial = None
+        vad_session = await run_in_threadpool(transcriber.create_stream_vad_session)
 
     async def finish_active_group(end_byte: int) -> None:
-        nonlocal group_start_byte, pending_end_byte, speech_active
-        nonlocal last_partial_byte, current_partial, recognized_any
+        nonlocal recognized_any
         if group_start_byte is None:
             return
         end_byte = max(group_start_byte, min(end_byte, len(audio_buffer)))
@@ -162,11 +174,7 @@ async def stream_speech(websocket: WebSocket) -> None:
             )
             final_text = current_partial
         recognized_any = recognized_any or bool(final_text)
-        group_start_byte = None
-        pending_end_byte = None
-        speech_active = False
-        last_partial_byte = end_byte
-        current_partial = None
+        await reset_stream_window()
 
     try:
         while True:
@@ -180,11 +188,11 @@ async def stream_speech(websocket: WebSocket) -> None:
                     continue
                 if len(pcm_chunk) % 2:
                     raise InvalidSpeechAudio("流式录音数据不是有效的 16 位 PCM")
-                if len(audio_buffer) + len(pcm_chunk) > max_bytes:
+                if len(pcm_chunk) > max_window_bytes:
                     await websocket.send_json(
                         {
                             "type": "error",
-                            "message": f"单次录音不能超过 {transcriber.max_audio_seconds} 秒",
+                            "message": "单个流式音频块过大，请使用浏览器麦克风实时发送",
                         }
                     )
                     await websocket.close(code=1009)
@@ -221,6 +229,11 @@ async def stream_speech(websocket: WebSocket) -> None:
                     and len(audio_buffer) - pending_end_byte >= commit_silence_bytes
                 ):
                     await finish_active_group(pending_end_byte)
+                elif len(audio_buffer) >= max_window_bytes:
+                    if group_start_byte is not None:
+                        await finish_active_group(len(audio_buffer))
+                    else:
+                        await reset_stream_window()
                 elif (
                     group_start_byte is not None
                     and speech_active

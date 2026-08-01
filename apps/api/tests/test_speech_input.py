@@ -78,14 +78,14 @@ class _FakeTranscriber:
     loaded = True
     model_name = "iic/SenseVoiceSmall"
     device = "cpu"
-    max_audio_seconds = 60
+    stream_segment_seconds = 30
     commit_silence_ms = 2_500
 
     def create_stream_vad_session(self):
         return _FakeVadSession()
 
     def transcribe(self, audio_bytes: bytes):
-        info = inspect_sensevoice_wav(audio_bytes, self.max_audio_seconds)
+        info = inspect_sensevoice_wav(audio_bytes)
         return SimpleNamespace(
             text="设这个未知数为 x。",
             duration_seconds=info.duration_seconds,
@@ -115,8 +115,40 @@ class _ThinkingPauseTranscriber(_FakeTranscriber):
         return super().transcribe_pcm16(pcm_bytes)
 
 
+class _UnlimitedStreamTranscriber(_FakeTranscriber):
+    stream_segment_seconds = 1
+
+    def __init__(self):
+        self.transcribed_durations: list[float] = []
+        self.vad_sessions_created = 0
+
+    def create_stream_vad_session(self):
+        self.vad_sessions_created += 1
+        return _FakeVadSession()
+
+    def transcribe_pcm16(self, pcm_bytes: bytes):
+        self.transcribed_durations.append(len(pcm_bytes) / 32_000)
+        return super().transcribe_pcm16(pcm_bytes)
+
+
+class _SilentVadSession:
+    def feed(self, pcm_bytes: bytes, *, is_final: bool = False):
+        return []
+
+
+class _SilentStreamTranscriber(_FakeTranscriber):
+    stream_segment_seconds = 1
+
+    def __init__(self):
+        self.vad_sessions_created = 0
+
+    def create_stream_vad_session(self):
+        self.vad_sessions_created += 1
+        return _SilentVadSession()
+
+
 def test_inspect_sensevoice_wav_accepts_browser_pcm_format():
-    info = inspect_sensevoice_wav(_pcm_wav(), max_audio_seconds=60)
+    info = inspect_sensevoice_wav(_pcm_wav())
 
     assert info.sample_rate == 16_000
     assert info.channels == 1
@@ -126,7 +158,7 @@ def test_inspect_sensevoice_wav_accepts_browser_pcm_format():
 
 def test_inspect_sensevoice_wav_rejects_wrong_sample_rate():
     with pytest.raises(InvalidSpeechAudio, match="16 kHz"):
-        inspect_sensevoice_wav(_pcm_wav(sample_rate=44_100), max_audio_seconds=60)
+        inspect_sensevoice_wav(_pcm_wav(sample_rate=44_100))
 
 
 def test_speech_transcribe_endpoint_returns_local_transcript():
@@ -150,6 +182,40 @@ def test_speech_transcribe_endpoint_returns_local_transcript():
     }
 
 
+def test_speech_transcribe_endpoint_accepts_audio_longer_than_60_seconds():
+    app = create_app()
+    app.state.speech_transcriber = _FakeTranscriber()
+    client = TestClient(app)
+    long_wav = pcm16_to_wav(bytes(61 * 32_000))
+
+    response = client.post(
+        "/api/speech/transcribe",
+        content=long_wav,
+        headers={"Content-Type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["duration_seconds"] == 61.0
+
+
+def test_speech_transcribe_endpoint_rejects_oversized_wav_uploads():
+    app = create_app()
+    app.state.speech_transcriber = _FakeTranscriber()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/speech/transcribe",
+        content=b"RIFF",
+        headers={
+            "Content-Type": "audio/wav",
+            "Content-Length": str(16 * 1024 * 1024 + 1),
+        },
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "WAV 文件不能超过 16 MiB，请改用实时语音输入"
+
+
 def test_speech_status_reports_local_model_configuration():
     app = create_app()
     app.state.speech_transcriber = _FakeTranscriber()
@@ -163,7 +229,8 @@ def test_speech_status_reports_local_model_configuration():
         "loaded": True,
         "model": "iic/SenseVoiceSmall",
         "device": "cpu",
-        "max_audio_seconds": 60,
+        "stream_segment_seconds": 30,
+        "max_upload_bytes": 16 * 1024 * 1024,
         "commit_silence_ms": 2_500,
     }
 
@@ -193,6 +260,7 @@ def test_speech_stream_returns_partial_and_final_transcripts():
             "sample_rate": 16_000,
             "partial_interval_ms": 1_200,
             "commit_silence_ms": 2_500,
+            "stream_segment_seconds": 30,
         }
         websocket.send_bytes(_pcm_frames(duration_seconds=1.3))
         partial = websocket.receive_json()
@@ -243,6 +311,54 @@ def test_speech_stream_merges_short_thinking_pauses_before_finalizing():
 
         websocket.send_text('{"type":"stop"}')
         assert websocket.receive_json() == {"type": "done"}
+
+
+def test_speech_stream_continues_across_bounded_internal_audio_windows():
+    app = create_app()
+    transcriber = _UnlimitedStreamTranscriber()
+    app.state.speech_transcriber = transcriber
+    client = TestClient(app)
+
+    with client.websocket_connect("/api/speech/stream") as websocket:
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+        assert ready["stream_segment_seconds"] == 1
+
+        for _ in range(2):
+            websocket.send_bytes(_pcm_frames(duration_seconds=0.6))
+        first_final = websocket.receive_json()
+        assert first_final["type"] == "final"
+
+        for _ in range(2):
+            websocket.send_bytes(_pcm_frames(duration_seconds=0.6))
+        second_final = websocket.receive_json()
+        assert second_final["type"] == "final"
+
+        websocket.send_text('{"type":"stop"}')
+        assert websocket.receive_json() == {"type": "done"}
+
+    assert transcriber.transcribed_durations == [
+        pytest.approx(1.2),
+        pytest.approx(1.2),
+    ]
+    assert transcriber.vad_sessions_created == 3
+
+
+def test_speech_stream_discards_long_silence_windows_without_stopping():
+    app = create_app()
+    transcriber = _SilentStreamTranscriber()
+    app.state.speech_transcriber = transcriber
+    client = TestClient(app)
+
+    with client.websocket_connect("/api/speech/stream") as websocket:
+        assert websocket.receive_json()["type"] == "ready"
+        for _ in range(4):
+            websocket.send_bytes(bytes(int(0.6 * 32_000)))
+        websocket.send_text('{"type":"stop"}')
+        assert websocket.receive_json()["type"] == "empty"
+        assert websocket.receive_json() == {"type": "done"}
+
+    assert transcriber.vad_sessions_created == 3
 
 
 def test_speech_stream_rejects_cross_site_browser_origins():

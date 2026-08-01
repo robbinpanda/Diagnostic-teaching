@@ -62,7 +62,7 @@ def pcm16_to_wav(pcm_bytes: bytes) -> bytes:
     return output.getvalue()
 
 
-def inspect_sensevoice_wav(audio_bytes: bytes, max_audio_seconds: int) -> WavInfo:
+def inspect_sensevoice_wav(audio_bytes: bytes) -> WavInfo:
     if not audio_bytes:
         raise InvalidSpeechAudio("录音内容为空")
     try:
@@ -87,8 +87,6 @@ def inspect_sensevoice_wav(audio_bytes: bytes, max_audio_seconds: int) -> WavInf
         raise InvalidSpeechAudio("录音必须是 16 kHz、单声道、16 位 PCM WAV")
     if info.duration_seconds < 0.2:
         raise InvalidSpeechAudio("录音太短，请至少说 0.2 秒")
-    if info.duration_seconds > max_audio_seconds + 0.05:
-        raise InvalidSpeechAudio(f"单次录音不能超过 {max_audio_seconds} 秒")
     return info
 
 
@@ -141,13 +139,13 @@ class SenseVoiceTranscriber:
         model: str,
         vad_model: str,
         device: str,
-        max_audio_seconds: int,
+        stream_segment_seconds: int,
         commit_silence_ms: int,
     ) -> None:
         self.model_name = model
         self.vad_model_name = vad_model
         self.device = device
-        self.max_audio_seconds = max_audio_seconds
+        self.stream_segment_seconds = stream_segment_seconds
         self.commit_silence_ms = commit_silence_ms
         self._model: Any | None = None
         self._load_lock = threading.Lock()
@@ -192,7 +190,7 @@ class SenseVoiceTranscriber:
         return self._model
 
     def transcribe(self, audio_bytes: bytes) -> TranscriptionResult:
-        info = inspect_sensevoice_wav(audio_bytes, self.max_audio_seconds)
+        info = inspect_sensevoice_wav(audio_bytes)
         model = self._load_model()
         with TemporaryDirectory(prefix="diagnostic-tutor-speech-") as temp_dir:
             audio_path = Path(temp_dir) / "recording.wav"

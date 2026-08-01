@@ -14,6 +14,7 @@ export type SpeechStreamEvent =
     sample_rate: number;
     partial_interval_ms: number;
     commit_silence_ms: number;
+    stream_segment_seconds: number;
   }
   | ({ type: "partial" | "final" } & SpeechTranscription)
   | { type: "empty"; message: string }
