@@ -398,6 +398,8 @@ assistant message、checkpoint、pending card 和 `last_committed_action_index` 
 
 被打断片段的 message metadata 维护 `awaiting_question → detour_active → resuming → resolved`。第一条打断原文与片段原子关联；`detour_active` 时 prompt 把支线及其最新回复设为最高优先级，后端防御性禁止 `SUMMARIZE`。模型用 `debug.interruption_detour_resolved=true` 表示支线已闭环，下一 action 自动从原片段断点继续；学生也可调用 `POST /api/sessions/{id}/interruptions/resume` 手动返回。返回 action 提交后状态变为 resolved。支线生成期间不允许再次打断，限制为一层；所有支线 message/checkpoint 仍保留在正常历史中。
 
+补充约束：这里的“返回 action”专指明确输出 `debug.interruption_resume_completed=true` 的续写 action；该 action 与 `resolved` 状态转换在同一个 SQLite 事务中提交，任一步失败都会整体回滚。
+
 ## 8. 诊断日志
 
 日志目录：

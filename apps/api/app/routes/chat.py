@@ -251,6 +251,23 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                 if turn is None:
                     raise RuntimeError("本轮未拿到任何 teaching turn")
 
+                interruption_message_id = None
+                interruption_transition = None
+                if pending_interruption is not None:
+                    candidate_message_id = pending_interruption["row"]["id"]
+                    if (
+                        interruption_state == "detour_active"
+                        and turn.debug.get("interruption_detour_resolved") is True
+                    ):
+                        interruption_message_id = candidate_message_id
+                        interruption_transition = "resuming"
+                    elif (
+                        interruption_state == "resuming"
+                        and turn.debug.get("interruption_resume_completed") is True
+                    ):
+                        interruption_message_id = candidate_message_id
+                        interruption_transition = "resolved"
+
                 try:
                     assistant_row, checkpoint_row, card_row = (
                         request.app.state.sessions.record_tutor_action(
@@ -258,6 +275,8 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                             turn,
                             action_index=action_index,
                             run_id=handle.run_id,
+                            interruption_message_id=interruption_message_id,
+                            interruption_resume_state=interruption_transition,
                         )
                     )
                 except RunStateConflict as exc:
@@ -265,24 +284,6 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                         raise RunInterrupted(handle.run_id) from exc
                     raise
                 action_id = assistant_row["action_id"]
-                interruption_transition = None
-                if pending_interruption is not None:
-                    interruption_message_id = pending_interruption["row"]["id"]
-                    if (
-                        interruption_state == "detour_active"
-                        and turn.debug.get("interruption_detour_resolved") is True
-                    ):
-                        request.app.state.sessions.set_interruption_resume_state(
-                            interruption_message_id,
-                            "resuming",
-                        )
-                        interruption_transition = "resuming"
-                    elif interruption_state == "resuming":
-                        request.app.state.sessions.set_interruption_resume_state(
-                            interruption_message_id,
-                            "resolved",
-                        )
-                        interruption_transition = "resolved"
                 checkpoint_payload = None
                 if turn.checkpoint:
                     checkpoint_payload = turn.checkpoint.model_dump()
