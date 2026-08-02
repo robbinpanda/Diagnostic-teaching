@@ -424,12 +424,23 @@ def test_student_message_defers_pending_card_atomically_and_is_idempotent(tmp_pa
 
     first = client.post(f"/api/sessions/{session_id}/inputs", json=body)
     retry = client.post(f"/api/sessions/{session_id}/inputs", json=body)
+    second = client.post(
+        f"/api/sessions/{session_id}/inputs",
+        json={
+            "kind": "STUDENT_MESSAGE",
+            "client_message_id": "second-question-during-card",
+            "message": "那负号又会怎样影响大小？",
+        },
+    )
 
     assert first.status_code == 201
     assert first.json()["deferred_card_id"] == card["id"]
     assert first.json()["card_deferred_at"]
     assert retry.status_code == 200
     assert retry.json()["card_deferred_at"] == first.json()["card_deferred_at"]
+    assert second.status_code == 201
+    assert second.json()["deferred_card_id"] is None
+    assert second.json()["card_deferred_at"] is None
     pending = client.app.state.sessions.latest_pending_card(session_id)
     assert pending["deferred_at"] == first.json()["card_deferred_at"]
     messages = client.app.state.sessions.list_messages(session_id)
@@ -438,7 +449,8 @@ def test_student_message_defers_pending_card_atomically_and_is_idempotent(tmp_pa
         event["type"]
         for event in client.get(f"/api/sessions/{session_id}/events").json()["events"]
     ]
-    assert event_types[-2:] == ["card.deferred", "message.completed"]
+    assert event_types[-3:] == ["card.deferred", "message.completed", "message.completed"]
+    assert event_types.count("card.deferred") == 1
     restored = client.get(f"/api/sessions/{session_id}").json()
     assert restored["pending_card"]["deferred_at"] == first.json()["card_deferred_at"]
 

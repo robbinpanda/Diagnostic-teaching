@@ -51,7 +51,7 @@ class StudentMessageAcceptanceMixin:
             pending_card = conn.execute(
                 """
                 SELECT * FROM study_cards
-                WHERE session_id = ? AND saved_at IS NULL
+                WHERE session_id = ? AND saved_at IS NULL AND deferred_at IS NULL
                 ORDER BY created_at DESC, rowid DESC
                 LIMIT 1
                 """,
@@ -159,7 +159,7 @@ class StudentMessageAcceptanceMixin:
                     """
                     UPDATE study_cards
                     SET deferred_at = COALESCE(deferred_at, ?)
-                    WHERE id = ? AND saved_at IS NULL
+                    WHERE id = ? AND saved_at IS NULL AND deferred_at IS NULL
                     """,
                     (ts, pending_card["id"]),
                 )
