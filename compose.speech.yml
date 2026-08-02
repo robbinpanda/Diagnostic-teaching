@@ -1,0 +1,8 @@
+services:
+  app:
+    image: diagnostic-teaching:0.1.0-speech
+    build:
+      args:
+        INSTALL_SPEECH: "1"
+    volumes:
+      - ./runtime/models:/home/tutor/.cache

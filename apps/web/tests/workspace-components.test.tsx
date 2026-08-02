@@ -445,3 +445,12 @@ test("workspace persists recoverable requests before clearing visible text", () 
   assert.match(pageSource, /last_committed_action_index/);
   assert.match(pageSource, /restoreWorkspaceAfterRefresh/);
 });
+test("local demo configuration never asks users for real credentials", () => {
+  const dialogSource = readFileSync(resolve(__dirname, "../../../components/ModelConfigDialog.tsx"), "utf8");
+
+  assert.match(dialogSource, /const isLocalDemo = provider === "local_demo"/);
+  assert.match(dialogSource, /base_url: isLocalDemo \? "local:\/\/demo"/);
+  assert.match(dialogSource, /api_key: isLocalDemo \? "local-demo"/);
+  assert.match(dialogSource, /disabled=\{isManaged \|\| isLocalDemo\}/);
+  assert.match(dialogSource, /本地演示完全离线，不需要 Base URL 或 API key/);
+});

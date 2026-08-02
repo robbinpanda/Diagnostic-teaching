@@ -55,12 +55,13 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
   const isEdit = Boolean(profile);
   const isManaged = profile?.managed === true;
   const busy = testing || saving;
+  const isLocalDemo = provider === "local_demo";
   const invalid = (
     !displayName.trim()
-    || !baseUrl.trim()
+    || (!isLocalDemo && !baseUrl.trim())
     || models.some((entry) => !entry.model.trim())
     || models.some((entry) => entry.testState === "error")
-    || (!isEdit && !apiKey.trim())
+    || (!isEdit && !isLocalDemo && !apiKey.trim())
   );
 
   useEffect(() => {
@@ -144,8 +145,10 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
             const result = await testModelProfile({
               ...(profile ? { profile_id: profile.id } : {}),
               provider,
-              base_url: baseUrl,
-              ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+              base_url: isLocalDemo ? "local://demo" : baseUrl,
+              ...(isLocalDemo
+                ? { api_key: "local-demo" }
+                : apiKey.trim() ? { api_key: apiKey.trim() } : {}),
               model: entry.model.trim(),
               timeout_ms: Math.min(timeoutMs, 60000),
               max_output_tokens: maxOutputTokens,
@@ -182,7 +185,7 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
       const common = {
         display_name: displayName.trim(),
         provider,
-        base_url: baseUrl.trim(),
+        base_url: isLocalDemo ? "local://demo" : baseUrl.trim(),
         tags: ["math"],
         timeout_ms: timeoutMs,
         temperature,
@@ -204,7 +207,7 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
       } else {
         const result = await createModelProfiles({
           ...common,
-          api_key: apiKey.trim(),
+          api_key: isLocalDemo ? "local-demo" : apiKey.trim(),
           models: models.map((entry) => ({
             model: entry.model.trim(),
             is_multimodal: entry.isMultimodal,
@@ -232,7 +235,13 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
         <div className="dialogHeader">
           <div>
             <h2>{isManaged ? "查看模型配置" : isEdit ? "修改模型配置" : "添加供应商模型"}</h2>
-            <p>{isManaged ? "OpenCode 免费模型由在线目录自动同步；免费端点可能记录输入，请勿提交个人或敏感信息。" : isEdit ? "API key 留空则沿用当前密钥。" : "一套供应商 URL/API key 可以一次添加多个 model name。"}</p>
+            <p>
+              {isManaged
+                ? "OpenCode 免费模型由在线目录自动同步；免费端点可能记录输入，请勿提交个人或敏感信息。"
+                : isLocalDemo
+                  ? "本地演示完全离线，不需要 Base URL 或 API key。"
+                  : isEdit ? "API key 留空则沿用当前密钥。" : "一套供应商 URL/API key 可以一次添加多个 model name。"}
+            </p>
           </div>
           <button className="iconButton" type="button" onClick={onClose} aria-label="关闭">
             <X size={18} />
@@ -248,7 +257,17 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
           <select
             value={provider}
             onChange={(event) => {
-              setProvider(event.target.value as typeof provider);
+              const nextProvider = event.target.value as typeof provider;
+              setProvider(nextProvider);
+              if (nextProvider === "local_demo") {
+                setDisplayName("本地演示");
+                setBaseUrl("local://demo");
+                setApiKey("");
+                setModels((current) => current.map((entry) => ({
+                  ...entry,
+                  model: entry.model || "demo-model"
+                })));
+              }
               resetSharedTestResults();
             }}
             disabled={isManaged}
@@ -268,11 +287,11 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
               resetSharedTestResults();
             }}
             placeholder="https://example.com/v1"
-            disabled={isManaged}
+            disabled={isManaged || isLocalDemo}
           />
         </label>
         <label>
-          API key{isManaged ? "（内置公共凭据）" : isEdit ? "（留空不修改）" : ""}
+          API key{isLocalDemo ? "（本地演示无需填写）" : isManaged ? "（内置公共凭据）" : isEdit ? "（留空不修改）" : ""}
           <input
             value={apiKey}
             onChange={(event) => {
@@ -280,8 +299,8 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
               resetSharedTestResults();
             }}
             type="password"
-            disabled={isManaged}
-            placeholder={isManaged ? profile?.masked_api_key : undefined}
+            disabled={isManaged || isLocalDemo}
+            placeholder={isLocalDemo ? "无需 API key" : isManaged ? profile?.masked_api_key : undefined}
           />
         </label>
 

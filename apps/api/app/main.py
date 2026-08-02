@@ -22,12 +22,13 @@ from app.routes import (
     sessions,
     speech,
 )
-from app.services.sensevoice_transcriber import SenseVoiceTranscriber
 from app.services.model_profile_seed import sync_bundled_model_seed
+from app.services.sensevoice_transcriber import SenseVoiceTranscriber
 from app.storage.database import Database
 from app.storage.repositories import ModelProfileRepository, SessionRepository
 from app.storage.security import SecretBox
 from app.storage.session_logger import SessionLogger
+
 APP_VERSION = "0.1.0"
 logger = logging.getLogger(__name__)
 

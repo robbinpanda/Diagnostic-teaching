@@ -1,5 +1,41 @@
 # 本地启动与关闭
 
+## 运行方式选择
+
+普通用户优先下载 [Windows 0.1.0 安装包](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest)；参与开发时使用本页的源码模式；需要可复现的隔离环境或局域网服务时使用 Docker。三种方式共用同一套教学核心和 SQLite schema。
+
+### Docker 轻量核心版
+
+```powershell
+docker compose -f compose.local.yml up -d --build
+```
+
+打开 `http://127.0.0.1:3000`。默认镜像不安装 FunASR、PyTorch 和 FFmpeg，因此麦克风会显示本地语音不可用，其余教学、模型、会话恢复和卡片功能不受影响。
+
+### Docker CPU 语音版
+
+```powershell
+docker compose -f compose.local.yml -f compose.speech.yml up -d --build
+```
+
+语音版固定从 PyTorch 官方 CPU 索引安装 `torch/torchaudio`，不携带 NVIDIA/CUDA 运行时。首次识别会下载 SenseVoiceSmall 与 FSMN-VAD，并将缓存保存在 `runtime/models/`。
+
+```text
+runtime/data/    SQLite 与加密密钥
+runtime/logs/    JSONL/Markdown 诊断日志
+runtime/models/  语音模型缓存（仅语音版）
+```
+
+检查与停止：
+
+```powershell
+docker compose -f compose.local.yml ps
+docker compose -f compose.local.yml logs -f app
+docker compose -f compose.local.yml -f compose.speech.yml down
+```
+
+若只启动过轻量版，停止命令可简化为 `docker compose -f compose.local.yml down`。Docker Desktop 使用 WSL2 时，任务管理器里的 `VmmemWSL` 包含 Linux 页缓存，不等同于容器实时占用；可用 `docker stats` 查看容器工作集，并在 `%USERPROFILE%\.wslconfig` 为 WSL2 设置合理内存上限。
+
 ## 首次安装
 
 启动脚本面向 Windows，并固定使用名为 `ai4edu-tutor` 的 Conda 环境。先安装 Anaconda/Miniconda、Node.js 和 npm，然后在项目根目录执行：

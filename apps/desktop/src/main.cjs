@@ -123,7 +123,15 @@ function restrictRendererNetwork() {
       || details.url.startsWith("blob:");
     callback({ cancel: !allowed });
   });
-  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const requestingUrl = details.requestingUrl || webContents.getURL();
+    const mediaTypes = Array.isArray(details.mediaTypes) ? details.mediaTypes : [];
+    const allowMicrophone = requestingUrl.startsWith(`${apiUrl}/`)
+      && permission === "media"
+      && mediaTypes.length === 1
+      && mediaTypes[0] === "audio";
+    callback(allowMicrophone);
+  });
 }
 
 function createWindow() {

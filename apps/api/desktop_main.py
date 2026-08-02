@@ -14,10 +14,11 @@ def main() -> None:
         raise RuntimeError("DESKTOP_WEB_ROOT is required")
 
     port = int(os.environ.get("DIAGNOSTIC_TEACHING_PORT", "8010"))
+    host = os.environ.get("DIAGNOSTIC_TEACHING_HOST", "127.0.0.1")
     application = create_desktop_app(Path(web_root_value))
     server = uvicorn.Server(uvicorn.Config(
         application,
-        host="127.0.0.1",
+        host=host,
         port=port,
         loop="asyncio",
         http="h11",

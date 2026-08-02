@@ -1,0 +1,35 @@
+name: diagnostic-teaching-local
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: diagnostic-teaching:0.1.0
+    ports:
+      - "3000:8010"
+    environment:
+      DATABASE_URL: sqlite:////workspace/data/app.db
+      APP_SECRET_PATH: /workspace/data/app-secret.key
+      SESSION_LOG_DIR: /workspace/logs/sessions
+      DESKTOP_WEB_ROOT: /workspace/apps/web/out
+      DIAGNOSTIC_TEACHING_HOST: 0.0.0.0
+      DIAGNOSTIC_TEACHING_PORT: "8010"
+      OPENCODE_CATALOG_REFRESH_ENABLED: "1"
+      SENSEVOICE_MODEL: ${SENSEVOICE_MODEL:-iic/SenseVoiceSmall}
+      SENSEVOICE_VAD_MODEL: ${SENSEVOICE_VAD_MODEL:-fsmn-vad}
+      SENSEVOICE_DEVICE: ${SENSEVOICE_DEVICE:-cpu}
+    volumes:
+      - ./runtime/data:/workspace/data
+      - ./runtime/logs:/workspace/logs
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/api/health', timeout=2)"
+      interval: 10s
+      timeout: 3s
+      start_period: 30s
+      retries: 6

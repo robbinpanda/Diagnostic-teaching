@@ -2,6 +2,23 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
+## v0.1.0 — 2026-08-02
+
+### 本地版产品化、三种交付方式与刷新恢复
+
+- 从 `main` 的 SQLite 产品线建立 `dev/local`，合并协议级推理档位和 SenseVoice 本地语音；服务器 PostgreSQL 尝试独立为 `dev/server`，教学动作合同继续共享。
+- 新增刷新安全的请求 outbox：首条题目和普通回复在清空输入框前保存稳定客户端幂等键，刷新后与 SQLite 已接纳输入及 `session_runs` 对账并继续，不重复创建会话或丢失输入文字。
+- 本地演示模型无需填写 Base URL/API key；桌面壳只允许同源页面申请纯音频麦克风权限，继续拒绝摄像头、外部导航和其他权限。
+- 新增轻量 Docker 镜像与可选 CPU 语音镜像。SQLite、日志和模型缓存映射到 `runtime/`；语音镜像使用 CPU 版 PyTorch，不包含 NVIDIA/CUDA 依赖。
+- 恢复 Electron + PyInstaller + NSIS 构建链，统一版本为 0.1.0，生成 `Diagnostic-Teaching-Setup-0.1.0-x64.exe`。
+- 重写中文版 README，将 Windows 安装版、源码命令行和 Docker 作为三条可复制的 Quick Start 路径。
+
+### 验证
+
+- 刷新恢复浏览器实测：延迟首发请求后刷新，原始中文输入恢复，SQLite 最终只有一条 accepted input。
+- Docker 核心版和 CPU 语音版均通过健康检查；语音环境确认 `torch.cuda.is_available() == false` 且无 `nvidia-*` 包。
+- Windows 安装包完成静默安装、桌面启动、随机端口健康检查、语音状态检查和退出清理。
+
 ## v2.7 — 2026-07-30
 
 ### 协议级推理档位与逐 profile 能力探测

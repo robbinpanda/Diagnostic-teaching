@@ -33,6 +33,10 @@ def test_desktop_bundle_passes_encrypted_seed_to_the_upgrade_aware_api_sync():
     assert "installBundledModelSeed" not in main_source
     assert "appId: cn.ai4edu.diagnostic-teaching" in builder_config
     assert "oneClick: false" in builder_config
+    assert 'permission === "media"' in main_source
+    assert "mediaTypes.length === 1" in main_source
+    assert 'mediaTypes[0] === "audio"' in main_source
+    assert "callback(allowMicrophone)" in main_source
     assert "perMachine: false" in builder_config
     assert "allowToChangeInstallationDirectory: true" in builder_config
     assert "deleteAppDataOnUninstall: false" in builder_config
