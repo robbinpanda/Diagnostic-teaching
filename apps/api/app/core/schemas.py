@@ -350,6 +350,7 @@ class SessionRestoreResponse(BaseModel):
     messages: list[SessionRestoredMessage]
     pending_checkpoint: dict[str, Any] | None = None
     pending_card: dict[str, Any] | None = None
+    pending_interruption: dict[str, Any] | None = None
 
 
 RunStatus = Literal["queued", "running", "completed", "failed", "interrupted"]
@@ -378,6 +379,11 @@ class SessionInterruptResponse(BaseModel):
     interrupted: bool
     active: bool
     run_ids: list[str] = Field(default_factory=list)
+
+
+class SessionInterruptRequest(BaseModel):
+    partial_message: str | None = Field(default=None, max_length=100_000)
+    reason: Literal["user_stop", "student_message"] = "user_stop"
 
 
 class ChatStreamRequest(BaseModel):
@@ -426,6 +432,9 @@ class SessionInputAcceptResponse(BaseModel):
     card_saved_at: str | None = None
     folder_id: str | None = None
     card_discarded: bool = False
+    deferred_card_id: str | None = None
+    card_deferred_at: str | None = None
+    interruption_id: str | None = None
 
 
 class CheckpointAnswerRequest(BaseModel):
@@ -496,6 +505,7 @@ class StudyCardPublic(BaseModel):
     folder_id: str | None = None
     created_at: str
     saved_at: str | None = None
+    deferred_at: str | None = None
 
 
 class StudyCardListResponse(BaseModel):

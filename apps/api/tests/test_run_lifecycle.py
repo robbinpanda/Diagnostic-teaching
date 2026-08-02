@@ -191,6 +191,77 @@ def test_interrupt_cancels_provider_loop_and_keeps_only_complete_actions(tmp_pat
     assert asyncio.run(app.state.chat_streams.status(session_id))["active"] is False
 
 
+def test_student_message_interrupt_persists_visible_partial_explanation(tmp_path: Path, monkeypatch):
+    app, session_id = bootstrap(tmp_path)
+
+    async def exercise():
+        partial_started = asyncio.Event()
+        provider_cancelled = asyncio.Event()
+
+        async def fake_generation(*args, **kwargs):
+            yield "message_delta", "先把等式两边"
+            partial_started.set()
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                provider_cancelled.set()
+                raise
+
+        monkeypatch.setattr(chat_routes, "generate_tutor_turn_stream", fake_generation)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            stream_task = asyncio.create_task(
+                client.post("/api/chat/stream", json={"session_id": session_id})
+            )
+            await asyncio.wait_for(partial_started.wait(), timeout=1)
+            interrupted = await client.post(
+                f"/api/sessions/{session_id}/interrupt",
+                json={
+                    "reason": "student_message",
+                    "partial_message": "先把等式两边",
+                },
+            )
+            duplicate = await client.post(
+                f"/api/sessions/{session_id}/interrupt",
+                json={
+                    "reason": "student_message",
+                    "partial_message": "先把等式两边",
+                },
+            )
+            await asyncio.wait_for(stream_task, timeout=1)
+
+        assert interrupted.json()["interrupted"] is True
+        assert duplicate.json()["interrupted"] is False
+        assert provider_cancelled.is_set()
+
+    asyncio.run(exercise())
+
+    messages = app.state.sessions.list_messages(session_id)
+    partials = [row for row in messages if row["action"] == "INTERRUPTED_EXPLANATION"]
+    assert len(partials) == 1
+    assert partials[0]["content"] == "先把等式两边"
+    metadata = json.loads(partials[0]["metadata_json"])
+    assert metadata["interrupted"] is True
+    assert metadata["resume_pending"] is True
+    assert metadata["resume_state"] == "awaiting_question"
+    client = TestClient(app)
+    accepted = client.post(
+        f"/api/sessions/{session_id}/inputs",
+        json={
+            "kind": "STUDENT_MESSAGE",
+            "client_message_id": "interrupt-question",
+            "message": "我刚才其实想选 A。",
+        },
+    )
+    assert accepted.status_code == 201
+    assert accepted.json()["interruption_id"] == partials[0]["id"]
+    linked = app.state.sessions.latest_pending_interruption(session_id)
+    assert linked["metadata"]["resume_state"] == "detour_active"
+    assert linked["metadata"]["interruption_question_message_id"] == accepted.json()["message_id"]
+    run = app.state.sessions.list_runs(session_id)[0]
+    assert json.loads(run["error_json"])["code"] == "student_message_interrupt"
+
+
 def test_provider_exception_marks_failed_releases_coordinator_and_allows_retry(
     tmp_path: Path,
     monkeypatch,

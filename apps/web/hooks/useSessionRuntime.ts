@@ -4,6 +4,7 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import {
   type AnsweredCheckpoint,
   interruptSession,
+  resumeInterruptedExplanation,
   streamChat,
   type Checkpoint,
   type RestoredSession,
@@ -52,6 +53,12 @@ function messageId() {
 export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
   const [context, setContext] = useState<SessionContext>(EMPTY_SESSION_CONTEXT);
   const [runningSessionIds, setRunningSessionIds] = useState<string[]>([]);
+  const [pendingCard, setPendingCard] = useState<StudyCard | null>(null);
+  const [cardSaveBusy, setCardSaveBusy] = useState(false);
+  const [pendingInterruption, setPendingInterruption] = useState<{
+    messageId: string;
+    resumeState: "awaiting_question" | "detour_active" | "resuming";
+  } | null>(null);
   const [timeline, dispatchTimeline] = useReducer(timelineReducer, undefined, () => createTimelineState());
   const [workflow, dispatchWorkflow] = useReducer(
     sessionWorkflowReducer,
@@ -104,7 +111,11 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     const cancelled = controllerRef.current?.cancel(sessionId, reason);
     if (!cancelled) return null;
     dispatchWorkflow({ type: "run_stop_requested", ...cancelled });
-    dispatchTimeline({ type: "run_cancelled", ...cancelled });
+    dispatchTimeline({
+      type: "run_cancelled",
+      ...cancelled,
+      preservePartial: reason === "student-message"
+    });
     dispatchWorkflow({ type: "run_finished", ...cancelled });
     setRunningSessionIds(controllerRef.current?.activeSessionIds ?? []);
     return cancelled;
@@ -112,6 +123,9 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
 
   function prepareSessionChange() {
     dispatchWorkflow({ type: "session_reset" });
+    setPendingCard(null);
+    setCardSaveBusy(false);
+    setPendingInterruption(null);
   }
 
   function clearSession() {
@@ -164,6 +178,11 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
       pendingCard: opened.pending_card,
       now: Date.now()
     });
+    setPendingCard(opened.pending_card ?? null);
+    setPendingInterruption(opened.pending_interruption ? {
+      messageId: opened.pending_interruption.message_id,
+      resumeState: opened.pending_interruption.resume_state
+    } : null);
     const activeRun = controllerRef.current?.currentFor(opened.session_id);
     if (activeRun) {
       dispatchTimeline({ type: "run_started", ...activeRun });
@@ -256,12 +275,9 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
           }
           if (event.kind === "card_ready") {
             receivedCard = true;
-            dispatchWorkflow({
-              type: "card_buffered",
-              sessionId: nextSessionId,
-              runId,
-              card: event.data as StudyCard
-            });
+            if (contextRef.current.sessionId === nextSessionId) {
+              setPendingCard(event.data as StudyCard);
+            }
           }
           if (event.kind === "message_done") {
             dispatchWorkflow({ type: "message_done", sessionId: nextSessionId, runId });
@@ -280,6 +296,16 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
             receivedError = true;
             dispatchTimeline({ type: "run_cancelled", sessionId: nextSessionId, runId });
             dispatchWorkflow({ type: "run_finished", sessionId: nextSessionId, runId });
+          }
+          if (event.kind === "interruption_state") {
+            const next = event.data as {
+              message_id: string;
+              resume_state: "resuming" | "resolved";
+            };
+            setPendingInterruption(next.resume_state === "resolved" ? null : {
+              messageId: next.message_id,
+              resumeState: next.resume_state
+            });
           }
         }
       });
@@ -355,21 +381,71 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     });
   }
 
+  async function interruptForStudentMessage() {
+    const activeSessionId = contextRef.current.sessionId;
+    const active = activeSessionId
+      ? controllerRef.current?.currentFor(activeSessionId)
+      : null;
+    if (!active) return false;
+    const currentAction = timeline.run?.runId === active.runId
+      ? timeline.run.actions[timeline.run.currentActionIndex]
+      : null;
+    const partialMessage = currentAction?.done ? "" : (currentAction?.text ?? "").trim();
+    dispatchWorkflow({ type: "run_stop_requested", ...active });
+    try {
+      await interruptSession(active.sessionId, {
+        reason: "student_message",
+        ...(partialMessage ? { partial_message: partialMessage } : {})
+      });
+    } catch (error) {
+      dispatchWorkflow({ type: "run_finished", ...active });
+      setError(error instanceof Error ? error.message : "中断当前讲解失败");
+      return false;
+    }
+    cancelRun(active.sessionId, "student-message");
+    return true;
+  }
+
+  function activateInterruption(messageId: string) {
+    setPendingInterruption({ messageId, resumeState: "detour_active" });
+  }
+
+  async function resumeInterruption() {
+    const activeSessionId = contextRef.current.sessionId;
+    if (!activeSessionId || !pendingInterruption) return;
+    await resumeInterruptedExplanation(activeSessionId);
+    setPendingInterruption({
+      messageId: pendingInterruption.messageId,
+      resumeState: "resuming"
+    });
+    await runStream(activeSessionId);
+  }
+
+  function completeCheckpointFreeTextSubmission() {
+    dispatchTimeline({ type: "interaction_cleared", sessionKey: currentSessionKey() });
+    dispatchWorkflow({ type: "checkpoint_submitted" });
+  }
+
   function failCheckpointSubmission(message: string) {
     dispatchWorkflow({ type: "checkpoint_submit_failed", message });
   }
 
   function beginCardSave() {
-    dispatchWorkflow({ type: "card_save_started" });
+    setCardSaveBusy(true);
   }
 
   function completeCardSave() {
-    dispatchTimeline({ type: "interaction_cleared", sessionKey: currentSessionKey() });
-    dispatchWorkflow({ type: "card_saved" });
+    setPendingCard(null);
+    setCardSaveBusy(false);
   }
 
   function failCardSave(message: string) {
-    dispatchWorkflow({ type: "card_save_failed", message });
+    setCardSaveBusy(false);
+    dispatchWorkflow({ type: "error_set", message });
+  }
+
+  function deferPendingCard(cardId: string, deferredAt: string) {
+    setPendingCard((card) => card?.id === cardId ? { ...card, deferred_at: deferredAt } : card);
   }
 
   function setError(message: string) {
@@ -394,12 +470,15 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     timeline,
     workflow,
     error: workflow.error,
-    composerBlocked: isComposerBlocked(workflow),
+    composerBlocked: isComposerBlocked(workflow)
+      || (workflow.mode === "run" && pendingInterruption !== null),
     streamBusy: workflow.mode === "run",
     runningSessionIds,
     checkpoint: workflow.mode === "checkpoint" ? workflow.checkpoint : null,
     checkpointStartedAt: workflow.mode === "checkpoint" ? workflow.startedAt : null,
-    activeCard: workflow.mode === "card" ? workflow.card : null,
+    activeCard: pendingCard,
+    cardSaveBusy,
+    pendingInterruption,
     addMessage,
     bindStartedSession,
     beginCardSave,
@@ -407,8 +486,10 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     clearError,
     clearSession,
     completeCardSave,
+    completeCheckpointFreeTextSubmission,
     completeCheckpointSubmission,
     failCardSave,
+    deferPendingCard,
     failCheckpointSubmission,
     failComposerTask,
     finishComposerTask,
@@ -420,6 +501,9 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     setError,
     startComposerTask,
     stopStream,
+    interruptForStudentMessage,
+    activateInterruption,
+    resumeInterruption,
     updateDraft
   };
 }

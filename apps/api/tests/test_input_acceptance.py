@@ -205,6 +205,88 @@ def test_checkpoint_input_answer_and_message_roll_back_together(tmp_path: Path):
     )
 
 
+def test_student_free_text_atomically_completes_pending_checkpoint(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    checkpoint_id = _checkpoint_id(client, session_id)
+    original_text = "我不想选，我觉得平方项前面是负数，所以应该取最大值。"
+    body = {
+        "kind": "STUDENT_MESSAGE",
+        "client_message_id": "checkpoint-free-text-1",
+        "message": original_text,
+    }
+
+    first = client.post(f"/api/sessions/{session_id}/inputs", json=body)
+    retry = client.post(f"/api/sessions/{session_id}/inputs", json=body)
+
+    assert first.status_code == 201
+    assert retry.status_code == 200
+    assert retry.json()["input_id"] == first.json()["input_id"]
+    checkpoint = client.app.state.sessions.get_checkpoint(checkpoint_id)
+    assert checkpoint["free_text_response"] == original_text
+    assert checkpoint["answered_at"] is not None
+    assert checkpoint["selected_option_id"] is None
+    assert checkpoint["is_correct"] is None
+
+    messages = client.app.state.sessions.list_messages(session_id)
+    student = messages[-1]
+    assert student["content"] == original_text
+    assert student["action"] == "STUDENT_RESPONSE"
+    metadata = json.loads(student["metadata_json"])
+    assert metadata["checkpoint_free_text_response"] == {
+        "checkpoint_id": checkpoint_id,
+        "response_text": original_text,
+        "response_mode": "free_text",
+    }
+
+    restored = client.get(f"/api/sessions/{session_id}")
+    assert restored.status_code == 200
+    assert restored.json()["pending_checkpoint"] is None
+    assert restored.json()["messages"][-1]["text"] == original_text
+
+    option_after_text = client.post(
+        f"/api/checkpoints/{checkpoint_id}/answer",
+        json={"session_id": session_id, "selected_option_id": "A", "elapsed_ms": 1000},
+    )
+    assert option_after_text.status_code == 409
+    assert option_after_text.json()["detail"]["code"] == "CHECKPOINT_ANSWER_CONFLICT"
+
+    events = client.get(f"/api/sessions/{session_id}/events").json()["events"]
+    checkpoint_event = next(
+        event for event in events
+        if event["type"] == "checkpoint.completed"
+        and event["data"].get("response_mode") == "free_text"
+    )
+    assert checkpoint_event["data"]["response_text"] == original_text
+
+
+def test_free_text_checkpoint_completion_rolls_back_with_student_message(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    checkpoint_id = _checkpoint_id(client, session_id)
+    with client.app.state.db.connect() as conn:
+        conn.execute(
+            """
+            CREATE TRIGGER reject_free_text_checkpoint_message
+            BEFORE INSERT ON messages
+            WHEN NEW.role = 'student'
+            BEGIN
+              SELECT RAISE(ABORT, 'forced free-text response failure');
+            END;
+            """
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="forced free-text response failure"):
+        InputAcceptanceService(client.app.state.sessions).accept_student_message(
+            session_id,
+            client_message_id="checkpoint-free-text-rollback",
+            message="这是不能被部分保存的回答。",
+        )
+
+    checkpoint = client.app.state.sessions.get_checkpoint(checkpoint_id)
+    assert checkpoint["free_text_response"] is None
+    assert checkpoint["answered_at"] is None
+    assert client.app.state.sessions.list_inputs(session_id) == []
+
+
 def test_card_dismiss_continue_is_durable_and_idempotent(tmp_path: Path):
     client, session_id = _bootstrap_app(tmp_path)
     turn = TutorTurn.model_validate(
@@ -312,6 +394,53 @@ def test_card_can_be_discarded_without_entering_library(tmp_path: Path):
     conflict = client.post(f"/api/sessions/{session_id}/inputs", json=changed_retry)
     assert conflict.status_code == 409
     assert conflict.json()["detail"]["code"] == "IDEMPOTENCY_KEY_CONFLICT"
+
+
+def test_student_message_defers_pending_card_atomically_and_is_idempotent(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    turn = TutorTurn.model_validate(
+        {
+            "state_hint": "explaining",
+            "action": "EXPLAIN_PRINCIPLE",
+            "message": "先说明这个知识点。",
+            "knowledge_card": {
+                "type": "knowledge_card",
+                "title": "待处理知识点",
+                "knowledge_point": "平方非负",
+                "core_idea": "任意实数的平方不小于零。",
+                "derivation_steps": [{"title": "定义", "content": "$u^2\\ge0$。"}],
+                "when_to_use": ["判断范围"],
+                "common_mistakes": [],
+                "connection_to_problem": "用于当前问题。",
+            },
+        }
+    )
+    _, _, card = client.app.state.sessions.record_tutor_action(session_id, turn, action_index=0)
+    body = {
+        "kind": "STUDENT_MESSAGE",
+        "client_message_id": "question-during-card",
+        "message": "这里为什么一定非负？",
+    }
+
+    first = client.post(f"/api/sessions/{session_id}/inputs", json=body)
+    retry = client.post(f"/api/sessions/{session_id}/inputs", json=body)
+
+    assert first.status_code == 201
+    assert first.json()["deferred_card_id"] == card["id"]
+    assert first.json()["card_deferred_at"]
+    assert retry.status_code == 200
+    assert retry.json()["card_deferred_at"] == first.json()["card_deferred_at"]
+    pending = client.app.state.sessions.latest_pending_card(session_id)
+    assert pending["deferred_at"] == first.json()["card_deferred_at"]
+    messages = client.app.state.sessions.list_messages(session_id)
+    assert [row["content"] for row in messages].count(body["message"]) == 1
+    event_types = [
+        event["type"]
+        for event in client.get(f"/api/sessions/{session_id}/events").json()["events"]
+    ]
+    assert event_types[-2:] == ["card.deferred", "message.completed"]
+    restored = client.get(f"/api/sessions/{session_id}").json()
+    assert restored["pending_card"]["deferred_at"] == first.json()["card_deferred_at"]
 
 
 def test_session_delete_removes_durable_inputs(tmp_path: Path):

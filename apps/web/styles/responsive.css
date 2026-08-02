@@ -138,6 +138,36 @@
     display: none;
   }
 
+  .viewProblemButton {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .viewProblemButton span {
+    display: none;
+  }
+
+  .problemViewerBackdrop {
+    padding: 0;
+  }
+
+  .problemViewerDialog {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .problemViewerHeader > div:first-child span {
+    display: none;
+  }
+
+  .problemViewerWorkspace {
+    padding: 10px;
+  }
+
   .welcomeState {
     min-height: calc(100vh - 330px);
   }

@@ -89,6 +89,7 @@ export type StudyCard = {
   folder_id?: string | null;
   created_at: string;
   saved_at?: string | null;
+  deferred_at?: string | null;
 };
 
 export type CardFolder = {
@@ -111,6 +112,7 @@ type SseEventPayload =
   | { event: "card_ready"; data: StudyCard }
   | { event: "message_done"; data: { ok: boolean; action_index?: number; wait_for_student?: boolean; will_continue?: boolean; awaiting_card_dismissal?: boolean; continue_after_card?: boolean } }
   | { event: "run_interrupted"; data: { run_id: string; status: "interrupted" } }
+  | { event: "interruption_state"; data: { message_id: string; resume_state: "resuming" | "resolved" } }
   | { event: "error"; data: { message: string } }
   | { event: string; data: Record<string, unknown> };
 
@@ -153,6 +155,10 @@ export type RestoredSession = {
   }>;
   pending_checkpoint?: Checkpoint | null;
   pending_card?: StudyCard | null;
+  pending_interruption?: {
+    message_id: string;
+    resume_state: "awaiting_question" | "detour_active" | "resuming";
+  } | null;
 };
 
 export type SessionStartResult = {
@@ -192,6 +198,9 @@ export type SessionInputAcceptance = {
   card_saved_at?: string | null;
   folder_id?: string | null;
   card_discarded?: boolean;
+  deferred_card_id?: string | null;
+  card_deferred_at?: string | null;
+  interruption_id?: string | null;
 };
 
 export type SessionRun = {

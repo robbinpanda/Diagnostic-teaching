@@ -166,7 +166,8 @@ def test_action_protocol_keeps_teaching_responsibilities_distinct():
     assert "完全没思路" in teaching.SYSTEM_PROMPT
     assert "只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以向学生提问" in teaching.SYSTEM_PROMPT
     assert "其余 action 的 message 必须为纯陈述句" in teaching.JSON_CONTRACT
-    assert "EXPLAIN_LOCAL 可以自行决定是否输出" in teaching.ACTION_PROTOCOL
+    assert "EXPLAIN_LOCAL 的讲解一旦形成" in teaching.ACTION_PROTOCOL
+    assert "也必须输出 knowledge_card" in teaching.ACTION_PROTOCOL
     assert "EXPLAIN_LOCAL：仅当讲解含可迁移知识时增加" in teaching.JSON_CONTRACT
     assert "即使值为 null 也不要输出" in teaching.JSON_CONTRACT
     assert "必须是 0.0 到 1.0（含边界）的 JSON 数字" in teaching.JSON_CONTRACT
@@ -212,6 +213,73 @@ def test_build_messages_attaches_original_problem_image_to_tutoring_request():
     assert "视觉模型独立字段" not in user_content[0]["text"]
     assert "Y3JvcA==" not in user_content[0]["text"]
     assert user_content[1] == {"type": "image_url", "image_url": {"url": image_data_url}}
+
+
+def test_prompt_separates_reusable_knowledge_from_complete_problem_solution():
+    session = {
+        "grade_band": "junior",
+        "subject": "math",
+        "problem_text": "两个皮带轮无滑动转动，求另一轮半径。",
+        "student_initial_thought": "我把直径当成了半径。",
+        "phase": "explaining",
+        "problem_image_data_url": None,
+    }
+
+    messages = build_messages(session, [])
+    system = messages[0]["content"]
+
+    assert "同一道题可以各产生一张" in system
+    assert "无滑动皮带传动中两轮边缘通过的弧长相等" in system
+    assert "不能只是通用知识点的改写" in system
+    assert "当前具体题目的完整条件、结构化步骤和最终答案" in system
+
+
+def test_interruption_detour_is_the_last_and_highest_priority_prompt():
+    session = {
+        "grade_band": "junior",
+        "subject": "math",
+        "problem_text": "求圆柱表面积。",
+        "student_initial_thought": "我选错了。",
+        "phase": "checking",
+        "problem_image_data_url": None,
+    }
+    partial_id = "partial-1"
+    question_id = "question-1"
+    history = [
+        {
+            "id": partial_id,
+            "role": "assistant",
+            "content": "原讲解说到一半",
+            "action": "INTERRUPTED_EXPLANATION",
+            "action_id": "action-partial",
+            "in_reply_to_action_id": None,
+            "metadata_json": json.dumps(
+                {
+                    "resume_state": "detour_active",
+                    "interruption_question_message_id": question_id,
+                },
+                ensure_ascii=False,
+            ),
+        },
+        {
+            "id": question_id,
+            "role": "student",
+            "content": "选错了，我想选 A。",
+            "action": "STUDENT_RESPONSE",
+            "action_id": "action-question",
+            "in_reply_to_action_id": None,
+            "metadata_json": "{}",
+        },
+    ]
+
+    messages = build_messages(session, history, nonblocking_streak=1)
+    control = json.loads(messages[-1]["content"])
+
+    assert control["kind"] == "student_interruption_detour"
+    assert control["priority"] == "highest"
+    assert control["student_interruption_question"] == "选错了，我想选 A。"
+    assert "不得接续原讲解" in control["instruction"]
+    assert "不得 SUMMARIZE" in control["instruction"]
 
 
 def test_build_messages_uses_structured_roles_and_keeps_full_history():

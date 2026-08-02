@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, ChevronRight, Loader2 } from "lucide-react";
+import { BookOpen, ChevronRight, Image as ImageIcon, Loader2 } from "lucide-react";
 import type { ModelProfile } from "../../lib/api";
 import { modelProfileLabel } from "../../lib/api";
 import { MathText } from "../MathText";
@@ -12,9 +12,11 @@ type Props = {
   gradeBand: "junior" | "senior";
   selectedProfile?: ModelProfile;
   streamBusy: boolean;
+  problemImageUrl?: string | null;
   progressLabel?: string;
   onExpandLeft: () => void;
   onToggleCards: () => void;
+  onViewProblemImage: () => void;
 };
 
 export function ConversationHeader({
@@ -24,9 +26,11 @@ export function ConversationHeader({
   gradeBand,
   selectedProfile,
   streamBusy,
+  problemImageUrl,
   progressLabel,
   onExpandLeft,
-  onToggleCards
+  onToggleCards,
+  onViewProblemImage
 }: Props) {
   const subtitle = sessionId
     ? `${gradeBand === "junior" ? "初中" : "高中"}数学 · ${selectedProfile ? modelProfileLabel(selectedProfile) : "原模型不可用"}`
@@ -48,6 +52,12 @@ export function ConversationHeader({
           <Loader2 size={14} className="spin" />
           {progressLabel || "正在思考"}
         </span>
+      )}
+      {problemImageUrl && (
+        <button className="viewProblemButton" type="button" onClick={onViewProblemImage}>
+          <ImageIcon size={16} />
+          <span>查看题目</span>
+        </button>
       )}
       <button className="plainIconButton cardPanelToggle" type="button" onClick={onToggleCards} aria-label="切换卡片栏">
         <BookOpen size={18} />

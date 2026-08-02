@@ -4,7 +4,6 @@ from app.services.input_acceptance_models import (
     STUDENT_MESSAGE,
     AcceptedSessionInput,
     InputValidationError,
-    InputWorkflowConflictError,
 )
 from app.services.input_acceptance_models import (
     canonical_json as _canonical_json,
@@ -51,24 +50,61 @@ class StudentMessageAcceptanceMixin:
                 )
             pending_card = conn.execute(
                 """
-                SELECT id FROM study_cards
+                SELECT * FROM study_cards
                 WHERE session_id = ? AND saved_at IS NULL
+                ORDER BY created_at DESC, rowid DESC
                 LIMIT 1
                 """,
                 (session_id,),
             ).fetchone()
-            if pending_card is not None:
-                raise InputWorkflowConflictError(pending_card["id"])
+            interruption_row = conn.execute(
+                """
+                SELECT * FROM messages
+                WHERE session_id = ? AND action = 'INTERRUPTED_EXPLANATION'
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT 1
+                """,
+                (session_id,),
+            ).fetchone()
+            interruption_metadata = (
+                _load_json(interruption_row["metadata_json"])
+                if interruption_row is not None
+                else {}
+            )
+            links_interruption = (
+                interruption_row is not None
+                and interruption_metadata.get("resume_state") == "awaiting_question"
+            )
 
             input_id = new_id("inp")
             message_id = new_id("msg")
             action_id = new_id("act")
             in_reply_to_action_id = self._latest_blocking_action_id(conn, session_id)
             ts = now_iso()
+            pending_checkpoint = conn.execute(
+                """
+                SELECT * FROM checkpoints
+                WHERE session_id = ? AND answered_at IS NULL
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (session_id,),
+            ).fetchone()
+            checkpoint_free_text_response = None
+            if pending_checkpoint is not None:
+                checkpoint_free_text_response = {
+                    "checkpoint_id": pending_checkpoint["id"],
+                    "response_text": text,
+                    "response_mode": "free_text",
+                }
             result = {
                 "message_id": message_id,
                 "action_id": action_id,
                 "in_reply_to_action_id": in_reply_to_action_id,
+                "checkpoint_free_text_response": checkpoint_free_text_response,
+                "deferred_card_id": pending_card["id"] if pending_card is not None else None,
+                "card_deferred_at": ts if pending_card is not None else None,
+                "interruption_id": interruption_row["id"] if links_interruption else None,
             }
             conn.execute(
                 """
@@ -93,10 +129,51 @@ class StudentMessageAcceptanceMixin:
                 INSERT INTO messages (
                   id, session_id, role, content, action_id, action,
                   in_reply_to_action_id, metadata_json, created_at
-                ) VALUES (?, ?, 'student', ?, ?, 'STUDENT_RESPONSE', ?, '{}', ?)
+                ) VALUES (?, ?, 'student', ?, ?, 'STUDENT_RESPONSE', ?, ?, ?)
                 """,
-                (message_id, session_id, text, action_id, in_reply_to_action_id, ts),
+                (
+                    message_id,
+                    session_id,
+                    text,
+                    action_id,
+                    in_reply_to_action_id,
+                    _canonical_json(
+                        {"checkpoint_free_text_response": checkpoint_free_text_response}
+                        if checkpoint_free_text_response
+                        else {}
+                    ),
+                    ts,
+                ),
             )
+            if pending_checkpoint is not None:
+                conn.execute(
+                    """
+                    UPDATE checkpoints
+                    SET free_text_response = ?, answered_at = ?
+                    WHERE id = ? AND answered_at IS NULL
+                    """,
+                    (text, ts, pending_checkpoint["id"]),
+                )
+            if pending_card is not None:
+                conn.execute(
+                    """
+                    UPDATE study_cards
+                    SET deferred_at = COALESCE(deferred_at, ?)
+                    WHERE id = ? AND saved_at IS NULL
+                    """,
+                    (ts, pending_card["id"]),
+                )
+            if links_interruption and interruption_row is not None:
+                interruption_metadata.update(
+                    {
+                        "resume_state": "detour_active",
+                        "interruption_question_message_id": message_id,
+                    }
+                )
+                conn.execute(
+                    "UPDATE messages SET metadata_json = ? WHERE id = ?",
+                    (_canonical_json(interruption_metadata), interruption_row["id"]),
+                )
             conn.execute(
                 "UPDATE sessions SET updated_at = ? WHERE id = ?",
                 (ts, session_id),
@@ -104,7 +181,27 @@ class StudentMessageAcceptanceMixin:
             self.sessions.events.append_in_transaction(
                 conn,
                 session_id,
-                [
+                ([
+                    (
+                        "card.deferred",
+                        {
+                            "run_id": run_id,
+                            "card_id": pending_card["id"],
+                            "card_type": pending_card["card_type"],
+                            "source_action_id": pending_card["source_action_id"],
+                            "deferred_at": ts,
+                        },
+                    )
+                ] if pending_card is not None else []) + ([
+                    (
+                        "checkpoint.completed",
+                        {
+                            "run_id": run_id,
+                            **checkpoint_free_text_response,
+                            "source_action_id": pending_checkpoint["source_action_id"],
+                        },
+                    )
+                ] if pending_checkpoint is not None and checkpoint_free_text_response else []) + [
                     (
                         "message.completed",
                         {

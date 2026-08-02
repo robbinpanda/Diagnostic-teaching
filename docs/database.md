@@ -65,6 +65,10 @@ python -m alembic -c alembic.ini upgrade head
 
 `sessions.context_status` 由 `0005_conversational_context` 增加，取值仅为 `need_problem / need_thought / ready`。它与 `problem_text / student_initial_thought` 都属于 SQLite 权威业务态：模型产出的上下文状态和新语义摘要会与完整 assistant action 同事务提交，刷新或恢复时不从诊断日志重新推断。旧 session 在迁移时默认为 `ready`，保持升级前已进入正式教学的语义。
 
+`0007_checkpoint_free_text` 为 `checkpoints` 增加 `free_text_response`。学生用文字回应待答 checkpoint 时，原文与 `answered_at`、普通学生 message、durable input/event 在同一事务提交；`selected_option_id/is_correct` 保持 `NULL`，用于区分自由表达和选项判定。
+
+`0008_nonblocking_cards` 为 `study_cards` 增加 `deferred_at`。学生在待确认卡片出现后发送新问题时，普通学生 message、durable input、`card.deferred` event 与卡片暂存时间在同一事务提交；`saved_at` 仍为 `NULL`，因此卡片尚未进入卡片库，刷新后仍可继续处理。
+
 ## 4. 连接可靠性
 
 应用的每条 `sqlite3` 连接都配置：
@@ -94,4 +98,4 @@ foreign keys 是连接级开关，因此不能只在建库时设置。WAL 是数
 python -m alembic -c alembic.ini revision -m "describe change"
 ```
 
-编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。当前迁移链为可靠性基线 → durable `session_inputs` → `session_events` → `session_runs` → conversational `context_status` → 层级 `card_folders`；后续 schema 继续通过新的 `down_revision` 串成单一迁移链。
+编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。当前迁移链在层级 `card_folders` 后分为两条兼容分支：checkpoint free text → nonblocking cards，以及 reasoning effort → reasoning effort levels → protocol probe；`0010_merge_feature_heads` 将两条迁移头合并。后续 schema 应以该合并 revision 为 `down_revision` 继续串成单一迁移链。

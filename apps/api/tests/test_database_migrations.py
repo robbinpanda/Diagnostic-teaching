@@ -176,7 +176,7 @@ def test_fresh_database_uses_alembic_and_sqlite_reliability_pragmas(tmp_path: Pa
         assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == SQLITE_BUSY_TIMEOUT_MS
         assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1
         assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == (
-            "0009_reasoning_effort_protocol_probe"
+            "0010_merge_feature_heads"
         )
 
         session_fks = {
@@ -200,6 +200,14 @@ def test_fresh_database_uses_alembic_and_sqlite_reliability_pragmas(tmp_path: Pa
         assert ("session_id", "sessions", "CASCADE") in checkpoint_fks
         assert ("live_session_id", "sessions", "SET NULL") in card_fks
         assert ("folder_id", "card_folders", "RESTRICT") in card_fks
+        checkpoint_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(checkpoints)")
+        }
+        assert "free_text_response" in checkpoint_columns
+        card_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(study_cards)")
+        }
+        assert "deferred_at" in card_columns
         defaults = conn.execute(
             "SELECT name, default_card_type FROM card_folders ORDER BY default_card_type"
         ).fetchall()
@@ -228,6 +236,9 @@ def test_legacy_database_upgrades_repeatably_without_losing_rows(tmp_path: Path)
         assert conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM checkpoints").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM study_cards").fetchone()[0] == 3
+        assert conn.execute(
+            "SELECT COUNT(*) FROM study_cards WHERE deferred_at IS NOT NULL"
+        ).fetchone()[0] == 0
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
         profile = conn.execute(

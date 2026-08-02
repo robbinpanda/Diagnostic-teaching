@@ -62,7 +62,7 @@ export type TimelineAction =
   | { type: "stream_event"; event: CanonicalStreamEvent }
   | { type: "run_completed"; sessionId: string; runId: string }
   | { type: "run_failed"; sessionId: string; runId: string; message: string }
-  | { type: "run_cancelled"; sessionId: string; runId: string }
+  | { type: "run_cancelled"; sessionId: string; runId: string; preservePartial?: boolean }
   | { type: "interaction_cleared"; sessionKey: string };
 
 export const DRAFT_SESSION_KEY = "draft";
@@ -244,8 +244,6 @@ function applyStreamEvent(state: TimelineState, event: CanonicalStreamEvent): Ti
       break;
     }
     case "card_ready": {
-      const card = event.data as StudyCard;
-      if (!pendingInteraction) pendingInteraction = { kind: "card", card };
       break;
     }
     case "message_done":
@@ -290,11 +288,9 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
         sessionKey: action.sessionKey,
         messages: action.messages,
         run: null,
-        pendingInteraction: action.pendingCard
-          ? { kind: "card", card: action.pendingCard }
-          : action.pendingCheckpoint
-            ? { kind: "checkpoint", checkpoint: action.pendingCheckpoint }
-            : null,
+        pendingInteraction: action.pendingCheckpoint
+          ? { kind: "checkpoint", checkpoint: action.pendingCheckpoint }
+          : null,
         lastError: null
       };
     case "session_bound":
@@ -360,9 +356,15 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       return {
         ...state,
         run: { ...state.run, status: "cancelled" },
-        messages: state.messages.filter((message) => !(
-          message.runId === action.runId && message.streamState === "streaming"
-        ))
+        messages: action.preservePartial
+          ? state.messages.map((message) => (
+              message.runId === action.runId && message.streamState === "streaming"
+                ? { ...message, action: "INTERRUPTED_EXPLANATION", streamState: "complete" }
+                : message
+            ))
+          : state.messages.filter((message) => !(
+              message.runId === action.runId && message.streamState === "streaming"
+            ))
       };
     case "interaction_cleared":
       if (state.sessionKey !== action.sessionKey) return state;

@@ -8,6 +8,47 @@ from app.storage.run_state import RunStateConflict
 
 
 class SessionRunRepositoryMixin:
+    def latest_pending_interruption(self, session_id: str) -> dict | None:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM messages
+                WHERE session_id = ? AND action = 'INTERRUPTED_EXPLANATION'
+                ORDER BY created_at DESC, rowid DESC
+                """,
+                (session_id,),
+            ).fetchall()
+        for row in rows:
+            try:
+                metadata = json.loads(row["metadata_json"] or "{}")
+            except json.JSONDecodeError:
+                continue
+            if metadata.get("resume_state") in {
+                "awaiting_question",
+                "detour_active",
+                "resuming",
+            }:
+                return {"row": row, "metadata": metadata}
+        return None
+
+    def set_interruption_resume_state(self, message_id: str, state: str) -> None:
+        if state not in {"detour_active", "resuming", "resolved"}:
+            raise ValueError(state)
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT metadata_json FROM messages WHERE id = ? AND action = 'INTERRUPTED_EXPLANATION'",
+                (message_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(message_id)
+            metadata = json.loads(row["metadata_json"] or "{}")
+            metadata["resume_state"] = state
+            metadata["resume_pending"] = state != "resolved"
+            conn.execute(
+                "UPDATE messages SET metadata_json = ? WHERE id = ?",
+                (json.dumps(metadata, ensure_ascii=False, sort_keys=True), message_id),
+            )
+
     def create_run(self, session_id: str) -> sqlite3.Row:
         """Atomically allocate the next per-session attempt in queued state."""
         run_id = new_id("run")
@@ -123,10 +164,28 @@ class SessionRunRepositoryMixin:
     def mark_run_failed(self, run_id: str, error: dict) -> sqlite3.Row:
         return self._finish_run(run_id, "failed", error=error)
 
-    def mark_run_interrupted(self, run_id: str, error: dict) -> sqlite3.Row:
-        return self._finish_run(run_id, "interrupted", error=error)
+    def mark_run_interrupted(
+        self,
+        run_id: str,
+        error: dict,
+        *,
+        partial_message: str | None = None,
+    ) -> sqlite3.Row:
+        return self._finish_run(
+            run_id,
+            "interrupted",
+            error=error,
+            partial_message=partial_message,
+        )
 
-    def _finish_run(self, run_id: str, status: str, *, error: dict | None) -> sqlite3.Row:
+    def _finish_run(
+        self,
+        run_id: str,
+        status: str,
+        *,
+        error: dict | None,
+        partial_message: str | None = None,
+    ) -> sqlite3.Row:
         ts = now_iso()
         error_json = json.dumps(error, ensure_ascii=False) if error is not None else None
         with self.db.connect() as conn:
@@ -156,6 +215,48 @@ class SessionRunRepositoryMixin:
                     "interrupted": "cancelled",
                 }[status]
                 events: list[tuple[str, dict]] = []
+                clean_partial = (partial_message or "").strip()
+                if status == "interrupted" and clean_partial and row["started_at"] is not None:
+                    message_id = new_id("msg")
+                    action_id = new_id("act")
+                    metadata = {
+                        "interrupted": True,
+                        "interrupted_run_id": run_id,
+                        "resume_pending": True,
+                        "resume_state": "awaiting_question",
+                    }
+                    conn.execute(
+                        """
+                        INSERT INTO messages (
+                          id, session_id, role, content, action_id, action,
+                          in_reply_to_action_id, metadata_json, created_at
+                        ) VALUES (?, ?, 'assistant', ?, ?, 'INTERRUPTED_EXPLANATION',
+                                  NULL, ?, ?)
+                        """,
+                        (
+                            message_id,
+                            row["session_id"],
+                            clean_partial,
+                            action_id,
+                            json.dumps(metadata, ensure_ascii=False),
+                            ts,
+                        ),
+                    )
+                    events.append(
+                        (
+                            "message.completed",
+                            {
+                                "run_id": run_id,
+                                "message_id": message_id,
+                                "role": "assistant",
+                                "content": clean_partial,
+                                "action_id": action_id,
+                                "action": "INTERRUPTED_EXPLANATION",
+                                "in_reply_to_action_id": None,
+                                "interrupted": True,
+                            },
+                        )
+                    )
                 if error is not None:
                     events.append(
                         (

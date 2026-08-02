@@ -2,6 +2,8 @@
 
 import {
   BookOpen,
+  ChevronDown,
+  ChevronUp,
   ClipboardCheck,
   Loader2,
   Pencil,
@@ -243,12 +245,17 @@ export function StudyCardModal({
   const [validationError, setValidationError] = useState("");
   const [discardConfirmation, setDiscardConfirmation] = useState(false);
   const [folderId, setFolderId] = useState("");
+  const [collapsed, setCollapsed] = useState(Boolean(card?.deferred_at));
 
   useEffect(() => {
     if (card && folders.length) {
       setFolderId(card.folder_id || defaultFolderForCard(folders, card));
     }
   }, [card, folders]);
+
+  useEffect(() => {
+    if (card?.deferred_at) setCollapsed(true);
+  }, [card?.deferred_at]);
 
   if (!card) return null;
   const currentCard = card;
@@ -297,14 +304,28 @@ export function StudyCardModal({
         <div>
           <div className="studyCardKicker">
             {isKnowledge ? <BookOpen size={19} /> : <ClipboardCheck size={19} />}
-            {libraryView
+            {currentCard.deferred_at && !libraryView
+              ? (isKnowledge ? "待处理知识卡片" : "待处理题目卡片")
+              : libraryView
               ? (isKnowledge ? "卡片库中的知识卡片" : "卡片库中的题目卡片")
               : (isKnowledge ? "对话中的知识卡片" : "对话中的题目卡片")}
           </div>
           <h2><MathText text={title} /></h2>
         </div>
         <div className="studyCardHeaderActions">
-          {isKnowledge && editable && onSave && (
+          {currentCard.deferred_at && displayMode === "inline" && (
+            <button
+              className="cardEditButton"
+              type="button"
+              onClick={() => setCollapsed((value) => !value)}
+              disabled={busy}
+              aria-expanded={!collapsed}
+            >
+              {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+              {collapsed ? "展开待处理卡片" : "收起待处理卡片"}
+            </button>
+          )}
+          {!collapsed && isKnowledge && editable && onSave && (
             <button
               className={`cardEditButton ${editing ? "active" : ""}`}
               type="button"
@@ -333,6 +354,7 @@ export function StudyCardModal({
         </div>
       </header>
 
+      {!collapsed && <>
       {isKnowledge && knowledgeContent ? (
         editing && editable ? (
           <KnowledgeCardEditor content={knowledgeContent} onChange={(content) => {
@@ -419,7 +441,9 @@ export function StudyCardModal({
               : (isKnowledge ? "确认后才会进入知识卡片库" : "确认后才会进入题目卡片库")}</strong>
             <span>{libraryView
               ? "保存修改不会改变当前对话内容。"
-              : (isKnowledge ? "保存或舍弃后，AI 都会接着当前对话继续讲解。" : "保存后，本轮答疑完成。")}</span>
+              : currentCard.deferred_at
+                ? "这是先前暂存的卡片；保存或舍弃只处理卡片，不会重复触发讲解。"
+                : (isKnowledge ? "保存或舍弃后，AI 都会接着当前对话继续讲解。" : "保存后，本轮答疑完成。")}</span>
             {validationError && <span className="cardValidationError" role="alert">{validationError}</span>}
           </div>
           {!libraryView && onSave && folders.length > 0 && (
@@ -451,12 +475,19 @@ export function StudyCardModal({
                 disabled={busy || (folders.length > 0 && !folderId)}
               >
                 {busy ? <Loader2 size={17} className="spin" /> : <Save size={17} />}
-                {busy ? "处理中" : libraryView ? "保存修改" : "保存到卡片库"}
+                {busy
+                  ? "处理中"
+                  : libraryView
+                    ? "保存修改"
+                    : isKnowledge
+                      ? "保存为知识卡片"
+                      : "保存为题目卡片"}
               </button>
             )}
           </div>
         </footer>
       )}
+      </>}
     </article>
   );
 }
