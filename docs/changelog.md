@@ -4,6 +4,11 @@
 
 ## 未发布
 
+### Ready 状态不再因省略思路摘要而回退
+
+- 修复模型已经明确输出 `context_status=ready` 和正式教学 action，却因本轮省略可选的 `student_thought_summary` 被后端降回 `need_thought`、撤回已流式展示内容并重复追问思路的问题。
+- 题目存在时信任模型明确给出的 `ready`；缺少 `student_thought_summary` 不再触发回退，题目缺失时仍保留 `need_problem` 守门。
+
 ### 生成中输入、支线回答与返回原讲解（第三块）
 
 - AI 流式生成期间输入框保持可编辑；输入文字后发送按钮会显示为“发送并打断讲解”，空输入时仍保留原停止按钮。

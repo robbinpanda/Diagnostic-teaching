@@ -194,7 +194,7 @@ system 消息由四部分组成：
 
 `grade_band` 在 session 创建时固定为 `junior` 或 `senior`，之后每轮都作为 `SESSION_START` 上下文的一部分提供给模型。它用于提示答疑的知识范围与表达方式：`junior` 侧重基础概念、直观解释和规范步骤，`senior` 允许高中知识、综合方法与完整推导。后端不会据此更换模型，也没有按课程知识点做硬性白名单校验；session 创建后前端禁止切换，保证同一会话口径一致。
 
-`context_status` 是 SQLite 中可恢复的上下文收集状态。模型每轮同时输出 `problem_summary / student_thought_summary`；后端做单调归一化并与完整 assistant action 同事务写回。`need_problem / need_thought` 时后端只允许 `ASK_OPEN_QUESTION`，`ready` 后才开放其他教学 action。字段来自完整对话语义而非消息顺序；“完全没思路”会被保存为有效思路状态。
+`context_status` 是 SQLite 中可恢复的上下文收集状态。模型在确有可靠新增时输出 `problem_summary / student_thought_summary`；后端做单调归一化并与完整 assistant action 同事务写回。`need_problem / need_thought` 时后端只允许 `ASK_OPEN_QUESTION`，`ready` 后才开放其他教学 action。字段来自完整对话语义而非消息顺序；“完全没思路”是有效思路状态。模型明确输出 `ready` 且题目已经存在时，摘要字段可以省略，后端不会因此把本轮降回 `need_thought`。
 
 拆题与正式答疑是两条隔离链路。文字草稿先交给 `POST /api/problem-intake/analyze-text`，由当前所选模型只返回 `problems[]`：每项包含自包含的 `problem_text` 和仅属于该题的 `student_initial_thought`。该结果只决定批量创建数量与各 session 初始上下文，不产生教学 action；单题同样返回长度为 1 的数组。
 

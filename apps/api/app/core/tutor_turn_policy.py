@@ -82,15 +82,8 @@ def apply_backend_action_policy(
         or current_problem_text.strip()
         or turn.problem_summary
     )
-    has_thought = bool(
-        current_status == "ready"
-        or current_student_thought.strip()
-        or turn.student_thought_summary
-    )
     if proposed_status == "ready" and not has_problem:
         proposed_status = "need_problem"
-    elif proposed_status == "ready" and not has_thought:
-        proposed_status = "need_thought"
     elif proposed_status == "need_thought" and not has_problem:
         proposed_status = "need_problem"
     turn.context_status = proposed_status

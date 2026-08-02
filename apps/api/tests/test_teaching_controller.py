@@ -143,6 +143,27 @@ def test_explicit_no_idea_completes_thought_collection():
     assert turn.wait_for_student is False
 
 
+def test_explicit_ready_does_not_require_repeated_thought_summary():
+    turn = teaching.TutorTurn(
+        state_hint="explaining",
+        context_status="ready",
+        action="EXPLAIN_LOCAL",
+        message="我们先从题目的第一个条件开始。",
+    )
+
+    apply_backend_action_policy(
+        turn,
+        current_context_status="need_thought",
+        current_problem_text="已知 $x+1=2$，求 $x$。",
+    )
+
+    assert turn.context_status == "ready"
+    assert turn.action == "EXPLAIN_LOCAL"
+    assert turn.message == "我们先从题目的第一个条件开始。"
+    assert turn.student_thought_summary is None
+    assert "context_action_guard" not in turn.debug
+
+
 def test_action_protocol_keeps_teaching_responsibilities_distinct():
     definitions = {item["name"]: item for item in teaching.TEACHING_ACTION_DEFINITIONS}
 
