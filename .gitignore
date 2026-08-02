@@ -20,5 +20,6 @@ logs/
 .agents/
 .codex/
 .playwright-cli/
+.secrets/
 
 apps/web/.env.local

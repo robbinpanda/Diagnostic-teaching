@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
@@ -22,10 +23,14 @@ from app.routes import (
     speech,
 )
 from app.services.sensevoice_transcriber import SenseVoiceTranscriber
+from app.services.model_profile_seed import sync_bundled_model_seed
 from app.storage.database import Database
 from app.storage.repositories import ModelProfileRepository, SessionRepository
 from app.storage.security import SecretBox
 from app.storage.session_logger import SessionLogger
+APP_VERSION = "0.1.0"
+logger = logging.getLogger(__name__)
+
 
 
 @asynccontextmanager
@@ -36,13 +41,18 @@ async def lifespan(app: FastAPI):
             app.state.model_profiles.sync_opencode_free_models(models)
             await asyncio.sleep(CATALOG_REFRESH_SECONDS)
 
-    refresh_task = asyncio.create_task(refresh_opencode_free_models())
+    refresh_task = (
+        asyncio.create_task(refresh_opencode_free_models())
+        if app.state.settings.opencode_catalog_refresh_enabled
+        else None
+    )
     try:
         yield
     finally:
-        refresh_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await refresh_task
+        if refresh_task is not None:
+            refresh_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await refresh_task
 
 
 def create_app() -> FastAPI:
@@ -53,10 +63,29 @@ def create_app() -> FastAPI:
     session_logger = SessionLogger(settings.session_log_dir)
     opencode_free_models = OpenCodeFreeModelCatalog(settings.root / "data" / "opencode-models.json")
 
-    app = FastAPI(title="Diagnostic Math Tutor API", version="0.3.0", lifespan=lifespan)
+    app = FastAPI(title="Diagnostic Math Tutor API", version=APP_VERSION, lifespan=lifespan)
     app.state.settings = settings
     app.state.db = db
     app.state.model_profiles = ModelProfileRepository(db, secrets)
+    if (
+        settings.bundled_model_seed_database_path is not None
+        and settings.bundled_model_seed_secret_path is not None
+    ):
+        app.state.bundled_model_seed_sync = sync_bundled_model_seed(
+            app.state.model_profiles,
+            settings.bundled_model_seed_database_path,
+            settings.bundled_model_seed_secret_path,
+            settings.database_path.parent / "bundled-model-seed-state.json",
+            bundle_version=settings.bundled_model_seed_version,
+        )
+        result = app.state.bundled_model_seed_sync
+        logger.info(
+            "Bundled model seed %s (created=%s updated=%s disabled=%s)",
+            result.status,
+            result.created,
+            result.updated,
+            result.disabled,
+        )
     app.state.opencode_free_models = opencode_free_models
     app.state.model_profiles.sync_opencode_free_models(opencode_free_models.current())
     app.state.sessions = SessionRepository(db)
