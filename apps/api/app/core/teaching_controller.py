@@ -59,6 +59,10 @@ __all__ = [
 FORMAT_RETRY_LIMIT = 1
 
 
+def _raw_contains_suppressed_card(raw: str) -> bool:
+    return '"knowledge_card"' in raw or '"problem_card"' in raw
+
+
 TEACHING_ACTION_DEFINITIONS = [
     {
         "name": "ASK_OPEN_QUESTION",
@@ -671,7 +675,24 @@ async def generate_tutor_turn_stream(
                     used_fallback = True
                     request_messages = build_format_retry_messages(messages, raw, exc)
                     continue
-                raise LlmProviderError("模型连续返回不完整或不合法的 JSON，请重试") from exc
+                if suppress_cards and _raw_contains_suppressed_card(raw):
+                    turn_final = recover_tutor_turn_from_raw(raw)
+                    apply_backend_action_policy(
+                        turn_final,
+                        force_blocking=force_blocking,
+                        current_context_status=_row_value(
+                            session, "context_status", "ready"
+                        ),
+                        current_problem_text=_row_value(session, "problem_text", ""),
+                        current_student_thought=_row_value(
+                            session, "student_initial_thought", ""
+                        ),
+                    )
+                    turn_final.debug["card_generation_suppressed"] = True
+                    used_fallback = True
+                    emitted_message_parts = []
+                else:
+                    raise LlmProviderError("模型连续返回不完整或不合法的 JSON，请重试") from exc
 
             if attempt:
                 turn_final.debug["format_retry_count"] = attempt

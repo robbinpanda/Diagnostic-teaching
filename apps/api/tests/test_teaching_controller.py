@@ -842,6 +842,72 @@ def test_stream_retries_invalid_json_and_resets_partial_message(monkeypatch):
     assert "完整、合法" in requests[1][-1]["content"]
 
 
+def test_stream_recovers_invalid_generated_card_when_cards_are_suppressed(monkeypatch):
+    raw = """{
+  "message": "这道题已经讲清，现在收束关键步骤。",
+  "action": "SUMMARIZE",
+  "context_status": "ready",
+  "state_hint": "summarizing",
+  "problem_card": {
+    "type": "problem_card",
+    "title": "本轮不应生成的新卡片",
+    "how_to_think": ["看到"未转义引号会破坏整段 JSON"]
+  }
+}"""
+    requests = []
+
+    async def fake_chat_stream_completion(profile, messages, **kwargs):
+        requests.append(messages)
+        yield {"delta": raw, "finish_reason": None}
+        yield {"delta": "", "finish_reason": "stop"}
+
+    monkeypatch.setattr(teaching, "chat_stream_completion", fake_chat_stream_completion)
+    profile = LlmProfile(
+        id="prof_test",
+        provider="openai_compatible",
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="test-model",
+        timeout_ms=30000,
+        temperature=0.2,
+        max_output_tokens=1200,
+    )
+    session = {
+        "id": "sess_test",
+        "problem_text": "求函数最大值。",
+        "student_initial_thought": "我卡在负号。",
+        "context_status": "ready",
+        "phase": "explaining",
+    }
+
+    async def collect_events():
+        return [
+            event
+            async for event in teaching.generate_tutor_turn_stream(
+                profile,
+                session,
+                [],
+                suppress_cards=True,
+            )
+        ]
+
+    events = asyncio.run(collect_events())
+    last_reset = max(index for index, event in enumerate(events) if event[0] == "message_reset")
+    visible_after_reset = "".join(
+        value for kind, value in events[last_reset + 1 :] if kind == "message_delta"
+    )
+    turn = next(value for kind, value in events if kind == "turn")
+
+    assert len(requests) == 2
+    assert turn.action == "EXPLAIN_LOCAL"
+    assert turn.knowledge_card is None
+    assert turn.problem_card is None
+    assert turn.debug["parse_fallback"] is True
+    assert turn.debug["card_generation_suppressed"] is True
+    assert turn.debug["format_retry_count"] == 1
+    assert visible_after_reset == turn.message
+
+
 def test_stream_resets_model_text_when_context_guard_replaces_it(monkeypatch):
     raw = json.dumps(
         {
