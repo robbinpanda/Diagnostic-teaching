@@ -1,8 +1,8 @@
 # 上下文、Session 恢复与诊断日志
 
-版本：v1.5
+版本：v1.6
 
-日期：2026-07-21
+日期：2026-07-23
 
 适用项目：诊断式数学答疑 MVP
 
@@ -14,7 +14,7 @@
 
 | 数据 | 职责 | 是否用于恢复 |
 |---|---|---|
-| SQLite 业务表 | 保存 session、durable `session_inputs`、结构化 messages、checkpoints、study_cards、`session_runs` 和 action 关联 | 是，唯一快照来源 |
+| SQLite 业务表 | 保存 session、durable `session_inputs`、结构化 messages、checkpoints、层级 `card_folders`、study_cards、`session_runs` 和 action 关联 | 是，唯一快照来源 |
 | SQLite `session_events` | 保存稳定业务边界的有序 change feed，供客户端断线补发 | 是，仅用于增量重放 |
 | `<session_id>.jsonl` | 严格的一行一事件机器日志，便于脚本分析和审计 | 否 |
 | `<session_id>.log.md` | 与 JSONL 同步写入、留白充足的人类可读时间线 | 否 |
@@ -146,6 +146,8 @@ assistant 带 knowledge_card / problem_card 的教学 action
 
 `app/llm/provider.py` 再按 profile 分发协议：OpenAI-compatible 原样发送到 chat completions；Anthropic 会把 system 从 messages 中提到顶层、合并相邻同角色消息，并把统一 `image_url` data URL 转成 Anthropic base64 image source。协议转换不改变 SQLite 历史结构，也不会把 API key 写入消息或日志。
 
+profile 的统一 `reasoning_effort=none|low|high` 由 `app/llm/reasoning.py` 管理，默认值为 `low`。映射只取决于请求协议：OpenAI 与 OpenAI-compatible chat completions 发送顶层 `reasoning_effort`，Anthropic Messages 发送 `output_config.effort`；不再按供应商名称、Host 或模型名切换字段，也不再通过 system prompt 模拟档位。添加模型时，后端会对完整的 `protocol + Base URL + API key + model` 并发测试三个档位，并把成功项保存到 `reasoning_effort_options_json`；同一模型经不同 Base URL、账号或代理可得到不同选项。跳过测试的 profile 默认暴露三档。保存后的档位覆盖正式答疑、文字拆题、图片题目框检测、图片内容识别和多模态能力测试。
+
 应用层不再设置“固定保留 20 条”之类的截断，也不做摘要或压缩。`SessionRepository.list_messages(session_id)` 默认读取该 session 的全部消息并按时间正序发送。
 
 仍需注意：模型服务自身有硬上下文窗口。项目不主动截断，但实际总 token 超过所选模型限制时，供应商仍可能拒绝请求。
@@ -158,9 +160,11 @@ system 消息由四部分组成：
 
 2. `ACTION_PROTOCOL`：像工具说明一样，在第一次及后续每次请求中明确列出每个教学 action 的用途、必需字段、阻塞性和后端行为。
 
-3. `JSON_CONTRACT`：要求模型只返回一个 `TutorTurn` JSON。
+3. `JSON_CONTRACT`：要求模型只返回一个按 action 区分的最小 `TutorTurn` JSON，`message` 排在最前，无关 checkpoint/card 字段不输出 `null`。
 
 4. 当前 action loop 约束：连续非阻塞动作数，以及是否必须转成阻塞动作。
+
+5. profile 当前保存的推理档位；字段由 provider 层按 OpenAI-compatible 或 Anthropic Messages 协议直接加入请求体，system prompt 不追加推理强度指令。
 
 `action` 不是 tool call。它不会操作电脑或调用外部资源，而是教学工作流的控制字段。每条 assistant 消息只能对应一个 action。
 
@@ -187,6 +191,8 @@ system 消息由四部分组成：
 ```
 
 如果题目有原图，这条消息使用多模态 content，同时携带文本 JSON 和 `image_url`。
+
+`grade_band` 在 session 创建时固定为 `junior` 或 `senior`，之后每轮都作为 `SESSION_START` 上下文的一部分提供给模型。它用于提示答疑的知识范围与表达方式：`junior` 侧重基础概念、直观解释和规范步骤，`senior` 允许高中知识、综合方法与完整推导。后端不会据此更换模型，也没有按课程知识点做硬性白名单校验；session 创建后前端禁止切换，保证同一会话口径一致。
 
 `context_status` 是 SQLite 中可恢复的上下文收集状态。模型每轮同时输出 `problem_summary / student_thought_summary`；后端做单调归一化并与完整 assistant action 同事务写回。`need_problem / need_thought` 时后端只允许 `ASK_OPEN_QUESTION`，`ready` 后才开放其他教学 action。字段来自完整对话语义而非消息顺序；“完全没思路”会被保存为有效思路状态。
 
@@ -447,6 +453,7 @@ provider.chat_stream_completion()
 
 ```text
 run_started
+progress（正在读取题目 / 核对思路 / 选择教学方式 / 组织回复）
 message_delta ...
 message_reset（仅格式重试时可能出现）
 decision
@@ -456,9 +463,11 @@ message_done
 run_interrupted（仅显式中断，且没有当前 step 的完整 action 落库）
 ```
 
-只有学生可见的 `message` 字段会增量展示。若首个模型输出格式不合法并触发重试，`message_reset` 会让前端丢弃该 action 已展示的残片。`state_hint`、`action`、`checkpoint` 和 card 必须等完整 JSON 到达、校验和后端策略归一化后才发出。`card_ready` 后当前 HTTP stream 停止，等待前端保存卡片。
+只有学生可见的 `message` 字段会增量展示。`progress` 只携带后端定义的 stage/label/elapsed_ms；provider reasoning chunk 的原文不会进入 SSE。若首个模型输出格式不合法并触发重试，`message_reset` 会让前端丢弃该 action 已展示的残片。`state_hint`、`action`、`checkpoint` 和 card 必须等完整 JSON 到达、校验和后端策略归一化后才发出。`card_ready` 后当前 HTTP stream 停止，等待前端保存卡片。
 
 `message_delta/message_reset` 是高频瞬时事件，不写 `session_events`。完整 student/assistant message、归一化 action、checkpoint/card、run 完成、error 和 idle 等稳定边界会与业务数据一起写入 SQLite；因此 chat SSE 断开后不需要恢复每个字符，只需重放完整完成事件。
+
+每个 `tutor_turn` 诊断日志记录 `input_to_first_progress_ms`、`input_to_first_reasoning_event_ms`、`input_to_first_content_ms`、`input_to_first_visible_message_ms`、`input_to_interactive_turn_ms` 和 `total_completion_ms`。缺少 provider reasoning 事件时对应指标为 `null`，不能据此推断模型完全没有内部推理。
 
 ### 9.2 durable event 历史与 SSE
 

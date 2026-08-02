@@ -38,6 +38,63 @@
 - 粘贴与回形针上传统一改为先显示可移除的待发送缩略图，只有点击发送后才调用现有题目检测和框选流程；纯图片无需额外输入文字即可发送。
 - 第一版图片与文字草稿互斥，一次只接受一张图片，已有答疑会话不允许追加图片；相关情况均提供明确提示。
 
+## v0.5.0 — 2026-08-02
+
+### 本地版产品化、三种交付方式与刷新恢复
+
+- 从 `main` 的 SQLite 产品线建立 `dev/local`，合并协议级推理档位和 SenseVoice 本地语音；服务器 PostgreSQL 尝试独立为 `dev/server`，教学动作合同继续共享。
+- 新增刷新安全的请求 outbox：首条题目和普通回复在清空输入框前保存稳定客户端幂等键，刷新后与 SQLite 已接纳输入及 `session_runs` 对账并继续，不重复创建会话或丢失输入文字。
+- 本地演示模型无需填写 Base URL/API key；桌面壳只允许同源页面申请纯音频麦克风权限，继续拒绝摄像头、外部导航和其他权限。
+- 新增轻量 Docker 镜像与可选 CPU 语音镜像。SQLite、日志和模型缓存映射到 `runtime/`；语音镜像使用 CPU 版 PyTorch，不包含 NVIDIA/CUDA 依赖。
+- 恢复 Electron + PyInstaller + NSIS 构建链，统一版本为 0.5.0，生成 `Diagnostic-Teaching-Setup-0.5.0-x64.exe`。
+- 0.5.0 首次安装会一次性清理 0.4.0 及更早版本的整个 `%APPDATA%\DiagnosticTeaching`，包括 SQLite、WAL/SHM、密钥、模型种子状态和日志；重置标记保证同版本修复安装不会再次删除新数据。
+- 重写中文版 README，将 Windows 安装版、源码命令行和 Docker 作为三条可复制的 Quick Start 路径。
+
+### 验证
+
+- 刷新恢复浏览器实测：延迟首发请求后刷新，原始中文输入恢复，SQLite 最终只有一条 accepted input。
+- Docker 核心版和 CPU 语音版均通过健康检查；语音环境确认 `torch.cuda.is_available() == false` 且无 `nvidia-*` 包。
+- Windows 安装包完成静默安装、桌面启动、随机端口健康检查、语音状态检查和退出清理。
+
+## v2.7 — 2026-07-30
+
+### 协议级推理档位与逐 profile 能力探测
+
+- 推理强度收敛为 `none / low / high`，默认 `low`；Alembic `0009_reasoning_effort_protocol_probe` 把旧 `minimal` 迁为 `none`、旧 `auto / medium` 迁为 `low`，并新增 `reasoning_effort_options_json` 保存每个 profile 自己的可用档位。
+- 移除供应商、Host、模型名白名单和 prompt effort 兜底。OpenAI / OpenAI-compatible chat completions 统一发送顶层 `reasoning_effort`，Anthropic Messages 统一发送 `output_config.effort`。
+- 添加或编辑模型时，连接测试对完整的 `protocol + Base URL + API key + model` 并发发出三个极简会话，逐档测试 `none / low / high`；报错档位从该 profile 的选项中移除。跳过测试时默认保留三档，因此同一模型经不同账号或代理可以拥有不同能力集合。
+- 图片能力探测会选用刚刚实测通过的档位；前端逐模型展示“实测可用”或“未测试，按协议默认”的档位列表。三个档位全部失败时该项测试失败，不能直接保存该失败状态。
+
+### 不限时本地语音输入与有界录音缓冲
+
+- 移除前端 60 秒倒计时、自动停止和 WebSocket 总字节上限；麦克风会持续录音，直到用户主动停止。
+- 服务端改为有界滚动缓冲：默认每 30 秒提交一次连续语音并重置 VAD/PCM 窗口，已确认语句和长静音立即丢弃，因此单连接原始音频默认约束在 0.92 MiB 左右，不随总录音时长增长。
+- `SENSEVOICE_MAX_AUDIO_SECONDS` 替换为 `SENSEVOICE_STREAM_SEGMENT_SECONDS`；新变量只控制内部识别分段（5—60 秒），不限制用户总录音时长。
+- SenseVoice 推理继续使用自动清理的系统临时 WAV，不持久化原始录音；兼容完整 WAV 接口按 16 MiB 请求体限流，避免单次上传无限占用内存。
+- 增加跨多个内部音频窗口持续转写、长静音窗口回收和新状态字段的后端回归测试。
+
+## v2.6 — 2026-07-27
+
+### 可选推理档位与首个反馈优化
+
+- 新增 Alembic `0007_reasoning_effort` 与 `0008_reasoning_effort_levels`，每个模型 profile 持久化 `minimal / low / medium / high`；输入框旁可直接选择“超低 / 低 / 中 / 高”，旧 `auto` 数据升级为默认的 `medium`，OpenCode 托管模型也能保存本地偏好。
+- 新增 provider-specific 映射层：OpenAI、OpenRouter、DashScope thinking 与 Anthropic adaptive thinking 分别发送对应字段；没有明确协议映射的 Kimi 等模型改用分档 system prompt，`medium` 不增加指令，避免 OpenAI-compatible 端点因未知参数失败。
+- provider stream 识别响应头、reasoning 与正式 content 边界，但不向前端转发原始 CoT。chat SSE 新增固定安全 `progress` 阶段，标题栏从 run 开始持续显示“读取题目 / 核对思路 / 选择教学方式 / 组织回复”。
+- `tutor_turn` 日志新增首进度、首 reasoning、首 content、首可见 message、可交互与总完成耗时，并记录实际选择的 reasoning effort。
+- 推理强度现已覆盖图片题目框检测、兼容图片内容识别和模型设置中的多模态能力测试；图片路由会读取 profile 已保存档位，未知供应商使用视觉任务专用提示词兜底，不再固定为默认中档或混入 `TutorTurn` 字段要求。
+- 推理强度和初中/高中选择器统一为模型选择器风格的可访问下拉菜单；学习阶段在新建 session 时固定，作为模型上下文提示知识范围与讲解粒度，进入答疑后不能切换。
+- TutorTurn prompt 改成按 action 区分的最小联合合同，`message` 固定排第一，无关 checkpoint/card 字段不再输出 `null`；历史 assistant 示例同步使用最小结构。已由结构化状态确定的 checkpoint 反馈使用专属小合同，不额外调用一次模型分类 action。
+- 增加 provider 映射、Kimi 未知能力保护、迁移、最小合同、安全进度、timeline 与诊断指标测试。
+
+### SenseVoiceSmall 本地语音输入
+
+- 输入框麦克风改为准实时转写：浏览器持续重采样并通过 WebSocket 发送 16 kHz 单声道 16 位 PCM，发声期间约每 1.2 秒覆盖更新临时文字，停顿或手动停止后确认最终文字；多句结果只回填输入框供校对，不自动触发建会话或继续生成。
+- 新增 `WS /api/speech/stream`，每条连接使用独立 FSMN-VAD 流式缓存判断语音起止；保留 `POST /api/speech/transcribe` 与 `GET /api/speech/status` 兼容完整 WAV 调用。音频上限和阻塞式模型推理继续由后端限制并移入线程池。
+- 将 VAD 句尾与文本提交解耦：600 毫秒停顿只进入待确认状态，默认 2.5 秒内重新开口会合并前后音频并重新识别，长停顿或手动停止才产生最终文本；可通过 `SENSEVOICE_COMMIT_SILENCE_MS` 调整思考窗口。
+- 中文识别片段改为无空格连接，临时结果隐藏末尾句号，避免边想边说时形成“已知。 椭圆。 4分之……”式碎片。
+- 集成 FunASR `iic/SenseVoiceSmall + fsmn-vad`，默认 CPU、首次使用懒加载、进程内复用模型且串行推理；SenseVoice 临时/最终识别与流式 VAD 共用推理锁，避免同一模型并发访问。
+- 增加 PCM 重采样、WebSocket URL、流式 partial/final 协议和原有 WAV 接口回归测试；教学 action、输入幂等接纳、SQLite 权威态和诊断日志边界不变。
+
 ## v2.5 — 2026-07-21
 
 ### 对话内检查点与可编辑知识卡片

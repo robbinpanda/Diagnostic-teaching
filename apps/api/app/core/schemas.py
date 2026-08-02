@@ -6,6 +6,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl
 
 Provider = Literal["openai", "openai_compatible", "anthropic", "local_demo"]
 ContextStatus = Literal["need_problem", "need_thought", "ready"]
+ReasoningEffort = Literal["none", "low", "high"]
 
 
 class ModelProfileCreate(BaseModel):
@@ -19,11 +20,20 @@ class ModelProfileCreate(BaseModel):
     temperature: float = Field(default=0.2, ge=0, le=2)
     max_output_tokens: int = Field(default=8000, ge=100, le=64000)
     is_multimodal: bool = False
+    reasoning_effort: ReasoningEffort = "low"
+    reasoning_effort_options: list[ReasoningEffort] | None = Field(
+        default=None,
+        min_length=1,
+    )
 
 
 class ModelProfileBatchItem(BaseModel):
     model: str = Field(min_length=1, max_length=120)
     is_multimodal: bool = False
+    reasoning_effort_options: list[ReasoningEffort] | None = Field(
+        default=None,
+        min_length=1,
+    )
 
 
 class ModelProfileBatchCreate(BaseModel):
@@ -36,6 +46,7 @@ class ModelProfileBatchCreate(BaseModel):
     timeout_ms: int = Field(default=30000, ge=1000, le=120000)
     temperature: float = Field(default=0.2, ge=0, le=2)
     max_output_tokens: int = Field(default=8000, ge=100, le=64000)
+    reasoning_effort: ReasoningEffort = "low"
 
 
 class ModelProfileUpdate(BaseModel):
@@ -49,6 +60,17 @@ class ModelProfileUpdate(BaseModel):
     temperature: float | None = Field(default=None, ge=0, le=2)
     max_output_tokens: int | None = Field(default=None, ge=100, le=64000)
     is_multimodal: bool | None = None
+    reasoning_effort: ReasoningEffort | None = None
+    reasoning_effort_options: list[ReasoningEffort] | None = Field(
+        default=None,
+        min_length=1,
+    )
+
+
+class ModelProfileReasoningUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reasoning_effort: ReasoningEffort
 
 
 class ModelProfileTestRequest(BaseModel):
@@ -79,6 +101,12 @@ class ModelProfilePublic(BaseModel):
     max_output_tokens: int
     is_multimodal: bool
     managed: bool = False
+    reasoning_effort: ReasoningEffort = "low"
+    reasoning_effort_options: list[ReasoningEffort] = Field(
+        default_factory=lambda: ["none", "low", "high"]
+    )
+    reasoning_control: str = "none"
+    reasoning_control_description: str = ""
     last_test_status: str | None = None
     last_test_latency_ms: int | None = None
 
@@ -108,10 +136,21 @@ class ModelProfileCreateResponse(BaseModel):
     masked_api_key: str
 
 
+class ModelProfileReasoningProbeResult(BaseModel):
+    effort: ReasoningEffort
+    ok: bool
+    latency_ms: int | None = None
+    message: str
+
+
 class ModelProfileTestResponse(BaseModel):
     ok: bool
     latency_ms: int | None = None
     message: str
+    reasoning_effort_options: list[ReasoningEffort] = Field(default_factory=list)
+    reasoning_effort_results: list[ModelProfileReasoningProbeResult] = Field(
+        default_factory=list
+    )
     multimodal_ok: bool | None = None
     multimodal_latency_ms: int | None = None
     multimodal_message: str | None = None

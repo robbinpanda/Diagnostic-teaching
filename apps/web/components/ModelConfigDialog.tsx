@@ -2,7 +2,13 @@
 
 import { CheckCircle2, CircleX, Loader2, Minus, Plus, PlugZap, Save, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { createModelProfiles, ModelProfile, testModelProfile, updateModelProfile } from "../lib/api";
+import {
+  createModelProfiles,
+  ModelProfile,
+  ReasoningEffort,
+  testModelProfile,
+  updateModelProfile
+} from "../lib/api";
 import { mapWithConcurrency, MAX_PARALLEL_MODEL_TESTS } from "../lib/model-test-concurrency";
 
 type Props = {
@@ -20,10 +26,18 @@ type ModelEntry = {
   isMultimodal: boolean;
   testState: TestState;
   testMessage: string;
+  reasoningEffortOptions: ReasoningEffort[] | null;
 };
 
 function emptyModelEntry(id: string): ModelEntry {
-  return { id, model: "", isMultimodal: false, testState: "idle", testMessage: "" };
+  return {
+    id,
+    model: "",
+    isMultimodal: false,
+    testState: "idle",
+    testMessage: "",
+    reasoningEffortOptions: null
+  };
 }
 
 export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
@@ -41,11 +55,13 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
   const isEdit = Boolean(profile);
   const isManaged = profile?.managed === true;
   const busy = testing || saving;
+  const isLocalDemo = provider === "local_demo";
   const invalid = (
     !displayName.trim()
-    || !baseUrl.trim()
+    || (!isLocalDemo && !baseUrl.trim())
     || models.some((entry) => !entry.model.trim())
-    || (!isEdit && !apiKey.trim())
+    || models.some((entry) => entry.testState === "error")
+    || (!isEdit && !isLocalDemo && !apiKey.trim())
   );
 
   useEffect(() => {
@@ -61,7 +77,8 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
             model: profile.model,
             isMultimodal: profile.is_multimodal,
             testState: "idle",
-            testMessage: ""
+            testMessage: "",
+            reasoningEffortOptions: profile.reasoning_effort_options
           }
         : emptyModelEntry("model-0")
     ]);
@@ -75,16 +92,31 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
 
   if (!open) return null;
 
-  function updateModelEntry(id: string, changes: Partial<ModelEntry>, resetTest = false) {
+  function updateModelEntry(
+    id: string,
+    changes: Partial<ModelEntry>,
+    resetTest = false,
+    resetReasoningOptions = resetTest
+  ) {
     setModels((current) => current.map((entry) => (
       entry.id === id
         ? {
             ...entry,
             ...changes,
-            ...(resetTest ? { testState: "idle" as const, testMessage: "" } : {})
+            ...(resetTest ? { testState: "idle" as const, testMessage: "" } : {}),
+            ...(resetReasoningOptions ? { reasoningEffortOptions: null } : {})
           }
         : entry
     )));
+  }
+
+  function resetSharedTestResults() {
+    setModels((current) => current.map((entry) => ({
+      ...entry,
+      testState: "idle",
+      testMessage: "",
+      reasoningEffortOptions: null
+    })));
   }
 
   function addModelEntry() {
@@ -101,7 +133,7 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
     setModels((current) => current.map((entry) => ({
       ...entry,
       testState: "testing",
-      testMessage: "正在测试文本连接和图片能力…"
+      testMessage: "正在并发测试 none / low / high，并检查图片能力…"
     })));
 
     try {
@@ -113,8 +145,10 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
             const result = await testModelProfile({
               ...(profile ? { profile_id: profile.id } : {}),
               provider,
-              base_url: baseUrl,
-              ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+              base_url: isLocalDemo ? "local://demo" : baseUrl,
+              ...(isLocalDemo
+                ? { api_key: "local-demo" }
+                : apiKey.trim() ? { api_key: apiKey.trim() } : {}),
               model: entry.model.trim(),
               timeout_ms: Math.min(timeoutMs, 60000),
               max_output_tokens: maxOutputTokens,
@@ -124,6 +158,7 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
             updateModelEntry(entry.id, {
               testState: result.ok ? "success" : "error",
               testMessage: result.message,
+              reasoningEffortOptions: result.reasoning_effort_options,
               isMultimodal: result.multimodal_ok == null ? entry.isMultimodal : result.multimodal_ok
             });
             return result.ok;
@@ -137,7 +172,7 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
         }
       );
       const successful = outcomes.filter(Boolean).length;
-      setStatus(`测试完成：${successful}/${models.length} 个模型通过。图片识别正确会勾选多模态，识别失败会取消勾选。`);
+      setStatus(`测试完成：${successful}/${models.length} 个模型通过。每个模型只保留实际成功的推理档位；图片识别正确会勾选多模态。`);
     } finally {
       setTesting(false);
     }
@@ -150,7 +185,7 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
       const common = {
         display_name: displayName.trim(),
         provider,
-        base_url: baseUrl.trim(),
+        base_url: isLocalDemo ? "local://demo" : baseUrl.trim(),
         tags: ["math"],
         timeout_ms: timeoutMs,
         temperature,
@@ -162,6 +197,9 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
           ...common,
           model: entry.model.trim(),
           is_multimodal: entry.isMultimodal,
+          ...(entry.reasoningEffortOptions
+            ? { reasoning_effort_options: entry.reasoningEffortOptions }
+            : {}),
           ...(apiKey.trim() ? { api_key: apiKey.trim() } : {})
         });
         setStatus("已更新");
@@ -169,10 +207,13 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
       } else {
         const result = await createModelProfiles({
           ...common,
-          api_key: apiKey.trim(),
+          api_key: isLocalDemo ? "local-demo" : apiKey.trim(),
           models: models.map((entry) => ({
             model: entry.model.trim(),
-            is_multimodal: entry.isMultimodal
+            is_multimodal: entry.isMultimodal,
+            ...(entry.reasoningEffortOptions
+              ? { reasoning_effort_options: entry.reasoningEffortOptions }
+              : {})
           }))
         });
         const firstProfile = result.profiles[0];
@@ -194,7 +235,13 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
         <div className="dialogHeader">
           <div>
             <h2>{isManaged ? "查看模型配置" : isEdit ? "修改模型配置" : "添加供应商模型"}</h2>
-            <p>{isManaged ? "OpenCode 免费模型由在线目录自动同步；免费端点可能记录输入，请勿提交个人或敏感信息。" : isEdit ? "API key 留空则沿用当前密钥。" : "一套供应商 URL/API key 可以一次添加多个 model name。"}</p>
+            <p>
+              {isManaged
+                ? "OpenCode 免费模型由在线目录自动同步；免费端点可能记录输入，请勿提交个人或敏感信息。"
+                : isLocalDemo
+                  ? "本地演示完全离线，不需要 Base URL 或 API key。"
+                  : isEdit ? "API key 留空则沿用当前密钥。" : "一套供应商 URL/API key 可以一次添加多个 model name。"}
+            </p>
           </div>
           <button className="iconButton" type="button" onClick={onClose} aria-label="关闭">
             <X size={18} />
@@ -207,7 +254,24 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
         </label>
         <label>
           供应商类型
-          <select value={provider} onChange={(event) => setProvider(event.target.value as typeof provider)} disabled={isManaged}>
+          <select
+            value={provider}
+            onChange={(event) => {
+              const nextProvider = event.target.value as typeof provider;
+              setProvider(nextProvider);
+              if (nextProvider === "local_demo") {
+                setDisplayName("本地演示");
+                setBaseUrl("local://demo");
+                setApiKey("");
+                setModels((current) => current.map((entry) => ({
+                  ...entry,
+                  model: entry.model || "demo-model"
+                })));
+              }
+              resetSharedTestResults();
+            }}
+            disabled={isManaged}
+          >
             <option value="openai_compatible">OpenAI-compatible</option>
             <option value="openai">OpenAI</option>
             <option value="anthropic">Anthropic Messages</option>
@@ -216,11 +280,28 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
         </label>
         <label>
           Base URL
-          <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://example.com/v1" disabled={isManaged} />
+          <input
+            value={baseUrl}
+            onChange={(event) => {
+              setBaseUrl(event.target.value);
+              resetSharedTestResults();
+            }}
+            placeholder="https://example.com/v1"
+            disabled={isManaged || isLocalDemo}
+          />
         </label>
         <label>
-          API key{isManaged ? "（内置公共凭据）" : isEdit ? "（留空不修改）" : ""}
-          <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} type="password" disabled={isManaged} placeholder={isManaged ? profile?.masked_api_key : undefined} />
+          API key{isLocalDemo ? "（本地演示无需填写）" : isManaged ? "（内置公共凭据）" : isEdit ? "（留空不修改）" : ""}
+          <input
+            value={apiKey}
+            onChange={(event) => {
+              setApiKey(event.target.value);
+              resetSharedTestResults();
+            }}
+            type="password"
+            disabled={isManaged || isLocalDemo}
+            placeholder={isLocalDemo ? "无需 API key" : isManaged ? profile?.masked_api_key : undefined}
+          />
         </label>
 
         <section className="modelEntriesSection">
@@ -262,12 +343,21 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
                 <label className="checkboxLabel modelCapabilityToggle">
                   <input
                     checked={entry.isMultimodal}
-                    onChange={(event) => updateModelEntry(entry.id, { isMultimodal: event.target.checked }, true)}
+                    onChange={(event) => updateModelEntry(
+                      entry.id,
+                      { isMultimodal: event.target.checked },
+                      true,
+                      false
+                    )}
                     type="checkbox"
                     disabled={isManaged}
                   />
                   {isManaged ? "支持图片识别（由 OpenCode 目录元数据同步）" : "支持图片识别（默认关闭；测试图片成功后自动开启）"}
                 </label>
+                <p className="modelCapabilityHint">
+                  推理档位：{(entry.reasoningEffortOptions ?? ["none", "low", "high"]).join(" / ")}
+                  {entry.reasoningEffortOptions ? "（实测可用）" : "（未测试，按协议默认）"}
+                </p>
                 {entry.testMessage && <p className={`modelTestMessage ${entry.testState}`}>{entry.testMessage}</p>}
               </div>
             ))}
@@ -278,7 +368,10 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
           Max output tokens
           <input
             value={maxOutputTokens}
-            onChange={(event) => setMaxOutputTokens(Number(event.target.value))}
+            onChange={(event) => {
+              setMaxOutputTokens(Number(event.target.value));
+              resetSharedTestResults();
+            }}
             type="number"
             min={100}
             max={64000}
@@ -291,7 +384,10 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
             Timeout ms
             <input
               value={timeoutMs}
-              onChange={(event) => setTimeoutMs(Number(event.target.value))}
+              onChange={(event) => {
+                setTimeoutMs(Number(event.target.value));
+                resetSharedTestResults();
+              }}
               type="number"
               min={1000}
               max={120000}

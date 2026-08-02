@@ -13,6 +13,7 @@ type Props = {
   selectedProfile?: ModelProfile;
   streamBusy: boolean;
   problemImageUrl?: string | null;
+  progressLabel?: string;
   onExpandLeft: () => void;
   onToggleCards: () => void;
   onViewProblemImage: () => void;
@@ -26,6 +27,7 @@ export function ConversationHeader({
   selectedProfile,
   streamBusy,
   problemImageUrl,
+  progressLabel,
   onExpandLeft,
   onToggleCards,
   onViewProblemImage
@@ -45,7 +47,12 @@ export function ConversationHeader({
         <strong><MathText text={title || "新答疑"} className="titleMathText" /></strong>
         <span>{subtitle}</span>
       </div>
-      {streamBusy && <span className="thinkingStatus"><Loader2 size={14} className="spin" /> 正在思考</span>}
+      {streamBusy && (
+        <span className="thinkingStatus">
+          <Loader2 size={14} className="spin" />
+          {progressLabel || "正在思考"}
+        </span>
+      )}
       {problemImageUrl && (
         <button className="viewProblemButton" type="button" onClick={onViewProblemImage}>
           <ImageIcon size={16} />

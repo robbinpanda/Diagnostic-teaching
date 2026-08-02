@@ -4,6 +4,7 @@ import type {
   RestoredSession,
   SessionHistoryItem,
   SessionInputAcceptance,
+  SessionRunStatus,
   SessionStartInput,
   SessionStartResult
 } from "./types";
@@ -60,6 +61,12 @@ export async function fetchSessionHistory(): Promise<SessionHistoryItem[]> {
 export async function fetchSession(sessionId: string): Promise<RestoredSession> {
   const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, { cache: "no-store" });
   if (!response.ok) throw await responseError(response);
+  return response.json();
+}
+
+export async function fetchSessionRunStatus(sessionId: string): Promise<SessionRunStatus> {
+  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}/run`, { cache: "no-store" });
+  if (!response.ok) throw await responseError(response, "会话运行状态加载失败");
   return response.json();
 }
 

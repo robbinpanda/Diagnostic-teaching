@@ -51,6 +51,23 @@ test("timeline stitches retry output and finalizes one action deterministically"
   assert.equal(state.messages[0].streamState, "complete");
 });
 
+test("safe progress events replace the generic thinking label without creating messages", () => {
+  let state = startRun();
+  assert.equal(state.run?.progress?.label, "正在读取题目");
+
+  state = reduceEvent(state, streamEvent("progress", {
+    stage: "checking_thought",
+    label: "正在核对你的思路",
+    action_index: 0,
+    elapsed_ms: 2300
+  }));
+
+  assert.equal(state.run?.progress?.stage, "checking_thought");
+  assert.equal(state.run?.progress?.label, "正在核对你的思路");
+  assert.equal(state.run?.progress?.elapsedMs, 2300);
+  assert.equal(state.messages.length, 0);
+});
+
 test("sequenced duplicates and late events are ignored after message_done", () => {
   let state = startRun();
   state = reduceEvent(state, streamEvent("message_delta", { text: "答", action_index: 0 }, { sequence: 1 }));

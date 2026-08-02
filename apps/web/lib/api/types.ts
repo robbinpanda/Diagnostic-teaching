@@ -14,9 +14,15 @@ export type ModelProfile = {
   max_output_tokens: number;
   is_multimodal: boolean;
   managed: boolean;
+  reasoning_effort: ReasoningEffort;
+  reasoning_effort_options: ReasoningEffort[];
+  reasoning_control: string;
+  reasoning_control_description: string;
   last_test_status?: string | null;
   last_test_latency_ms?: number | null;
 };
+
+export type ReasoningEffort = "none" | "low" | "high";
 
 export type Checkpoint = {
   id: string;
@@ -101,6 +107,7 @@ type SseEventPayload =
   | { event: "decision"; data: { state_hint?: string; action?: string; action_id?: string; wait_for_student?: boolean; message?: string; breakpoint?: string; confidence?: number; action_index?: number } }
   | { event: "message_delta"; data: { text: string; action_index?: number } }
   | { event: "message_reset"; data: { action_index?: number } }
+  | { event: "progress"; data: { stage: string; label: string; action_index?: number; elapsed_ms?: number } }
   | { event: "checkpoint_ready"; data: Checkpoint }
   | { event: "card_ready"; data: StudyCard }
   | { event: "message_done"; data: { ok: boolean; action_index?: number; wait_for_student?: boolean; will_continue?: boolean; awaiting_card_dismissal?: boolean; continue_after_card?: boolean } }
@@ -194,4 +201,28 @@ export type SessionInputAcceptance = {
   deferred_card_id?: string | null;
   card_deferred_at?: string | null;
   interruption_id?: string | null;
+};
+
+export type SessionRun = {
+  run_id: string;
+  session_id: string;
+  attempt: number;
+  status: "queued" | "running" | "completed" | "failed" | "interrupted";
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  updated_at: string;
+  last_committed_action_index: number;
+  error?: {
+    code?: string;
+    message?: string;
+    type?: string;
+    retryable?: boolean;
+  } | null;
+};
+
+export type SessionRunStatus = {
+  active: boolean;
+  running: boolean;
+  run?: SessionRun | null;
 };

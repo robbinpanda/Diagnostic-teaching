@@ -610,6 +610,13 @@
   font-weight: 500 !important;
 }
 
+.modelCapabilityHint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .modelTestMessage {
   overflow-wrap: anywhere;
 }

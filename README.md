@@ -1,14 +1,43 @@
-# Diagnostic Teaching MVP
+# 诊断式数学答疑
 
-诊断式数学答疑 MVP：面向初高中数学题，先诊断学生卡点，再用讲解和检查点选择题推进。
+> Windows 优先、数据留在本机的数学答疑产品：先定位学生真正卡住的地方，再提问、讲解、检查和总结。
 
-当前版本的核心特征是：**语言模型主导每一轮答疑决策**。后端不是写死“第几步讲什么”的脚本，而是每轮把题目、学生历史、当前阶段和 JSON 输出合同发给 LLM，由 LLM 返回结构化 `TutorTurn`：
+[![版本](https://img.shields.io/badge/版本-0.5.0-4c7dff)](https://github.com/robbinpanda/Diagnostic-teaching/releases/tag/v0.5.0)
+[![平台](https://img.shields.io/badge/平台-Windows-0078d4)](https://github.com/robbinpanda/Diagnostic-teaching/releases)
+[![存储](https://img.shields.io/badge/存储-SQLite-0f80cc)](./docs/database.md)
+[![Docker](https://img.shields.io/badge/Docker-可用-2496ed)](./compose.local.yml)
 
-```txt
-context_status + problem/thought summary + state_hint + action + message + breakpoint_description + checkpoint + knowledge_card + problem_card
+同一套教学核心提供 Windows 安装版、源码模式和 Docker 三种运行方式。它们共用六类教学动作、SQLite 数据结构和恢复机制。
+
+## 三种快速开始
+
+### 方式一：Windows 安装版（推荐普通用户）
+
+1. 从 [GitHub Releases](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest) 下载 `Diagnostic-Teaching-Setup-0.5.0-x64.exe`。
+2. 双击安装并启动“诊断式数学答疑”。
+3. 添加模型服务，或选择本地演示模式体验流程。
+
+安装版已包含前后端、Python 运行时和语音识别依赖，不要求另装 Node.js、Python、Conda 或 SQLite。SenseVoice 模型在第一次使用麦克风时下载，之后从本机缓存加载。
+
+> **0.4.0 升级提醒：**第一次安装 0.5.0 会永久清空 `%APPDATA%\DiagnosticTeaching`，包括旧 SQLite、会话、卡片、模型配置、API key、WAL/SHM 和诊断日志。需要保留时必须在安装前备份；清理完成后，同版本修复安装不会再次删除 0.5.0 新数据。
+
+安装包当前未做商业代码签名，Windows SmartScreen 可能显示“未知发布者”。请确认下载来源为本仓库 Release。卸载应用本身仍保留 0.5.0 数据。
+
+### 方式二：本地命令行（推荐开发者）
+
+需要 Windows、Miniconda/Anaconda、Node.js 20+ 和 npm。
+
+```powershell
+git clone https://github.com/robbinpanda/Diagnostic-teaching.git
+cd Diagnostic-teaching
+git switch dev/local
+conda create -n ai4edu-tutor python=3.11 -y
+conda run -n ai4edu-tutor python -m pip install -r apps/api/requirements-dev.txt
+npm --prefix apps/web install
+.\scripts\start-dev.cmd
 ```
 
-后端负责校验、落库、日志、流式输出和兜底；前端负责展示聊天、渲染 LaTeX 公式、标注每条 AI 消息对应的教学 action，并把检查点和待归档卡片嵌入消息时间线。
+打开 <http://127.0.0.1:3000>。当前功能和运行说明如下。
 
 当前已支持：文字单题/多题自动拆分、PNG/JPEG/WebP 题图的多题框检测与可编辑裁剪、按题目批量创建独立答疑 session、OpenAI-compatible / Anthropic 双协议加密模型配置、自动同步的 OpenCode 免费模型、可选选项或直接输入原文回应的检查点选择题、跨 session 的全局知识卡片/题目卡片库、层级卡片文件夹与复制/剪切/移动、基于目录树选择的学习卡片 PDF 多排版导出、SQLite 历史会话与删除、按 session 严格递增的 durable events 与断线重放 SSE，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
 
@@ -48,66 +77,53 @@ run 中只有完整解析并通过 SQLite 事务提交的教学 action 才进入
 scripts/start-dev.cmd
 ```
 
-打开：
+关闭服务：
 
-```txt
-http://127.0.0.1:3000
+```powershell
+.\scripts\stop-dev.cmd
 ```
 
-关闭：
+需要自定义 SQLite、密钥或日志目录时，先执行 `Copy-Item .env.example .env`。完整说明见 [本地运行指南](./docs/how-to-run.md)。
 
-```txt
-scripts/stop-dev.cmd
+### 方式三：Docker
+
+需要 Docker Desktop，建议使用 WSL2 后端。
+
+轻量核心版不安装语音依赖：
+
+```powershell
+git clone https://github.com/robbinpanda/Diagnostic-teaching.git
+cd Diagnostic-teaching
+git switch dev/local
+docker compose -f compose.local.yml up -d --build
 ```
 
-首次安装、启动、关闭和排查说明见：
+打开 <http://127.0.0.1:3000>。查看状态：
 
-```txt
-docs/how-to-run.md
+```powershell
+docker compose -f compose.local.yml ps
+docker compose -f compose.local.yml logs -f app
 ```
 
-## 核心机制（必读）
+需要本地语音识别时，改用 CPU 语音版：
 
-如果后续要优化“AI 怎么教、什么时候弹检查点、答错后怎么恢复”，请先读：
-
-- `docs/state-machine.md`：答疑状态机与 LLM 主导流程（`state_hint/action/checkpoint/card` 如何由模型决定，后端如何守门）
-- `docs/context-management.md`：上下文管理与诊断日志（prompt 拼装、history、检查点/卡片回传、SSE、SQLite、JSONL）
-- `docs/database.md`：Alembic 迁移、SQLite 外键/索引/删除语义，以及 Windows WAL 运行说明
-- `docs/session-events.md`：版本化 session event 合同、有限历史 API、`after_seq`/`Last-Event-ID` 续传与 canonical run 生命周期
-- `docs/ai-model-config-v0.2.md`：模型配置 API、密钥存储和多模态标记
-- `docs/changelog.md`：版本改动记录
-
-`docs/tutoring-agent-mvp-dev-doc-v0.2.md` 仅保留立项时的历史设计基线；出现冲突时，以现行代码、测试和上面的现行说明为准。
-
-一句话理解当前架构：
-
-```txt
-POST /api/sessions/start 原子创建 session + 接纳首条普通消息
-  -> 文字首发可先由 /api/problem-intake/analyze-text 拆题，再由 /api/sessions/batch-start 原子批量创建
-  -> 图片先由 /api/problem-images/detect 检测并由用户编辑题目框，确认后 /api/sessions/image-batch-start 裁剪并批量创建
-  -> session_inputs 接纳普通消息 / checkpoint answer / 卡片关闭后继续
-  -> SQLite 原子写输入记录与对应 message/checkpoint/card 状态
-  -> /api/chat/stream 读取已落库输入并启动生成
-  -> SQLite 取完整结构化历史
-  -> build_messages 按 system / user / assistant 多轮消息拼 prompt
-  -> LLM 产出带 context_status / 语义摘要 / action 的 TutorTurn JSON
-  -> 未收齐题目与思路时后端只允许开放提问；ready 后进入正常教学 action
-  -> session run 串行门控 + 后端校验 context/action/checkpoint/card + SQLite 业务态与 durable event 原子落库 + 追加诊断日志
-  -> SSE 流式推给前端
-  -> 前端展示 message / KaTeX 公式 / 可恢复的已作答 checkpoint / 可保存或舍弃的知识卡片
+```powershell
+docker compose -f compose.local.yml -f compose.speech.yml up -d --build
 ```
 
-## 技术栈
+停止服务：
 
-- Frontend: Next.js + React + TypeScript
-- Math Rendering: KaTeX（聊天气泡和检查点题干/选项支持 `$...$`、`$$...$$`、`\(...\)`、`\[...\]`）
-- Backend: FastAPI
-- Database: SQLite + Alembic（session、durable session_inputs、结构化消息、checkpoint、层级 card_folders、全局 study_cards、session_runs 和可重放 session_events 的权威存储，也是历史恢复来源；启用 foreign keys、WAL 和 busy timeout）
-- Run lifecycle: SQLite `session_runs`（run_id、attempt、queued/running/terminal 状态、时间戳和结构化错误）
-- Diagnostic Log: JSONL（机器审计）+ Markdown（留白充足的人类阅读版）
-- Model API: OpenAI-compatible chat completions + Anthropic Messages（两种协议均支持流式输出与图片输入转换）
+```powershell
+docker compose -f compose.local.yml -f compose.speech.yml down
+```
 
-## 目录
+核心镜像实测约 81 MiB，CPU 语音镜像约 711 MiB。语音版只安装 CPU 版 `torch/torchaudio`，不包含 NVIDIA/CUDA 运行时；模型缓存位于 `runtime/models/`。
+
+## 为什么不是普通聊天机器人
+
+普通问答容易直接给答案，却不一定知道学生卡在哪。本项目把教学过程约束为六种动作：
+
+### 代码结构
 
 ```txt
 apps/api   FastAPI 后端
@@ -146,53 +162,102 @@ scripts    Windows 启动、关闭、调试脚本
 config     模型配置预设示例
 ```
 
-## 诊断卡点怎么看
+### 六种教学动作
 
-跑一次会话后，每个 session 同时生成两份诊断日志：
+- `ASK_OPEN_QUESTION`：追问缺失信息或学生思路。
+- `ASK_MULTIPLE_CHOICE`：用选择题检查关键理解。
+- `EXPLAIN_LOCAL`：只修复当前局部卡点。
+- `EXPLAIN_PRINCIPLE`：讲清可迁移的原理并生成知识卡片。
+- `RESPOND_TO_CHECKPOINT`：针对检查结果反馈。
+- `SUMMARIZE`：收束方法、步骤与易错点并生成题目卡片。
 
-```txt
-logs/sessions/<session_id>.jsonl
-logs/sessions/<session_id>.log.md
-```
+模型决定下一步教学动作，后端负责合同校验、等待规则、原子写入、幂等控制和失败兜底。`wait_for_student` 始终由后端按动作推导，不能交给模型自由决定。
 
-`.jsonl` 每行一个事件，适合脚本处理和审计；`.log.md` 按事件和消息分段并保留大量空行，适合直接阅读。两者都是只追加诊断数据，不参与业务恢复；历史会话列表、直接打开和显式分支恢复都只读 SQLite。左栏直接打开保持原 session id，调用 `POST /api/sessions/restore` 时才复制为新的 session。
+## 主要能力
 
-面向客户端断线续传的业务事件不读 JSONL，而是使用 SQLite：
+- 文字、图片和本地语音输入；文字/图片多题可拆成独立会话。
+- OpenAI-compatible 与 Anthropic Messages 双协议，API key 仅在后端加密保存。
+- `none / low / high` 推理强度逐模型探测，不按模型名称猜能力。
+- 检查点选择题、知识卡片、题目卡片、文件夹管理和 PDF 导出。
+- KaTeX 数学公式、初中/高中教学口径、多会话并行生成。
+- SQLite 历史恢复、严格幂等输入、可查询/中断的生成生命周期。
+- 刷新页面后恢复未完成请求；已接纳输入不会因断流或刷新丢失。
+
+## 数据可靠性
+
+SQLite 是会话恢复的唯一权威来源。普通消息、检查点答案和卡片继续命令会先以稳定幂等键写入 `session_inputs`，再开始生成；同一会话的生成由 `session_runs` 串行管理。浏览器刷新后，前端会恢复未完成请求并与后端已接纳状态对账。
+
+| 运行方式 | SQLite 与密钥 | 诊断日志 | 模型缓存 |
+|---|---|---|---|
+| 源码 | `data/` | `logs/sessions/` | 系统默认缓存 |
+| Docker | `runtime/data/` | `runtime/logs/` | `runtime/models/`（语音版） |
+| 安装版 | `%APPDATA%\DiagnosticTeaching\data\` | `%APPDATA%\DiagnosticTeaching\session-logs\` | 用户缓存目录 |
+
+JSONL 和 Markdown 日志只用于诊断，不参与业务恢复。数据库约束、WAL 和备份说明见 [SQLite 说明](./docs/database.md)。
+
+## 架构与目录
 
 ```text
-GET /api/sessions/{session_id}/events?after_seq=0&limit=100
-GET /api/sessions/{session_id}/events/stream?after_seq=0
+浏览器 / Electron
+        │
+        ▼
+Next.js 界面 ── FastAPI ── 教学合同与运行协调器
+                            │
+               ┌────────────┼────────────┐
+               ▼            ▼            ▼
+            SQLite       模型 API     SenseVoice
+          权威业务态      流式生成      本地语音
 ```
 
-完整合同和最小幂等消费示例见 `docs/session-events.md`。
-
-读取示例：
-
-```bat
-scripts\inspect-session.cmd sess_xxxxxxxxxxxx
+```text
+apps/api/                 FastAPI、教学核心、SQLite、语音识别
+apps/web/                 Next.js、会话工作台、卡片与恢复逻辑
+apps/desktop/             Electron Windows 桌面壳
+docs/                     现行设计、运行和存储文档
+scripts/                  Windows 启停、诊断和安装器构建脚本
+Dockerfile                核心版/语音版多阶段镜像
+compose.local.yml         默认轻量部署
+compose.speech.yml        CPU 语音扩展
 ```
 
-详见 `docs/context-management.md`。
+## 配置模型
 
-## 优化入口
+打开页面右上角模型设置，可添加：
 
-最常改的地方：
+- OpenAI-compatible：填写 Base URL、API key 和 model name。
+- Anthropic Messages：选择 Anthropic 协议后填写对应地址、密钥和模型。
+- 本地演示：无需 Base URL 与 API key，用于离线体验流程，不代表真实模型质量。
 
-- `SYSTEM_PROMPT`：调整老师角色、讲解粒度、检查点策略。
-- `JSON_CONTRACT`：调整 LLM 输出字段和格式要求。
-- `validate_checkpoint()`：提高检查点质量门槛。
-- `build_messages()`：改变历史、阶段、题目如何喂给模型。
-- `handleCheckpoint()`：改变学生选择如何被表述给 LLM。
+题图会发送给所选多模态模型；API key 不会进入前端持久化、诊断日志或 Git。仓库不附带任何个人密钥。
 
-建议每次策略改动后，用 `logs/sessions/<session_id>.jsonl` 对比 `prompt_messages`、`raw_response`、`parsed_turn` 和 `checkpoint_answer`，不要只看页面体感。
+## 开发与验证
 
-## 注意
-
-本地运行数据、日志和 API key 加密文件不会提交到 Git：
-
-```txt
-data/
-logs/
-apps/web/node_modules/
-apps/web/.next/
+```powershell
+cd apps\api
+python -m ruff check .
+python -m pytest -q
+cd ..\web
+npm run lint
+npm run typecheck
+npm test
+npm run build
 ```
+
+构建 Windows 0.5.0 安装包：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-windows-installer.ps1
+```
+
+产物位于 `dist/windows/installer/`。构建要求与发布检查见 [Windows 安装包说明](./docs/windows-installer.md)。
+
+## 深入阅读
+
+- [教学状态机与动作合同](./docs/state-machine.md)
+- [上下文、幂等与恢复](./docs/context-management.md)
+- [SQLite 与迁移](./docs/database.md)
+- [Session 事件协议](./docs/session-events.md)
+- [本地运行与排错](./docs/how-to-run.md)
+- [变更记录](./docs/changelog.md)
+
+早期设计文档仅作历史参考；行为冲突时，以现行代码、测试和上述现行文档为准。

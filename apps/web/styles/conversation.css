@@ -314,6 +314,23 @@
   color: #9d5c55;
 }
 
+.toolButton.speechButton.recording {
+  color: #ffffff;
+  background: var(--danger);
+  box-shadow: 0 0 0 4px var(--danger-soft);
+  animation: speechPulse 1.2s ease-in-out infinite;
+}
+
+.toolButton.speechButton.recording:hover:not(:disabled) {
+  background: #a4413b;
+}
+
+@keyframes speechPulse {
+  50% {
+    box-shadow: 0 0 0 7px rgba(181, 73, 65, 0.08);
+  }
+}
+
 .toolButton.danger:hover:not(:disabled) {
   color: var(--danger);
   background: var(--danger-soft);
@@ -357,7 +374,9 @@
 }
 
 .modelPickerTrigger:hover:not(:disabled),
-.modelPicker.open .modelPickerTrigger {
+.modelPicker.open .modelPickerTrigger,
+.gradeBandPicker.open .modelPickerTrigger,
+.reasoningPicker.open .modelPickerTrigger {
   border-color: #a9cabe;
   background: #ffffff;
   box-shadow: 0 0 0 3px rgba(42, 122, 95, 0.09);
@@ -396,7 +415,9 @@
   transition: transform 150ms ease;
 }
 
-.modelPicker.open .modelPickerChevron {
+.modelPicker.open .modelPickerChevron,
+.gradeBandPicker.open .modelPickerChevron,
+.reasoningPicker.open .modelPickerChevron {
   transform: rotate(180deg);
 }
 
@@ -638,6 +659,129 @@
   background: #e7e6e2;
 }
 
+.gradeBandPicker {
+  position: relative;
+  width: 104px;
+  flex: 0 0 104px;
+}
+
+.gradeBandPickerTrigger {
+  padding-left: 7px;
+}
+
+.gradeBandPickerCurrent {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #3d3e39;
+  font-size: 11px;
+}
+
+.gradeBandPickerIcon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: #846435;
+  background: #f3ead9;
+}
+
+.gradeBandPickerMenu {
+  left: 0;
+  width: min(292px, calc(100vw - 28px));
+}
+
+.gradeBandPickerOptions {
+  padding: 6px;
+}
+
+.gradeBandPickerOption {
+  min-height: 60px;
+}
+
+.reasoningPicker {
+  position: relative;
+  width: 116px;
+  flex: 0 0 116px;
+}
+
+.reasoningPickerTrigger {
+  padding-left: 7px;
+}
+
+.reasoningPickerCurrent {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.reasoningPickerIcon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.reasoningPickerCurrentLabel {
+  overflow: hidden;
+  color: #62635e;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reasoningPickerCurrentLabel strong {
+  color: #3d3e39;
+  font-size: 11px;
+}
+
+.reasoningPickerMenu {
+  left: 0;
+  width: min(304px, calc(100vw - 28px));
+}
+
+.reasoningPickerOptions {
+  padding: 6px;
+}
+
+.reasoningPickerOption {
+  min-height: 58px;
+}
+
+.reasoningPickerOptionHeading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reasoningRecommendedBadge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 1px 6px;
+  color: #2d6b55;
+  background: #dfeee7;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.reasoningPickerNote {
+  padding: 9px 12px 10px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  background: #fbfbf9;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
 .sendButton {
   width: 34px;
   height: 34px;
@@ -655,6 +799,11 @@
   color: var(--faint);
   font-size: 9px;
   text-align: center;
+}
+
+.composerHint.recording {
+  color: var(--danger);
+  font-weight: 650;
 }
 
 .hiddenFileInput {

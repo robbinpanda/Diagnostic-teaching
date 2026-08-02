@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import random
 import time
+from dataclasses import replace
 from io import BytesIO
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -18,11 +20,20 @@ from app.core.schemas import (
     ModelProfileCreateResponse,
     ModelProfileListResponse,
     ModelProfilePublic,
+    ModelProfileReasoningProbeResult,
+    ModelProfileReasoningUpdate,
     ModelProfileTestRequest,
     ModelProfileTestResponse,
     ModelProfileUpdate,
 )
 from app.llm.provider import LlmProfile, test_connection, test_multimodal_connection
+from app.llm.reasoning import (
+    DEFAULT_REASONING_EFFORT,
+    REASONING_EFFORTS,
+    normalize_reasoning_effort_options,
+    preferred_reasoning_effort,
+    reasoning_capability,
+)
 from app.storage.repositories import host_from_url
 
 router = APIRouter(prefix="/api/model-profiles", tags=["model profiles"])
@@ -109,6 +120,14 @@ def multimodal_probe_challenge() -> tuple[str, str]:
 def to_public(row) -> ModelProfilePublic:
     status = "available" if row["enabled"] else "disabled"
     tags = json.loads(row["tags_json"])
+    capability = reasoning_capability(row["provider"], row["base_url"], row["model"])
+    reasoning_options = _stored_reasoning_options(
+        row["reasoning_effort_options_json"]
+    )
+    selected_effort = preferred_reasoning_effort(
+        row["reasoning_effort"],
+        reasoning_options,
+    )
     return ModelProfilePublic(
         id=row["id"],
         display_name=row["display_name"],
@@ -125,6 +144,10 @@ def to_public(row) -> ModelProfilePublic:
         max_output_tokens=row["max_output_tokens"],
         is_multimodal=bool(row["is_multimodal"]),
         managed=is_managed_tags(tags),
+        reasoning_effort=selected_effort,
+        reasoning_effort_options=list(reasoning_options),
+        reasoning_control=capability.control,
+        reasoning_control_description=capability.description,
         last_test_status=row["last_test_status"],
         last_test_latency_ms=row["last_test_latency_ms"],
     )
@@ -168,6 +191,8 @@ def create_profiles_batch(
             temperature=payload.temperature,
             max_output_tokens=payload.max_output_tokens,
             is_multimodal=item.is_multimodal,
+            reasoning_effort=payload.reasoning_effort,
+            reasoning_effort_options=item.reasoning_effort_options,
         )
         for item in payload.models
     ]
@@ -208,6 +233,31 @@ def update_profile(
     return to_public(row)
 
 
+@router.patch("/{profile_id}/reasoning", response_model=ModelProfilePublic)
+def update_profile_reasoning(
+    profile_id: str,
+    payload: ModelProfileReasoningUpdate,
+    request: Request,
+) -> ModelProfilePublic:
+    try:
+        row = request.app.state.model_profiles.get(profile_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="模型配置不存在") from exc
+    reasoning_options = _stored_reasoning_options(
+        row["reasoning_effort_options_json"]
+    )
+    if payload.reasoning_effort not in reasoning_options:
+        raise HTTPException(
+            status_code=422,
+            detail=f"该模型仅支持这些推理档位：{', '.join(reasoning_options)}",
+        )
+    updated = request.app.state.model_profiles.update_reasoning_effort(
+        profile_id,
+        payload.reasoning_effort,
+    )
+    return to_public(updated)
+
+
 @router.delete("/{profile_id}", status_code=204)
 def delete_profile(profile_id: str, request: Request) -> Response:
     try:
@@ -246,14 +296,47 @@ async def test_profile(
         timeout_ms=payload.timeout_ms,
         temperature=0,
         max_output_tokens=payload.max_output_tokens,
+        reasoning_effort=DEFAULT_REASONING_EFFORT,
     )
-    ok, latency, message = await test_connection(profile)
+    reasoning_results = await _probe_reasoning_efforts(profile)
+    reasoning_options = [
+        result.effort for result in reasoning_results if result.ok
+    ]
+    ok = bool(reasoning_options)
+    latency_values = [
+        result.latency_ms
+        for result in reasoning_results
+        if result.latency_ms is not None
+    ]
+    latency = max(latency_values) if latency_values else None
     if latency is None:
         latency = int((time.perf_counter() - started) * 1000)
+    if ok:
+        unsupported = [
+            result.effort for result in reasoning_results if not result.ok
+        ]
+        message = f"文本连接成功；可用推理档位：{', '.join(reasoning_options)}"
+        if unsupported:
+            message += f"；已移除报错档位：{', '.join(unsupported)}"
+    else:
+        message = "none / low / high 三个推理档位均未通过"
+        first_error = next(
+            (result.message for result in reasoning_results if result.message),
+            "",
+        )
+        if first_error:
+            message += f"：{first_error}"
     multimodal_ok: bool | None = None
     multimodal_latency: int | None = None
     multimodal_message: str | None = None
     if ok and payload.probe_multimodal:
+        profile = replace(
+            profile,
+            reasoning_effort=preferred_reasoning_effort(
+                DEFAULT_REASONING_EFFORT,
+                tuple(reasoning_options),
+            ),
+        )
         probe_image_data_url, expected_answer = multimodal_probe_challenge()
         multimodal_ok, multimodal_latency, multimodal_message = await test_multimodal_connection(
             profile,
@@ -277,6 +360,8 @@ async def test_profile(
         ok=ok,
         latency_ms=latency,
         message=message,
+        reasoning_effort_options=reasoning_options,
+        reasoning_effort_results=reasoning_results,
         multimodal_ok=multimodal_ok,
         multimodal_latency_ms=multimodal_latency,
         multimodal_message=multimodal_message,
@@ -292,3 +377,32 @@ def get_profile_or_404(request: Request, profile_id: str):
 
 def is_managed_tags(tags: list[str]) -> bool:
     return "opencodefree" in tags
+
+
+async def _probe_reasoning_efforts(
+    profile: LlmProfile,
+) -> list[ModelProfileReasoningProbeResult]:
+    async def probe(
+        effort: str,
+    ) -> ModelProfileReasoningProbeResult:
+        ok, latency, message = await test_connection(
+            replace(profile, reasoning_effort=effort)
+        )
+        return ModelProfileReasoningProbeResult(
+            effort=effort,
+            ok=ok,
+            latency_ms=latency,
+            message=message,
+        )
+
+    return list(await asyncio.gather(*(probe(effort) for effort in REASONING_EFFORTS)))
+
+
+def _stored_reasoning_options(raw: object) -> tuple:
+    try:
+        decoded = json.loads(str(raw))
+    except (TypeError, json.JSONDecodeError):
+        decoded = None
+    return normalize_reasoning_effort_options(
+        decoded if isinstance(decoded, list) else None
+    )

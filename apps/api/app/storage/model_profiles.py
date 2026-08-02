@@ -9,9 +9,16 @@ from app.llm.opencode_free_models import (
     OPENCODE_PUBLIC_API_KEY,
     OpenCodeFreeModel,
 )
+from app.llm.reasoning import (
+    REASONING_EFFORTS,
+    normalize_reasoning_effort_options,
+    preferred_reasoning_effort,
+)
 from app.storage.database import Database
 from app.storage.repository_utils import new_id, normalize_base_url, now_iso
 from app.storage.security import SecretBox, mask_api_key
+
+BUNDLED_PERSONAL_TAG = "bundled-personal"
 
 
 class ModelProfileRepository:
@@ -32,13 +39,21 @@ class ModelProfileRepository:
                 profile_id = new_id("prof")
                 profile_ids.append(profile_id)
                 api_key = payload.api_key.strip()
+                reasoning_options = normalize_reasoning_effort_options(
+                    payload.reasoning_effort_options
+                )
+                selected_effort = preferred_reasoning_effort(
+                    payload.reasoning_effort,
+                    reasoning_options,
+                )
                 conn.execute(
                     """
                     INSERT INTO model_profiles (
                       id, display_name, provider, base_url, model, api_key_ciphertext,
                       api_key_mask, tags_json, enabled, timeout_ms, temperature,
-                      max_output_tokens, is_multimodal, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+                      max_output_tokens, is_multimodal, reasoning_effort,
+                      reasoning_effort_options_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         profile_id,
@@ -53,6 +68,8 @@ class ModelProfileRepository:
                         payload.temperature,
                         payload.max_output_tokens,
                         int(payload.is_multimodal),
+                        selected_effort,
+                        json.dumps(reasoning_options, ensure_ascii=False),
                         ts,
                         ts,
                     ),
@@ -95,8 +112,10 @@ class ModelProfileRepository:
                         INSERT INTO model_profiles (
                           id, display_name, provider, base_url, model, api_key_ciphertext,
                           api_key_mask, tags_json, enabled, deleted_at, timeout_ms,
-                          temperature, max_output_tokens, is_multimodal, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, 30000, 0.2, 8000, ?, ?, ?)
+                          temperature, max_output_tokens, is_multimodal, reasoning_effort,
+                          reasoning_effort_options_json, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, 30000, 0.2, 8000, ?,
+                                  'low', ?, ?, ?)
                         """,
                         (
                             profile_id,
@@ -108,6 +127,7 @@ class ModelProfileRepository:
                             public_key_mask,
                             tags_json,
                             int(model.is_multimodal),
+                            json.dumps(REASONING_EFFORTS, ensure_ascii=False),
                             ts,
                             ts,
                         ),
@@ -146,6 +166,101 @@ class ModelProfileRepository:
                 )
         return [self.get(profile_id) for profile_id in synced_ids]
 
+    def sync_bundled_personal_profiles(
+        self,
+        profiles: list[tuple[ModelProfileCreate, str | None, int | None]],
+    ) -> tuple[list[str], list[str], list[str]]:
+        """Replace the installer-managed snapshot without replacing user business data.
+
+        Existing bundled rows keep their IDs so historical sessions remain valid. Custom
+        profiles are never matched or changed. Bundled rows removed from the new snapshot
+        are disabled instead of deleted because sessions may still reference them.
+        """
+        ts = now_iso()
+        created_ids: list[str] = []
+        updated_ids: list[str] = []
+        disabled_ids: list[str] = []
+        desired_keys = {(payload.provider, payload.model.strip()) for payload, _, _ in profiles}
+
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            existing_rows = conn.execute(
+                "SELECT * FROM model_profiles WHERE tags_json LIKE ? ORDER BY created_at ASC",
+                (f'%"{BUNDLED_PERSONAL_TAG}"%',),
+            ).fetchall()
+            by_key: dict[tuple[str, str], sqlite3.Row] = {}
+            duplicate_ids: list[str] = []
+            for row in existing_rows:
+                key = (row["provider"], row["model"])
+                if key in by_key:
+                    duplicate_ids.append(row["id"])
+                else:
+                    by_key[key] = row
+
+            for payload, last_test_status, last_test_latency_ms in profiles:
+                model = payload.model.strip()
+                key = (payload.provider, model)
+                api_key = payload.api_key.strip()
+                tags = list(dict.fromkeys([*payload.tags, BUNDLED_PERSONAL_TAG]))
+                values = (
+                    payload.display_name.strip(),
+                    payload.provider,
+                    normalize_base_url(str(payload.base_url)),
+                    model,
+                    self.secrets.encrypt(api_key),
+                    mask_api_key(api_key),
+                    json.dumps(tags, ensure_ascii=False),
+                    last_test_status,
+                    last_test_latency_ms,
+                    payload.timeout_ms,
+                    payload.temperature,
+                    payload.max_output_tokens,
+                    int(payload.is_multimodal),
+                )
+                existing = by_key.get(key)
+                if existing is None:
+                    profile_id = new_id("prof")
+                    conn.execute(
+                        """
+                        INSERT INTO model_profiles (
+                          id, display_name, provider, base_url, model, api_key_ciphertext,
+                          api_key_mask, tags_json, enabled, deleted_at, last_test_status,
+                          last_test_latency_ms, timeout_ms, temperature, max_output_tokens,
+                          is_multimodal, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (profile_id, *values, ts, ts),
+                    )
+                    created_ids.append(profile_id)
+                    continue
+
+                profile_id = existing["id"]
+                conn.execute(
+                    """
+                    UPDATE model_profiles
+                    SET display_name = ?, provider = ?, base_url = ?, model = ?,
+                        api_key_ciphertext = ?, api_key_mask = ?, tags_json = ?,
+                        enabled = 1, deleted_at = NULL, last_test_status = ?,
+                        last_test_latency_ms = ?, timeout_ms = ?, temperature = ?,
+                        max_output_tokens = ?, is_multimodal = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (*values, ts, profile_id),
+                )
+                updated_ids.append(profile_id)
+
+            for row in existing_rows:
+                key = (row["provider"], row["model"])
+                if key in desired_keys and row["id"] not in duplicate_ids:
+                    continue
+                conn.execute(
+                    "UPDATE model_profiles SET enabled = 0, updated_at = ? WHERE id = ?",
+                    (ts, row["id"]),
+                )
+                disabled_ids.append(row["id"])
+
+        return created_ids, updated_ids, disabled_ids
+
     def get(self, profile_id: str) -> sqlite3.Row:
         with self.db.connect() as conn:
             row = conn.execute(
@@ -160,11 +275,23 @@ class ModelProfileRepository:
         return self.secrets.decrypt(row["api_key_ciphertext"])
 
     def update(self, profile_id: str, payload: ModelProfileUpdate) -> sqlite3.Row:
-        if self.is_managed(self.get(profile_id)):
+        current = self.get(profile_id)
+        if self.is_managed(current):
             raise PermissionError(profile_id)
         changes = payload.model_dump(exclude_unset=True)
         assignments: list[str] = []
         values: list[object] = []
+        identity_changed = any(
+            changes.get(field) is not None
+            for field in (
+                "provider",
+                "base_url",
+                "model",
+                "api_key",
+                "timeout_ms",
+                "max_output_tokens",
+            )
+        )
 
         if "display_name" in changes and changes["display_name"] is not None:
             assignments.append("display_name = ?")
@@ -193,6 +320,33 @@ class ModelProfileRepository:
         if "is_multimodal" in changes and changes["is_multimodal"] is not None:
             assignments.append("is_multimodal = ?")
             values.append(int(changes["is_multimodal"]))
+        options_changed = (
+            "reasoning_effort_options" in changes
+            and changes["reasoning_effort_options"] is not None
+        )
+        if options_changed:
+            reasoning_options = normalize_reasoning_effort_options(
+                changes["reasoning_effort_options"]
+            )
+        elif identity_changed:
+            reasoning_options = REASONING_EFFORTS
+        else:
+            reasoning_options = normalize_reasoning_effort_options(
+                _decode_reasoning_options(current["reasoning_effort_options_json"])
+            )
+        if options_changed or identity_changed:
+            assignments.append("reasoning_effort_options_json = ?")
+            values.append(json.dumps(reasoning_options, ensure_ascii=False))
+        if (
+            "reasoning_effort" in changes
+            and changes["reasoning_effort"] is not None
+        ) or options_changed or identity_changed:
+            selected_effort = preferred_reasoning_effort(
+                changes.get("reasoning_effort") or current["reasoning_effort"],
+                reasoning_options,
+            )
+            assignments.append("reasoning_effort = ?")
+            values.append(selected_effort)
         if "api_key" in changes and changes["api_key"]:
             api_key = changes["api_key"].strip()
             assignments.append("api_key_ciphertext = ?")
@@ -214,6 +368,22 @@ class ModelProfileRepository:
                 WHERE id = ? AND deleted_at IS NULL
                 """,
                 tuple(values),
+            )
+        if cursor.rowcount == 0:
+            raise KeyError(profile_id)
+        return self.get(profile_id)
+
+    def update_reasoning_effort(self, profile_id: str, reasoning_effort: str) -> sqlite3.Row:
+        """Persist a user preference even for directory-managed model profiles."""
+        ts = now_iso()
+        with self.db.connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE model_profiles
+                SET reasoning_effort = ?, updated_at = ?
+                WHERE id = ? AND deleted_at IS NULL
+                """,
+                (reasoning_effort, ts, profile_id),
             )
         if cursor.rowcount == 0:
             raise KeyError(profile_id)
@@ -279,3 +449,13 @@ class ModelProfileRepository:
         except (TypeError, json.JSONDecodeError):
             return False
         return isinstance(tags, list) and OPENCODE_FREE_TAG in tags
+
+
+def _decode_reasoning_options(raw: object) -> list[str] | None:
+    try:
+        decoded = json.loads(str(raw))
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(decoded, list):
+        return None
+    return [str(item) for item in decoded]

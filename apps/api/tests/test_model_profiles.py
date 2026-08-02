@@ -94,11 +94,8 @@ def test_builtin_opencode_models_have_expected_multimodal_checkbox():
     capabilities = {model.model: model.is_multimodal for model in BUILTIN_FREE_MODELS}
 
     assert capabilities == {
-        "big-pickle": False,
         "deepseek-v4-flash-free": False,
         "mimo-v2.5-free": True,
-        "north-mini-code-free": False,
-        "nemotron-3-ultra-free": False,
     }
 
 
@@ -132,10 +129,92 @@ def test_managed_opencode_profiles_sync_into_sqlite_and_cannot_be_changed(tmp_pa
 
     profile_id = listed[0]["id"]
     updated = client.patch(f"/api/model-profiles/{profile_id}", json={"is_multimodal": False})
+    reasoning_updated = client.patch(
+        f"/api/model-profiles/{profile_id}/reasoning",
+        json={"reasoning_effort": "high"},
+    )
     deleted = client.delete(f"/api/model-profiles/{profile_id}")
 
     assert updated.status_code == 409
+    assert reasoning_updated.status_code == 200
+    assert reasoning_updated.json()["reasoning_effort"] == "high"
     assert deleted.status_code == 409
+
+
+def test_managed_gpt_profile_exposes_and_persists_fast_reasoning_effort(tmp_path: Path):
+    app = create_app()
+    app.state.db = Database(tmp_path / "app.db")
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
+    managed = app.state.model_profiles.sync_opencode_free_models(
+        (
+            OpenCodeFreeModel(
+                model="gpt-5.2",
+                name="GPT-5.2",
+                provider="openai_compatible",
+                base_url="https://opencode.ai/zen/v1",
+                is_multimodal=False,
+            ),
+        )
+    )[0]
+    client = TestClient(app)
+
+    listed = client.get("/api/model-profiles").json()["profiles"][0]
+    assert listed["reasoning_effort_options"] == ["none", "low", "high"]
+    assert listed["reasoning_control"] == "openai_compatible_reasoning_effort"
+
+    updated = client.patch(
+        f"/api/model-profiles/{managed['id']}/reasoning",
+        json={"reasoning_effort": "low"},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["reasoning_effort"] == "low"
+    app.state.model_profiles.sync_opencode_free_models(
+        (
+            OpenCodeFreeModel(
+                model="gpt-5.2",
+                name="GPT-5.2",
+                provider="openai_compatible",
+                base_url="https://opencode.ai/zen/v1",
+                is_multimodal=False,
+            ),
+        )
+    )
+    assert app.state.model_profiles.get(managed["id"])["reasoning_effort"] == "low"
+
+
+def test_managed_kimi_profile_uses_openai_compatible_effort_field(tmp_path: Path):
+    app = create_app()
+    app.state.db = Database(tmp_path / "app.db")
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
+    managed = app.state.model_profiles.sync_opencode_free_models(
+        (
+            OpenCodeFreeModel(
+                model="kimi-k2.7-code",
+                name="Kimi K2.7 Code",
+                provider="openai_compatible",
+                base_url="https://opencode.ai/zen/v1",
+                is_multimodal=False,
+            ),
+        )
+    )[0]
+    client = TestClient(app)
+
+    listed = client.get("/api/model-profiles").json()["profiles"][0]
+    assert listed["reasoning_effort_options"] == ["none", "low", "high"]
+    assert listed["reasoning_control"] == "openai_compatible_reasoning_effort"
+
+    updated = client.patch(
+        f"/api/model-profiles/{managed['id']}/reasoning",
+        json={"reasoning_effort": "low"},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["reasoning_effort"] == "low"
 
 
 def test_delete_model_profile_endpoint_hides_profile(tmp_path: Path):
@@ -262,6 +341,7 @@ def test_update_model_profile_changes_editable_fields_and_can_replace_key(tmp_pa
             "api_key": "sk-old-secret",
             "model": "old-model",
             "tags": ["math"],
+            "reasoning_effort_options": ["low", "high"],
         },
     )
     profile_id = created.json()["id"]
@@ -285,6 +365,7 @@ def test_update_model_profile_changes_editable_fields_and_can_replace_key(tmp_pa
     assert payload["model"] == "vision-model"
     assert payload["max_output_tokens"] == 8000
     assert payload["is_multimodal"] is True
+    assert payload["reasoning_effort_options"] == ["none", "low", "high"]
     row = app.state.model_profiles.get(profile_id)
     assert app.state.model_profiles.decrypt_api_key(row) == "sk-new-secret"
 
@@ -305,7 +386,11 @@ def test_batch_create_adds_multiple_models_for_one_supplier(tmp_path: Path):
             "base_url": "https://example.com/v1",
             "api_key": "shared-secret",
             "models": [
-                {"model": "text-model", "is_multimodal": False},
+                {
+                    "model": "text-model",
+                    "is_multimodal": False,
+                    "reasoning_effort_options": ["low", "high"],
+                },
                 {"model": "vision-model", "is_multimodal": True},
             ],
             "tags": ["math"],
@@ -316,6 +401,10 @@ def test_batch_create_adds_multiple_models_for_one_supplier(tmp_path: Path):
     profiles = response.json()["profiles"]
     assert [profile["model"] for profile in profiles] == ["text-model", "vision-model"]
     assert [profile["is_multimodal"] for profile in profiles] == [False, True]
+    assert [profile["reasoning_effort_options"] for profile in profiles] == [
+        ["low", "high"],
+        ["none", "low", "high"],
+    ]
     assert all(profile["display_name"] == "Example Cloud" for profile in profiles)
     for profile in profiles:
         row = app.state.model_profiles.get(profile["id"])
@@ -345,6 +434,34 @@ def test_batch_create_rejects_duplicate_model_names(tmp_path: Path):
 
     assert response.status_code == 400
     assert "不能重复" in response.json()["detail"]
+
+
+def test_reasoning_picker_rejects_an_effort_removed_by_profile_probe(tmp_path: Path):
+    app = create_app()
+    app.state.db = Database(tmp_path / "app.db")
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
+    client = TestClient(app)
+    created = client.post(
+        "/api/model-profiles",
+        json={
+            "display_name": "Probed Model",
+            "provider": "openai_compatible",
+            "base_url": "https://example.com/v1",
+            "api_key": "test-secret",
+            "model": "test-model",
+            "reasoning_effort_options": ["low", "high"],
+        },
+    )
+
+    response = client.patch(
+        f"/api/model-profiles/{created.json()['id']}/reasoning",
+        json={"reasoning_effort": "none"},
+    )
+
+    assert response.status_code == 422
+    assert "low, high" in response.json()["detail"]
 
 
 def test_problem_image_analysis_requires_multimodal_profile(tmp_path: Path):
@@ -498,10 +615,14 @@ def test_text_only_image_result_does_not_crop_even_if_model_returns_bbox(
             "api_key": "vision-key",
             "model": "vision-model",
             "is_multimodal": True,
+            "reasoning_effort": "high",
         },
     )
 
+    captured = {}
+
     async def fake_analyze_problem_image(profile, image_data_url):
+        captured["reasoning_effort"] = profile.reasoning_effort
         return json.dumps(
             {
                 "problem_text": "计算 1+1。",
@@ -534,6 +655,7 @@ def test_text_only_image_result_does_not_crop_even_if_model_returns_bbox(
     assert payload["needs_diagram"] is False
     assert payload["diagram_image_data_url"] is None
     assert payload["student_work_summary"] == ""
+    assert captured["reasoning_effort"] == "high"
 
 
 def test_edit_connection_test_uses_saved_api_key_when_input_is_blank(tmp_path: Path, monkeypatch):
@@ -553,10 +675,10 @@ def test_edit_connection_test_uses_saved_api_key_when_input_is_blank(tmp_path: P
             "model": "old-model",
         },
     )
-    captured = {}
+    captured = []
 
     async def fake_test_connection(profile):
-        captured["profile"] = profile
+        captured.append(profile)
         return True, 12, "连接成功"
 
     monkeypatch.setattr(model_profiles, "test_connection", fake_test_connection)
@@ -573,10 +695,54 @@ def test_edit_connection_test_uses_saved_api_key_when_input_is_blank(tmp_path: P
 
     assert response.status_code == 200
     assert response.json()["ok"] is True
-    tested_profile = captured["profile"]
-    assert tested_profile.api_key == "saved-secret-key"
-    assert tested_profile.base_url == "https://new.example.com/v1"
-    assert tested_profile.model == "new-model"
+    assert {tested_profile.reasoning_effort for tested_profile in captured} == {
+        "none",
+        "low",
+        "high",
+    }
+    assert all(tested_profile.api_key == "saved-secret-key" for tested_profile in captured)
+    assert all(
+        tested_profile.base_url == "https://new.example.com/v1"
+        for tested_profile in captured
+    )
+    assert all(tested_profile.model == "new-model" for tested_profile in captured)
+
+
+def test_connection_test_keeps_only_successful_reasoning_efforts(
+    tmp_path: Path, monkeypatch
+):
+    app = create_app()
+    app.state.db = Database(tmp_path / "app.db")
+    app.state.model_profiles = ModelProfileRepository(
+        app.state.db, SecretBox(tmp_path / "secret.key")
+    )
+    client = TestClient(app)
+
+    async def fake_test_connection(profile):
+        if profile.reasoning_effort == "none":
+            return False, 7, "HTTP 400 InvalidParameter"
+        return True, 11, "文本连接成功"
+
+    monkeypatch.setattr(model_profiles, "test_connection", fake_test_connection)
+    response = client.post(
+        "/api/model-profiles/test",
+        json={
+            "provider": "openai_compatible",
+            "base_url": "https://example.com/v1",
+            "api_key": "test-secret",
+            "model": "reasoning-model",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["reasoning_effort_options"] == ["low", "high"]
+    assert [
+        (result["effort"], result["ok"])
+        for result in payload["reasoning_effort_results"]
+    ] == [("none", False), ("low", True), ("high", True)]
+    assert "已移除报错档位：none" in payload["message"]
 
 
 def test_connection_test_probes_and_reports_multimodal_support(tmp_path: Path, monkeypatch):
@@ -614,6 +780,7 @@ def test_connection_test_probes_and_reports_multimodal_support(tmp_path: Path, m
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
+    assert payload["reasoning_effort_options"] == ["none", "low", "high"]
     assert payload["multimodal_ok"] is True
     assert payload["multimodal_latency_ms"] == 17
     assert "图片探测通过" in payload["message"]

@@ -176,7 +176,7 @@ def test_fresh_database_uses_alembic_and_sqlite_reliability_pragmas(tmp_path: Pa
         assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == SQLITE_BUSY_TIMEOUT_MS
         assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1
         assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == (
-            "0008_nonblocking_cards"
+            "0010_merge_feature_heads"
         )
 
         session_fks = {
@@ -242,9 +242,13 @@ def test_legacy_database_upgrades_repeatably_without_losing_rows(tmp_path: Path)
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
         profile = conn.execute(
-            "SELECT max_output_tokens, is_multimodal FROM model_profiles"
+            """
+            SELECT max_output_tokens, is_multimodal, reasoning_effort,
+                   reasoning_effort_options_json
+            FROM model_profiles
+            """
         ).fetchone()
-        assert tuple(profile) == (8000, 0)
+        assert tuple(profile) == (8000, 0, "low", '["none","low","high"]')
         message = conn.execute(
             "SELECT action_id, action, in_reply_to_action_id FROM messages"
         ).fetchone()

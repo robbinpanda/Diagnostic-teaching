@@ -1,5 +1,41 @@
 # 本地启动与关闭
 
+## 运行方式选择
+
+普通用户优先下载 [Windows 0.5.0 安装包](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest)；参与开发时使用本页的源码模式；需要可复现的隔离环境或局域网服务时使用 Docker。第一次从 0.4.0 安装 0.5.0 会清空 `%APPDATA%\DiagnosticTeaching` 下的旧数据库、密钥和日志，必须先备份需要保留的数据。三种方式共用同一套教学核心和 SQLite schema。
+
+### Docker 轻量核心版
+
+```powershell
+docker compose -f compose.local.yml up -d --build
+```
+
+打开 `http://127.0.0.1:3000`。默认镜像不安装 FunASR、PyTorch 和 FFmpeg，因此麦克风会显示本地语音不可用，其余教学、模型、会话恢复和卡片功能不受影响。
+
+### Docker CPU 语音版
+
+```powershell
+docker compose -f compose.local.yml -f compose.speech.yml up -d --build
+```
+
+语音版固定从 PyTorch 官方 CPU 索引安装 `torch/torchaudio`，不携带 NVIDIA/CUDA 运行时。首次识别会下载 SenseVoiceSmall 与 FSMN-VAD，并将缓存保存在 `runtime/models/`。
+
+```text
+runtime/data/    SQLite 与加密密钥
+runtime/logs/    JSONL/Markdown 诊断日志
+runtime/models/  语音模型缓存（仅语音版）
+```
+
+检查与停止：
+
+```powershell
+docker compose -f compose.local.yml ps
+docker compose -f compose.local.yml logs -f app
+docker compose -f compose.local.yml -f compose.speech.yml down
+```
+
+若只启动过轻量版，停止命令可简化为 `docker compose -f compose.local.yml down`。Docker Desktop 使用 WSL2 时，任务管理器里的 `VmmemWSL` 包含 Linux 页缓存，不等同于容器实时占用；可用 `docker stats` 查看容器工作集，并在 `%USERPROFILE%\.wslconfig` 为 WSL2 设置合理内存上限。
+
 ## 首次安装
 
 启动脚本面向 Windows，并固定使用名为 `ai4edu-tutor` 的 Conda 环境。先安装 Anaconda/Miniconda、Node.js 和 npm，然后在项目根目录执行：
@@ -23,8 +59,31 @@ copy .env.example .env
 | `DATABASE_URL` | `sqlite:///./data/app.db` | SQLite 文件位置 |
 | `APP_SECRET_PATH` | `./data/app-secret.key` | 模型 API key 的本地加密主密钥 |
 | `SESSION_LOG_DIR` | `./logs/sessions` | 每个 session 的 JSONL 与 Markdown 日志目录 |
+| `SENSEVOICE_MODEL` | `iic/SenseVoiceSmall` | SenseVoiceSmall 的 ModelScope ID 或本地模型目录 |
+| `SENSEVOICE_VAD_MODEL` | `fsmn-vad` | FSMN-VAD 的模型 ID 或本地模型目录 |
+| `SENSEVOICE_DEVICE` | `cpu` | 本地转写设备；有匹配 CUDA 的 PyTorch 环境时可改为 `cuda:0` |
+| `SENSEVOICE_STREAM_SEGMENT_SECONDS` | `30` | 流式录音内部滚动分段时长，范围 5—60 秒；不是用户录音时长上限 |
+| `SENSEVOICE_COMMIT_SILENCE_MS` | `2500` | 最终确认一句话前允许的思考停顿，范围 1000—10000 毫秒 |
 
 进程环境变量优先于 `.env`；真实 `.env`、`data/` 和 `logs/` 都已被 Git 忽略。
+
+## 本地语音输入（SenseVoiceSmall）
+
+`requirements-dev.txt` 会安装 `torch`、`torchaudio`、`funasr==1.3.29`。启动页面后点击输入框下方的麦克风并授权：浏览器会通过 WebSocket 持续发送重采样后的 16 kHz 单声道 16 位 PCM，录音不会在 60 秒或其他固定总时长后自动停止，用户再次点击麦克风时才结束。FSMN-VAD 判断发声和停顿，SenseVoiceSmall 约每 1.2 秒刷新一次临时文字。短暂停顿只进入待确认状态，默认 2.5 秒内重新开口会继续合并为同一句；连续静音超过该窗口或再次点击麦克风才确认最终文字。结果只回填输入框，不会自动发送，可修改后再按 Enter。
+
+流式录音不保存原始录音文件。后端默认最多保留当前 30 秒的 PCM（约 0.92 MiB/连接），达到滚动分段边界时会先确认当前文字，再清空已处理音频并继续接收；没有检测到语音的静音窗口也会直接丢弃。SenseVoice 推理所需 WAV 只存在于系统临时目录，并在单次推理结束后自动删除。因此总录音时长不受限，但内存和临时磁盘占用不会随录音时长持续增长。兼容用 `POST /api/speech/transcribe` 仍接受完整 WAV，但请求体最多 16 MiB；长时间麦克风输入应使用 WebSocket 接口。
+
+首次转写会下载 `iic/SenseVoiceSmall` 和 `fsmn-vad`，耗时取决于网络，模型缓存完成后后续转写可离线运行。完全离线的机器可提前下载两个模型，并把 `SENSEVOICE_MODEL`、`SENSEVOICE_VAD_MODEL` 设置为对应本地目录。默认 `SENSEVOICE_DEVICE=cpu`，无需 CUDA；如改用 `cuda:0`，须先按 PyTorch 官方说明安装与显卡驱动匹配的 CUDA 版 `torch/torchaudio`。
+
+录音接口：
+
+```text
+GET  /api/speech/status
+POST /api/speech/transcribe  Content-Type: audio/wav
+WS   /api/speech/stream      Binary: 16 kHz mono PCM16
+```
+
+流式连接建立后服务端先返回带 `partial_interval_ms`、`commit_silence_ms` 和 `stream_segment_seconds` 的 `ready`；发声期间返回可覆盖更新的 `partial`，连续静音超过思考停顿窗口或连续语音达到内部滚动分段边界后返回 `final`，但连接继续接收后续语音。客户端发送 `{"type":"stop"}` 后服务端返回 `done` 并关闭连接。手工验证时可说“已知［停顿一秒］椭圆……［停顿一秒］等于一”：短暂停顿不应生成多个最终句号，整段应在长停顿、滚动边界或点击停止后确认。
 
 ## 数据库迁移与 Windows 本地行为
 
@@ -203,11 +262,11 @@ logs/sessions/<session_id>.jsonl
 
 JSONL 每行一个事件；Markdown 把同一批事件按 system/user/assistant、模型 raw、解析 action、checkpoint 回答分节展示，并在段落间保留空行。两者都是只追加诊断数据，不能作为 session 业务恢复来源。详见 `docs/context-management.md`。
 
-## 为什么之前会闪退
+## 启动窗口行为
 
-之前的 `start-dev.cmd` 是后台启动脚本，双击后主窗口会立刻结束，所以看起来像闪退。现在已经改成双击友好模式，会打开两个可见服务窗口。
+双击 `start-dev.cmd` 会打开两个可见服务窗口，分别运行 API 和 Web。启动入口窗口完成分派后关闭是正常行为；API/Web 服务窗口会保持打开并显示运行日志。
 
-`run-api.cmd` 和 `run-web.cmd` 是单独启动某一个服务用的脚本。现在如果服务启动失败，窗口也会停住并显示错误。
+`run-api.cmd` 和 `run-web.cmd` 用于单独启动某一个服务。服务启动失败时，对应窗口会停住并显示错误。
 
 ## 看卡点为什么有时"没反应"
 

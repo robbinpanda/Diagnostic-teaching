@@ -1,7 +1,7 @@
 # 答疑状态机与 LLM 主导流程
 
-版本：v1.5
-日期：2026-07-21
+版本：v1.6
+日期：2026-07-23
 适用项目：诊断式数学答疑 MVP
 
 本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行上下文收集与教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作，同时判断 `context_status` 并提供可靠的新语义摘要；后端在上下文未 ready 时只允许开放提问，ready 后再根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop。`EXPLAIN_PRINCIPLE` 必须产生 `knowledge_card`，`EXPLAIN_LOCAL` 可按知识复用价值选择产生 `knowledge_card`，`SUMMARIZE` 必须产生 `problem_card`。**
@@ -58,14 +58,18 @@ sequenceDiagram
   API-->>Student: checkpoint_ready / card_ready / 等待开放问题回复
   opt EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE / SUMMARIZE 产出卡片
     Student->>API: 检查/编辑内嵌卡片并显式保存或二次确认舍弃
-    API->>DB: 编辑内容 + saved_at 原子入库，卡片进入右侧列表
+    alt 保存
+      API->>DB: 编辑内容 + folder_id + saved_at 原子入库，卡片进入右侧列表
+    else 舍弃
+      API->>DB: 删除待归档卡片 + card.discarded 原子落库
+    end
     Student->>API: knowledge_card 继续生成；problem_card 结束
   end
 ```
 
 关键点：
 
-- 没有前置 intake。首条消息立即创建正式 session，并与对应 `session_inputs`、`STUDENT_RESPONSE` message 在同一事务落库；客户端提供稳定 session id 和 `client_message_id`，相同请求重试返回原结果。
+- 没有正式 session 内的前置教学 intake。文字草稿和题图可以先经过只决定 session 数量的拆题或框选阶段；兼容的单题 `/start` 调用，以及拆题/框选确认后的每个子题，才在接纳事务中创建正式 session，并与对应 `session_inputs`、`STUDENT_RESPONSE` message 原子落库。客户端提供稳定 session id 和 `client_message_id`，相同请求重试返回原结果。
 - `context_status` 取 `need_problem / need_thought / ready`。模型依据完整对话语义更新 `problem_summary / student_thought_summary`，后端把它们与 assistant action 原子写回 `sessions.problem_text / student_initial_thought`。不得按消息序号猜测字段。
 - `need_problem` 或 `need_thought` 时后端清除 checkpoint/card，并强制 action 为 `ASK_OPEN_QUESTION`；只有 `ready` 后才能讲解、出选择题、总结或生成卡片。“完全没思路”是有效的 `student_thought_summary`，可以进入 ready。
 - 正式 session 的输入接纳和模型生成是两个服务边界。`POST /api/sessions/{session_id}/inputs` 与 checkpoint answer 接口先把输入及其业务结果写入 SQLite；`POST /api/chat/stream` 再从权威历史生成。客户端断开 SSE 不会使已经接纳的输入消失。
@@ -89,31 +93,27 @@ sequenceDiagram
 
 ```json
 {
-  "state_hint": "diagnosing|scaffolding|explaining|checking|recovering|summarizing",
+  "message": "给学生看的中文内容，固定放在第一个字段",
+  "action": "ASK_OPEN_QUESTION",
   "context_status": "need_problem|need_thought|ready",
-  "problem_summary": "本轮新确认的题目摘要，可为 null",
-  "student_thought_summary": "本轮新确认的思路/卡点/明确没思路，可为 null",
-  "action": "ASK_OPEN_QUESTION|ASK_MULTIPLE_CHOICE|EXPLAIN_LOCAL|EXPLAIN_PRINCIPLE|RESPOND_TO_CHECKPOINT|SUMMARIZE",
-  "message": "给学生看的中文内容",
-  "breakpoint_description": "当前卡点，可为 null",
-  "breakpoint_confidence": 0.0,
-  "checkpoint": null,
-  "knowledge_card": null,
-  "problem_card": null,
-  "debug": {}
+  "state_hint": "diagnosing"
 }
 ```
 
+这是按 action 区分的联合合同，不是要求所有 action 输出同一组占位字段。公共字段为 `message / action / context_status / state_hint`；摘要和断点只在确有信息时出现。
+
 动作与结构化字段必须严格匹配：
 
-- `context_status != ready`：只允许 `ASK_OPEN_QUESTION`，`checkpoint/knowledge_card/problem_card` 全部为 `null`。
-- `problem_summary / student_thought_summary`：仅保存从真实对话确认的信息；本轮没有可靠新增时为 `null`，不会用寒暄覆盖已确认摘要。
+- `context_status != ready`：只允许 `ASK_OPEN_QUESTION`，不输出 checkpoint/card 字段。
+- `problem_summary / student_thought_summary`：仅保存从真实对话确认的信息；本轮没有可靠新增时省略，不会用寒暄覆盖已确认摘要。
 
-- `ASK_MULTIPLE_CHOICE`：`checkpoint` 非空，两个 card 字段为 `null`。
-- `EXPLAIN_LOCAL`：`knowledge_card` 可空；仅当 message 含值得独立记忆、可迁移的公式、定理、性质或方法辨析时非空，`checkpoint/problem_card` 为 `null`。
-- `EXPLAIN_PRINCIPLE`：`knowledge_card` 非空，`checkpoint/problem_card` 为 `null`。
-- `SUMMARIZE`：`problem_card` 非空，`checkpoint/knowledge_card` 为 `null`。
-- 其余 action：三个结构化附属字段都为 `null`。
+- `ASK_MULTIPLE_CHOICE`：只增加非空 `checkpoint`。
+- `EXPLAIN_LOCAL`：仅当 message 含值得独立记忆、可迁移的公式、定理、性质或方法辨析时增加 `knowledge_card`。
+- `EXPLAIN_PRINCIPLE`：必须增加 `knowledge_card`。
+- `SUMMARIZE`：必须增加 `problem_card`。
+- 其余 action：不输出三个结构化附属字段。
+
+后端的 `TutorTurn` schema 仍把缺失附属字段补为 `None`，现有存储、校验和前端数据结构不变。最新消息是尚未回应的 `CHECKPOINT_RESPONSE` 时，prompt 会进一步缩成只允许 `RESPOND_TO_CHECKPOINT` 的小合同；上下文仍可能被最新学生消息补齐时保留完整 action 选择，避免多制造一轮追问。
 
 代码对应：
 
@@ -274,12 +274,15 @@ DELETE /api/cards/{card_id}
 一次 `/api/chat/stream` 可能包含多个 action。每个 action 都会有自己的事件段：
 
 ```text
+progress        × N  # 固定安全阶段文案，不含原始 CoT
 message_delta   × N
 decision
 checkpoint_ready?  # 仅 ASK_MULTIPLE_CHOICE 且 checkpoint 合法
 card_ready?        # EXPLAIN_LOCAL（可选）/ EXPLAIN_PRINCIPLE / SUMMARIZE 且 card 合法
 message_done
 ```
+
+阶段依次为 `reading_problem / checking_thought / choosing_action / composing_reply`。并非每个 provider 都会返回 reasoning 事件，因此中间阶段允许跳过；前端始终至少从 run 启动显示“正在读取题目”。
 
 `message_done` 在卡片 action 中额外带 `awaiting_card_dismissal=true`；只要卡片是 `knowledge_card`（来自 `EXPLAIN_LOCAL` 或 `EXPLAIN_PRINCIPLE`），`continue_after_card=true`；`problem_card` 为 false。
 

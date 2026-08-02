@@ -33,6 +33,12 @@ def test_tutor_turn_logs_raw_and_full_checkpoint(tmp_path: Path):
         latency_ms=42,
         parse_ok=True,
         used_fallback=False,
+        latency_metrics={
+            "input_to_first_progress_ms": 0,
+            "input_to_first_visible_message_ms": 21,
+            "total_completion_ms": 42,
+        },
+        reasoning_effort="low",
     )
 
     events = logger.read("sess_abc")
@@ -48,6 +54,8 @@ def test_tutor_turn_logs_raw_and_full_checkpoint(tmp_path: Path):
     assert opts[0]["is_correct"] is True
     assert opts[1]["misconception"] == "忽略负号"
     assert ev["latency_ms"] == 42
+    assert ev["latency_metrics"]["input_to_first_visible_message_ms"] == 21
+    assert ev["reasoning_effort"] == "low"
     assert ev["parse_ok"] is True
 
 

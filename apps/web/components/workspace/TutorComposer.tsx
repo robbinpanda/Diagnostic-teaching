@@ -1,9 +1,12 @@
 "use client";
 
-import { ArrowUp, Loader2, Paperclip, Pencil, Plus, Square, X } from "lucide-react";
+import { ArrowUp, Loader2, Mic, Paperclip, Pencil, Plus, Square, X } from "lucide-react";
 import type { RefObject } from "react";
-import type { ModelProfile } from "../../lib/api";
+import type { SpeechInputPhase } from "../../hooks/useSpeechInput";
+import type { ModelProfile, ReasoningEffort } from "../../lib/api";
+import { GradeBandPicker } from "./GradeBandPicker";
 import { ModelProfilePicker } from "./ModelProfilePicker";
+import { ReasoningEffortPicker } from "./ReasoningEffortPicker";
 
 type ClipboardItemLike = Pick<DataTransferItem, "kind" | "type" | "getAsFile">;
 
@@ -27,9 +30,12 @@ type Props = {
   selectedProfile?: ModelProfile;
   profiles: ModelProfile[];
   deleteBusy: boolean;
+  reasoningBusy: boolean;
   streamBusy: boolean;
   stopBusy: boolean;
   startBusy: boolean;
+  speechPhase: SpeechInputPhase;
+  speechElapsedSeconds: number;
   onClearError: () => void;
   onRemoveImage: () => void;
   onInputChange: (value: string) => void;
@@ -41,7 +47,9 @@ type Props = {
   onAddProfile: () => void;
   onEditProfile: () => void;
   onDeleteProfiles: (profileIds: string[]) => Promise<boolean>;
+  onReasoningEffortChange: (profileId: string, effort: ReasoningEffort) => Promise<boolean>;
   onStop: () => void;
+  onToggleSpeech: () => void;
 };
 
 export function TutorComposer({
@@ -57,9 +65,12 @@ export function TutorComposer({
   selectedProfile,
   profiles,
   deleteBusy,
+  reasoningBusy,
   streamBusy,
   stopBusy,
   startBusy,
+  speechPhase,
+  speechElapsedSeconds,
   onClearError,
   onRemoveImage,
   onInputChange,
@@ -71,8 +82,18 @@ export function TutorComposer({
   onAddProfile,
   onEditProfile,
   onDeleteProfiles,
-  onStop
+  onReasoningEffortChange,
+  onStop,
+  onToggleSpeech
 }: Props) {
+  const speechBusy = speechPhase !== "idle";
+  const speechTitle = speechPhase === "requesting"
+    ? "正在启动本地实时语音服务"
+    : speechPhase === "recording"
+      ? `停止实时转写（${speechElapsedSeconds.toFixed(1)} 秒）`
+      : speechPhase === "transcribing"
+        ? "SenseVoiceSmall 正在确认最终文字"
+        : "使用本地 SenseVoiceSmall 实时语音输入";
   return (
     <div className="composerDock">
       {error && <div className="inlineError"><span>{error}</span><button type="button" onClick={onClearError}><X size={15} /></button></div>}
@@ -96,10 +117,10 @@ export function TutorComposer({
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
-              onSend();
+              if (!speechBusy) onSend();
             }
           }}
-          disabled={composerBlocked || Boolean(pendingImageUrl)}
+          disabled={composerBlocked || speechBusy || Boolean(pendingImageUrl)}
           placeholder={sessionId ? "继续说说你的想法…" : "输入一道或多道题目，或粘贴/上传题目图片…"}
           rows={3}
         />
@@ -116,29 +137,59 @@ export function TutorComposer({
               className="toolButton"
               type="button"
               onClick={() => imageInputRef.current?.click()}
-              disabled={composerBlocked || Boolean(sessionId) || Boolean(pendingImageUrl)}
+              disabled={composerBlocked || speechBusy || Boolean(sessionId) || Boolean(pendingImageUrl)}
               title="上传题目图片"
             >
               {imageBusy ? <Loader2 size={17} className="spin" /> : <Paperclip size={17} />}
             </button>
-            <select value={gradeBand} onChange={(event) => onGradeBandChange(event.target.value as typeof gradeBand)} disabled={Boolean(sessionId) || composerBlocked} aria-label="年级">
-              <option value="junior">初中</option>
-              <option value="senior">高中</option>
-            </select>
+            <button
+              className={`toolButton speechButton${speechPhase === "recording" ? " recording" : ""}`}
+              type="button"
+              onClick={onToggleSpeech}
+              disabled={
+                speechPhase === "requesting"
+                || speechPhase === "transcribing"
+                || Boolean(pendingImageUrl)
+                || (composerBlocked && speechPhase !== "recording")
+              }
+              aria-label={speechTitle}
+              aria-pressed={speechPhase === "recording"}
+              title={speechTitle}
+            >
+              {speechPhase === "requesting" || speechPhase === "transcribing"
+                ? <Loader2 size={17} className="spin" />
+                : speechPhase === "recording"
+                  ? <Square size={13} />
+                  : <Mic size={17} />}
+            </button>
+            <GradeBandPicker
+              value={gradeBand}
+              disabled={Boolean(sessionId) || composerBlocked || speechBusy}
+              onChange={onGradeBandChange}
+            />
             <ModelProfilePicker
               profiles={profiles}
               selectedProfileId={selectedProfileId}
-              disabled={Boolean(sessionId) || composerBlocked}
+              disabled={Boolean(sessionId) || composerBlocked || speechBusy}
               canManage={!sessionId}
               deleteBusy={deleteBusy}
               onChange={onProfileChange}
               onAdd={onAddProfile}
               onDelete={onDeleteProfiles}
             />
+            {selectedProfile && selectedProfile.reasoning_effort_options.length > 1 && (
+              <ReasoningEffortPicker
+                profile={selectedProfile}
+                busy={reasoningBusy}
+                disabled={streamBusy}
+                onChange={onReasoningEffortChange}
+              />
+            )}
             <button
               className="toolButton"
               type="button"
               onClick={onEditProfile}
+              disabled={speechBusy}
               title={selectedProfile?.managed ? "查看模型配置" : selectedProfile ? "修改模型配置" : "添加模型配置"}
             >
               {selectedProfile ? <Pencil size={16} /> : <Plus size={16} />}
@@ -150,7 +201,7 @@ export function TutorComposer({
             onClick={streamBusy && !input.trim() ? onStop : onSend}
             disabled={streamBusy && !input.trim()
               ? stopBusy
-              : composerBlocked || (!input.trim() && !pendingImageUrl)}
+              : composerBlocked || speechBusy || (!input.trim() && !pendingImageUrl)}
             aria-label={streamBusy && !input.trim() ? "停止生成" : streamBusy ? "发送并打断讲解" : "发送"}
             title={streamBusy && !input.trim() ? "停止生成" : streamBusy ? "发送并打断讲解" : "发送"}
           >
@@ -162,7 +213,15 @@ export function TutorComposer({
           </button>
         </div>
       </div>
-      <p className="composerHint">Enter 发送 · 支持粘贴或上传图片 · 图片确认框选后按题目数创建答疑</p>
+      <p className={`composerHint${speechPhase === "recording" ? " recording" : ""}`}>
+        {speechPhase === "requesting"
+          ? "正在启动麦克风和本地 SenseVoiceSmall…"
+          : speechPhase === "recording"
+            ? `实时转写中 ${speechElapsedSeconds.toFixed(1)} 秒 · 不限时 · 思考停顿 2.5 秒后确认 · 再点一次停止`
+            : speechPhase === "transcribing"
+              ? "SenseVoiceSmall 正在确认最后一段语音…"
+              : "Enter 发送 · 麦克风本地准实时转写 · 支持粘贴或上传图片 · 图片确认框选后按题目数创建答疑"}
+      </p>
     </div>
   );
 }

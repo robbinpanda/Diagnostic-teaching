@@ -6,6 +6,7 @@ node_modules/
 .next/
 out/
 dist/
+.build/
 
 __pycache__/
 *.pyc
@@ -17,8 +18,10 @@ __pycache__/
 
 data/
 logs/
+runtime/
 .agents/
 .codex/
 .playwright-cli/
+.secrets/
 
 apps/web/.env.local

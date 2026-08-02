@@ -1,5 +1,5 @@
 import { API_BASE, JSON_HEADERS, responseError } from "./http";
-import type { ModelProfile } from "./types";
+import type { ModelProfile, ReasoningEffort } from "./types";
 
 export function modelProfileLabel(profile: Pick<ModelProfile, "display_name" | "model"> & Partial<Pick<ModelProfile, "managed">>) {
   return profile.managed ? profile.display_name : `${profile.display_name} · ${profile.model}`;
@@ -25,12 +25,26 @@ export async function updateModelProfile(
     temperature: number;
     max_output_tokens: number;
     is_multimodal: boolean;
+    reasoning_effort_options?: ReasoningEffort[];
   }
 ) {
   const response = await fetch(`${API_BASE}/api/model-profiles/${profileId}`, {
     method: "PATCH",
     headers: JSON_HEADERS,
     body: JSON.stringify(input)
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<ModelProfile>;
+}
+
+export async function updateModelProfileReasoning(
+  profileId: string,
+  reasoningEffort: ReasoningEffort
+) {
+  const response = await fetch(`${API_BASE}/api/model-profiles/${profileId}/reasoning`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ reasoning_effort: reasoningEffort })
   });
   if (!response.ok) throw await responseError(response);
   return response.json() as Promise<ModelProfile>;
@@ -57,6 +71,13 @@ export async function testModelProfile(input: {
     ok: boolean;
     latency_ms: number | null;
     message: string;
+    reasoning_effort_options: ReasoningEffort[];
+    reasoning_effort_results: Array<{
+      effort: ReasoningEffort;
+      ok: boolean;
+      latency_ms: number | null;
+      message: string;
+    }>;
     multimodal_ok?: boolean | null;
     multimodal_latency_ms?: number | null;
     multimodal_message?: string | null;
@@ -68,7 +89,11 @@ export async function createModelProfiles(input: {
   provider: "openai" | "openai_compatible" | "anthropic" | "local_demo";
   base_url: string;
   api_key: string;
-  models: Array<{ model: string; is_multimodal: boolean }>;
+  models: Array<{
+    model: string;
+    is_multimodal: boolean;
+    reasoning_effort_options?: ReasoningEffort[];
+  }>;
   tags: string[];
   timeout_ms: number;
   temperature: number;

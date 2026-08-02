@@ -168,8 +168,11 @@ def test_action_protocol_keeps_teaching_responsibilities_distinct():
     assert "其余 action 的 message 必须为纯陈述句" in teaching.JSON_CONTRACT
     assert "EXPLAIN_LOCAL 的讲解一旦形成" in teaching.ACTION_PROTOCOL
     assert "也必须输出 knowledge_card" in teaching.ACTION_PROTOCOL
-    assert "EXPLAIN_LOCAL 时可为 null" in teaching.JSON_CONTRACT
-    assert "一次性代入或计算不适合" in teaching.JSON_CONTRACT
+    assert "EXPLAIN_LOCAL：仅当讲解含可迁移知识时增加" in teaching.JSON_CONTRACT
+    assert "即使值为 null 也不要输出" in teaching.JSON_CONTRACT
+    assert "必须是 0.0 到 1.0（含边界）的 JSON 数字" in teaching.JSON_CONTRACT
+    assert '"high"、"medium"、"low"' in teaching.JSON_CONTRACT
+    assert "必须是 0.0 到 1.0（含边界）的 JSON 数字" in teaching.CHECKPOINT_RESPONSE_CONTRACT
 
 
 def test_removed_decompose_step_is_rejected_as_an_invalid_action():
@@ -311,11 +314,65 @@ def test_build_messages_uses_structured_roles_and_keeps_full_history():
     assert first["message_action"]["type"] == "STUDENT_RESPONSE"
     assert second["action"] == "EXPLAIN_LOCAL"
     assert second["message"] == "message-1"
+    assert messages[3]["content"].startswith('{"message":')
+    assert '"checkpoint": null' not in messages[3]["content"]
     assert "message_action" not in second
     parsed_history_turn = teaching.parse_and_validate_tutor_turn(messages[3]["content"])
     assert parsed_history_turn.action == "EXPLAIN_LOCAL"
     assert "action 不是外部工具调用" in messages[0]["content"]
     assert "checkpoint_result" in messages[0]["content"]
+
+
+def test_context_collection_uses_small_contract_without_card_schemas():
+    session = {
+        "grade_band": "junior",
+        "subject": "math",
+        "problem_text": "",
+        "student_initial_thought": "",
+        "context_status": "need_problem",
+        "phase": "diagnosing",
+        "problem_image_data_url": None,
+    }
+
+    messages = build_messages(session, [])
+    system = messages[0]["content"]
+
+    assert "只返回：" in system
+    assert '"action": "ASK_OPEN_QUESTION"' in system
+    assert "checkpoint_mc" not in system
+    assert "knowledge_card" not in system
+    assert "problem_card" not in system
+
+
+def test_unanswered_checkpoint_uses_response_only_contract():
+    session = {
+        "grade_band": "senior",
+        "subject": "math",
+        "problem_text": "求函数最大值。",
+        "student_initial_thought": "我不确定负号的影响。",
+        "context_status": "ready",
+        "phase": "checking",
+        "problem_image_data_url": None,
+    }
+    history = [
+        {
+            "role": "student",
+            "content": "我选择 B。",
+            "action_id": "act_answer",
+            "action": "CHECKPOINT_RESPONSE",
+            "in_reply_to_action_id": "act_checkpoint",
+            "metadata_json": json.dumps(
+                {"checkpoint_result": {"selected_option_id": "B", "is_correct": False}}
+            ),
+        }
+    ]
+
+    messages = build_messages(session, history)
+    system = messages[0]["content"]
+
+    assert '"action": "RESPOND_TO_CHECKPOINT"' in system
+    assert "不要开始新讲解、提问、总结或生成任何卡片" in system
+    assert "checkpoint_mc" not in system
 
 
 def test_build_messages_ends_nonblocking_continuation_with_user_control_message():
@@ -653,6 +710,63 @@ def test_stream_backfills_message_when_incremental_extractor_stops_early(monkeyp
     assert visible == turn.message
     assert "二次函数零点" in visible
     assert turn.checkpoint is not None
+
+
+def test_stream_emits_safe_progress_without_forwarding_reasoning_text(monkeypatch):
+    raw = json.dumps(
+        {
+            "message": "你先说说目前卡在哪一步？",
+            "action": "ASK_OPEN_QUESTION",
+            "context_status": "ready",
+            "state_hint": "diagnosing",
+        },
+        ensure_ascii=False,
+    )
+
+    async def fake_chat_stream_completion(*args, **kwargs):
+        yield {"event": "response_headers", "delta": "", "finish_reason": None}
+        yield {
+            "event": "reasoning_delta",
+            "delta": "",
+            "reasoning": "这段原始思考绝不能出现在前端",
+            "finish_reason": None,
+        }
+        yield {"event": "content_delta", "delta": raw, "finish_reason": None}
+        yield {"delta": "", "finish_reason": "stop"}
+
+    monkeypatch.setattr(teaching, "chat_stream_completion", fake_chat_stream_completion)
+    profile = LlmProfile(
+        id="prof_test",
+        provider="openai_compatible",
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="test-model",
+        timeout_ms=30000,
+        temperature=0.2,
+        max_output_tokens=1200,
+    )
+    session = {
+        "id": "sess_test",
+        "problem_text": "求函数最大值。",
+        "student_initial_thought": "我卡在负号。",
+        "context_status": "ready",
+        "phase": "diagnosing",
+    }
+
+    async def collect_events():
+        return [event async for event in teaching.generate_tutor_turn_stream(profile, session, [])]
+
+    events = asyncio.run(collect_events())
+    progress = [value for kind, value in events if kind == "progress"]
+    serialized = json.dumps(events, ensure_ascii=False, default=str)
+
+    assert [item["stage"] for item in progress] == [
+        "reading_problem",
+        "checking_thought",
+        "choosing_action",
+        "composing_reply",
+    ]
+    assert "这段原始思考绝不能出现在前端" not in serialized
 
 
 def test_stream_retries_invalid_json_and_resets_partial_message(monkeypatch):

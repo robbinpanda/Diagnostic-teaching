@@ -5,4 +5,5 @@ export * from "./api/model-profiles";
 export * from "./api/problem-images";
 export * from "./api/problem-intake";
 export * from "./api/sessions";
+export * from "./api/speech";
 export * from "./api/types";

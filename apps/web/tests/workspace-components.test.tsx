@@ -9,6 +9,7 @@ import { StudyCardModal } from "../components/StudyCardModal";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import { MessageTimeline } from "../components/workspace/MessageTimeline";
 import { ModelProfilePicker } from "../components/workspace/ModelProfilePicker";
+import { TutorComposer } from "../components/workspace/TutorComposer";
 import { boxFromPoints, ProblemImageSelector } from "../components/ProblemImageSelector";
 import { clampImageScale, ProblemImageViewer } from "../components/ProblemImageViewer";
 import { SessionSidebar } from "../components/workspace/SessionSidebar";
@@ -32,7 +33,11 @@ const profile: ModelProfile = {
   temperature: 0.2,
   max_output_tokens: 1000,
   is_multimodal: false,
-  managed: false
+  managed: false,
+  reasoning_effort: "low",
+  reasoning_effort_options: ["none", "low", "high"],
+  reasoning_control: "none",
+  reasoning_control_description: "本地演示模型不使用推理预算。"
 };
 
 test("workspace header and timeline preserve teaching context labels", () => {
@@ -54,6 +59,22 @@ test("workspace header and timeline preserve teaching context labels", () => {
   assert.match(header, /初中数学/);
   assert.match(header, /正在思考/);
   assert.match(header, /查看题目/);
+
+  const progressHeader = renderToStaticMarkup(
+    <ConversationHeader
+      leftOpen
+      title="一次函数"
+      sessionId="session-a"
+      gradeBand="junior"
+      selectedProfile={profile}
+      streamBusy
+      progressLabel="正在核对你的思路"
+      onExpandLeft={() => {}}
+      onToggleCards={() => {}}
+      onViewProblemImage={() => {}}
+    />
+  );
+  assert.match(progressHeader, /正在核对你的思路/);
 
   const timeline = renderToStaticMarkup(
     <MessageTimeline
@@ -321,6 +342,70 @@ test("model picker exposes image capability and batch management controls", () =
   assert.match(conversationStyles, /\.modelPicker\s*\{[^}]*max-width:/);
 });
 
+test("composer exposes the three probed protocol reasoning effort labels", () => {
+  const protocolProfile: ModelProfile = {
+    ...profile,
+    id: "profile-prompt-effort",
+    provider: "openai_compatible",
+    base_url: "https://example.com/v1",
+    base_url_host: "example.com",
+    model: "vendor-chat-model",
+    reasoning_effort_options: ["none", "low", "high"],
+    reasoning_control: "openai_compatible_reasoning_effort",
+    reasoning_control_description: "按协议发送 reasoning_effort。"
+  };
+  const composer = renderToStaticMarkup(
+    <TutorComposer
+      error={null}
+      sessionId=""
+      pendingImageUrl={null}
+      input=""
+      composerBlocked={false}
+      imageInputRef={{ current: null }}
+      imageBusy={false}
+      gradeBand="junior"
+      selectedProfileId={protocolProfile.id}
+      selectedProfile={protocolProfile}
+      profiles={[protocolProfile]}
+      deleteBusy={false}
+      reasoningBusy={false}
+      streamBusy={false}
+      stopBusy={false}
+      startBusy={false}
+      speechPhase="idle"
+      speechElapsedSeconds={0}
+      onClearError={() => {}}
+      onRemoveImage={() => {}}
+      onInputChange={() => {}}
+      onSend={() => {}}
+      onImageFile={() => {}}
+      onPasteImages={() => {}}
+      onGradeBandChange={() => {}}
+      onProfileChange={() => {}}
+      onAddProfile={() => {}}
+      onEditProfile={() => {}}
+      onDeleteProfiles={async () => true}
+      onReasoningEffortChange={async () => true}
+      onStop={() => {}}
+      onToggleSpeech={() => {}}
+    />
+  );
+
+  assert.match(composer, /aria-label="学习阶段：初中"/);
+  assert.match(composer, /帮助导师调整知识范围与讲解方式/);
+  assert.match(composer, /侧重基础概念、直观解释与规范步骤/);
+  assert.match(composer, /允许使用高中知识、综合方法与完整推导/);
+  assert.doesNotMatch(composer, /<select[^>]*aria-label="年级"/);
+  assert.match(composer, /aria-label="推理强度：低"/);
+  assert.match(composer, /aria-haspopup="listbox"/);
+  assert.match(composer, /推理 · <strong>低<\/strong>/);
+  assert.match(composer, /请求供应商关闭推理/);
+  assert.match(composer, /较少推理，兼顾回复速度与必要复核/);
+  assert.match(composer, /充分推理并仔细检查，优先回答质量/);
+  assert.match(composer, /reasoningRecommendedBadge/);
+  assert.doesNotMatch(composer, /<select[^>]*aria-label="推理强度"/);
+});
+
 test("problem image selector renders movable and resizable regions", () => {
   const selector = renderToStaticMarkup(
     <ProblemImageSelector
@@ -393,4 +478,28 @@ test("composer paste handling extracts images without consuming ordinary text", 
   assert.deepEqual(getPastedImageFiles([
     { kind: "string", type: "text/plain", getAsFile: () => null }
   ]), []);
+});
+
+test("workspace persists recoverable requests before clearing visible text", () => {
+  const pageSource = readFileSync(resolve(__dirname, "../../../app/page.tsx"), "utf8");
+  const studentPersist = pageSource.indexOf("savePendingStudentRequest(window.localStorage, pending)");
+  const studentClear = pageSource.indexOf("clearComposerInput(draftScope(targetSessionId))");
+  const batchPersist = pageSource.indexOf("savePendingSessionBatch(window.localStorage, pendingBatch)", studentPersist);
+  const batchClear = pageSource.indexOf("clearComposerInput(DRAFT_SCOPE)", batchPersist);
+
+  assert.ok(studentPersist >= 0 && studentPersist < studentClear);
+  assert.ok(batchPersist >= 0 && batchPersist < batchClear);
+  assert.match(pageSource, /RECOVERABLE_RUN_CODES/);
+  assert.match(pageSource, /fetchSessionRunStatus/);
+  assert.match(pageSource, /last_committed_action_index/);
+  assert.match(pageSource, /restoreWorkspaceAfterRefresh/);
+});
+test("local demo configuration never asks users for real credentials", () => {
+  const dialogSource = readFileSync(resolve(__dirname, "../../../components/ModelConfigDialog.tsx"), "utf8");
+
+  assert.match(dialogSource, /const isLocalDemo = provider === "local_demo"/);
+  assert.match(dialogSource, /base_url: isLocalDemo \? "local:\/\/demo"/);
+  assert.match(dialogSource, /api_key: isLocalDemo \? "local-demo"/);
+  assert.match(dialogSource, /disabled=\{isManaged \|\| isLocalDemo\}/);
+  assert.match(dialogSource, /本地演示完全离线，不需要 Base URL 或 API key/);
 });

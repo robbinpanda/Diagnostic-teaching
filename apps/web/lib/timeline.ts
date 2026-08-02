@@ -32,6 +32,7 @@ export type TimelineRunState = {
   seenEventIds: Record<string, true>;
   lastSequence?: number;
   sequenceGap?: { expected: number; received: number };
+  progress?: { stage: string; label: string; elapsedMs?: number };
 };
 
 export type PendingTimelineInteraction =
@@ -190,6 +191,19 @@ function applyStreamEvent(state: TimelineState, event: CanonicalStreamEvent): Ti
   let buffer = existingBuffer;
 
   switch (event.kind) {
+    case "progress": {
+      const nextProgress = event.data as {
+        stage: string;
+        label: string;
+        elapsed_ms?: number;
+      };
+      run.progress = {
+        stage: nextProgress.stage,
+        label: nextProgress.label,
+        elapsedMs: nextProgress.elapsed_ms
+      };
+      break;
+    }
     case "message_delta": {
       const delta = event.data as { text: string };
       if (!delta.text) break;
@@ -296,7 +310,8 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
           status: "streaming",
           currentActionIndex: 0,
           actions: {},
-          seenEventIds: {}
+          seenEventIds: {},
+          progress: { stage: "reading_problem", label: "正在读取题目" }
         },
         pendingInteraction: null,
         lastError: null

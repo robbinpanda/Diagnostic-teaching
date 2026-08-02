@@ -1,7 +1,7 @@
 # SQLite 数据库与 Alembic 迁移
 
-版本：v1.2
-日期：2026-07-21
+版本：v1.3
+日期：2026-07-23
 
 SQLite 是 session 恢复的唯一权威来源。JSONL/Markdown 仍然只是只追加诊断日志，不参与 schema 迁移或业务恢复。
 
@@ -61,6 +61,8 @@ python -m alembic -c alembic.ini upgrade head
 
 `0006_card_folders` 新增层级 `card_folders` 和 `study_cards.folder_id`。两个系统默认目录以稳定 ID 建立，升级时所有旧卡片按类型回填目录。普通目录同级名称使用大小写不敏感唯一索引；仓储层同时阻止自引用和把目录移动到自己的后代中。默认目录不能重命名、移动或删除；普通目录仅能在没有子目录且没有卡片时删除。
 
+`0007_reasoning_effort` 为 `model_profiles` 新增非空 `reasoning_effort`，`0008_reasoning_effort_levels` 曾扩展为四档。`0009_reasoning_effort_protocol_probe` 将现行档位统一为 `none / low / high`，把旧 `minimal` 迁为 `none`、旧 `auto / medium` 迁为默认 `low`，并新增非空 `reasoning_effort_options_json`。该 JSON 数组保存完整 profile 实测成功的档位；未测试配置默认 `["none","low","high"]`。请求字段只按 OpenAI-compatible 或 Anthropic Messages 协议决定，不再根据供应商/模型名猜测。
+
 `sessions.context_status` 由 `0005_conversational_context` 增加，取值仅为 `need_problem / need_thought / ready`。它与 `problem_text / student_initial_thought` 都属于 SQLite 权威业务态：模型产出的上下文状态和新语义摘要会与完整 assistant action 同事务提交，刷新或恢复时不从诊断日志重新推断。旧 session 在迁移时默认为 `ready`，保持升级前已进入正式教学的语义。
 
 `0007_checkpoint_free_text` 为 `checkpoints` 增加 `free_text_response`。学生用文字回应待答 checkpoint 时，原文与 `answered_at`、普通学生 message、durable input/event 在同一事务提交；`selected_option_id/is_correct` 保持 `NULL`，用于区分自由表达和选项判定。
@@ -96,4 +98,4 @@ foreign keys 是连接级开关，因此不能只在建库时设置。WAL 是数
 python -m alembic -c alembic.ini revision -m "describe change"
 ```
 
-编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。当前迁移链为可靠性基线 → durable `session_inputs` → `session_events` → `session_runs` → conversational `context_status` → card folders → checkpoint free text → nonblocking cards；后续 schema 继续通过新的 `down_revision` 串成单一迁移链。
+编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。当前迁移链在层级 `card_folders` 后分为两条兼容分支：checkpoint free text → nonblocking cards，以及 reasoning effort → reasoning effort levels → protocol probe；`0010_merge_feature_heads` 将两条迁移头合并。后续 schema 应以该合并 revision 为 `down_revision` 继续串成单一迁移链。

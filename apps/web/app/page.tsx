@@ -19,6 +19,7 @@ import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
 import { TutorComposer } from "../components/workspace/TutorComposer";
 import { useModelProfiles } from "../hooks/useModelProfiles";
 import { useSessionRuntime } from "../hooks/useSessionRuntime";
+import { useSpeechInput } from "../hooks/useSpeechInput";
 import { useStudyCards } from "../hooks/useStudyCards";
 import {
   acceptStudentMessage,
@@ -32,25 +33,35 @@ import {
   dismissKnowledgeCardAndContinue,
   fetchSession,
   fetchSessionHistory,
+  fetchSessionRunStatus,
   saveCard,
   DetectedProblemRegion,
   SessionHistoryItem,
-  SessionStartInput,
   SessionStartResult,
   StudyCard,
   updateKnowledgeCard
 } from "../lib/api";
+import {
+  clearAllRequestRecovery,
+  clearComposerDraft,
+  clearPendingSessionBatch,
+  clearPendingStudentRequest,
+  clearPendingStudentRequestsForSession,
+  listPendingStudentRequests,
+  loadActiveSessionId,
+  loadComposerDraft,
+  loadPendingSessionBatch,
+  type PendingSessionBatch,
+  type PendingStudentRequest,
+  saveActiveSessionId,
+  saveComposerDraft,
+  savePendingSessionBatch,
+  savePendingStudentRequest
+} from "../lib/request-recovery";
 
 type LearningCardPrintJob = {
   cards: StudyCard[];
   layout: LearningCardExportLayout;
-};
-
-type PendingSessionBatch = {
-  text: string;
-  profileId: string;
-  gradeBand: "junior" | "senior";
-  sessions?: SessionStartInput[];
 };
 
 type PendingImageSelection = {
@@ -73,6 +84,9 @@ type PendingComposerImage = {
   file: File;
 };
 
+const DRAFT_SCOPE = "draft";
+const RECOVERABLE_RUN_CODES = new Set(["client_disconnected", "process_restarted"]);
+
 export default function Home() {
   const [gradeBand, setGradeBand] = useState<"junior" | "senior">("junior");
   const [input, setInput] = useState("");
@@ -93,15 +107,12 @@ export default function Home() {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const sendInFlightKeysRef = useRef(new Set<string>());
-  const pendingStudentMessagesRef = useRef(new Map<string, {
-    sessionId: string;
-    text: string;
-    clientMessageId: string;
-  }>());
+  const pendingStudentMessagesRef = useRef(new Map<string, PendingStudentRequest>());
   const pendingSessionBatchesRef = useRef(new Map<number, PendingSessionBatch>());
   const openSessionRequestRef = useRef(0);
   const historyRequestRef = useRef(0);
   const viewTokenRef = useRef(0);
+  const speechBaseInputRef = useRef("");
   const runtime = useSessionRuntime({ onRunSettled: () => void refreshHistory() });
   const {
     activeCard,
@@ -118,6 +129,45 @@ export default function Home() {
     streamBusy,
     workflow
   } = runtime;
+
+  function draftScope(targetSessionId = sessionId) {
+    return targetSessionId || DRAFT_SCOPE;
+  }
+
+  function updateComposerInput(value: string, scope = draftScope()) {
+    setInput(value);
+    saveComposerDraft(window.localStorage, scope, value);
+  }
+
+  function clearComposerInput(scope = draftScope()) {
+    setInput("");
+    clearComposerDraft(window.localStorage, scope);
+  }
+
+  function restoreComposerInput(value: string, scope = draftScope()) {
+    setInput((current) => {
+      const nextValue = current || value;
+      saveComposerDraft(window.localStorage, scope, nextValue);
+      return nextValue;
+    });
+  }
+
+  const speechInput = useSpeechInput({
+    onRecordingStart: () => {
+      speechBaseInputRef.current = input;
+      runtime.clearError();
+    },
+    onTranscript: (transcript) => {
+      const nextText = transcript.trim();
+      if (!nextText) return;
+      const baseText = speechBaseInputRef.current;
+      updateComposerInput(baseText.trim()
+        ? `${baseText.trimEnd()} ${nextText}`
+        : nextText);
+      runtime.clearError();
+    },
+    onError: runtime.setError
+  });
   const profilesState = useModelProfiles({
     activeSessionId: sessionId,
     onError: runtime.setError,
@@ -137,10 +187,12 @@ export default function Home() {
     closeProfileDialog,
     editingProfile,
     deleteBusy,
+    reasoningBusy,
     refreshProfiles,
     openNewProfileDialog,
     openSelectedProfileDialog,
-    deleteProfiles
+    deleteProfiles,
+    setReasoningEffort
   } = profilesState;
   const {
     cards,
@@ -182,7 +234,7 @@ export default function Home() {
   useEffect(() => {
     refreshProfiles();
     refreshCards();
-    refreshHistory();
+    void restoreWorkspaceAfterRefresh();
     if (window.innerWidth <= 1120) setRightOpen(false);
     if (window.innerWidth <= 760) setLeftOpen(false);
     // Initial bootstrap only; later refreshes are triggered by explicit mutations.
@@ -220,6 +272,162 @@ export default function Home() {
     };
   }, [learningCardPrintJob]);
 
+  async function waitForActiveRunToSettle(targetSessionId: string) {
+    let status = await fetchSessionRunStatus(targetSessionId);
+    for (let attempt = 0; status.active && attempt < 120; attempt += 1) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
+      status = await fetchSessionRunStatus(targetSessionId);
+    }
+    return status;
+  }
+
+  function sessionNeedsResponse(opened: Awaited<ReturnType<typeof fetchSession>>) {
+    if (opened.pending_checkpoint || opened.pending_card) return false;
+    const lastStudentIndex = opened.messages.findLastIndex((message) => message.role === "student");
+    if (lastStudentIndex < 0) return false;
+    return !opened.messages.slice(lastStudentIndex + 1).some((message) => message.role === "assistant");
+  }
+
+  async function recoverSessionRun(targetSessionId: string, foreground: boolean) {
+    let status = await waitForActiveRunToSettle(targetSessionId);
+    const opened = await fetchSession(targetSessionId);
+    if (foreground && runtime.isSessionActive(targetSessionId)) runtime.loadSession(opened);
+
+    if (status.active) {
+      if (foreground) runtime.setError("后台请求仍在执行；会话内容已经保存在 SQLite，请稍后重新打开查看结果。");
+      return;
+    }
+
+    const errorCode = status.run?.error?.code ?? "";
+    const shouldResume = (
+      RECOVERABLE_RUN_CODES.has(errorCode)
+      && (status.run?.last_committed_action_index ?? -1) < 0
+    )
+      || (!status.run && sessionNeedsResponse(opened));
+    if (!shouldResume || opened.pending_checkpoint || opened.pending_card) return;
+
+    await runtime.runStream(targetSessionId);
+    status = await fetchSessionRunStatus(targetSessionId);
+    if (!status.active && foreground && runtime.isSessionActive(targetSessionId)) {
+      runtime.loadSession(await fetchSession(targetSessionId));
+    }
+  }
+
+  async function restoreSessionAfterRefresh(targetSessionId: string) {
+    const opened = await fetchSession(targetSessionId);
+    runtime.loadSession(opened);
+    setSelectedProfileId(opened.model_profile_id);
+    setGradeBand(opened.grade_band);
+    saveActiveSessionId(window.localStorage, opened.session_id);
+    setInput(loadComposerDraft(window.localStorage, draftScope(opened.session_id)));
+    await recoverSessionRun(opened.session_id, true);
+  }
+
+  async function resumePendingStudentRequest(pending: PendingStudentRequest) {
+    await acceptStudentMessage({
+      session_id: pending.sessionId,
+      client_message_id: pending.clientMessageId,
+      message: pending.text
+    });
+    clearPendingStudentRequest(window.localStorage, pending.operationId);
+  }
+
+  async function submitPendingSessionBatch(
+    initialBatch: PendingSessionBatch,
+    originatingViewToken: number
+  ) {
+    let pendingBatch = initialBatch;
+    if (!pendingBatch.sessions) {
+      const analyzed = await analyzeProblemText({
+        model_profile_id: pendingBatch.profileId,
+        text: pendingBatch.text
+      });
+      pendingBatch = {
+        ...pendingBatch,
+        sessions: analyzed.problems.map((problem) => {
+          const thought = problem.student_initial_thought.trim();
+          return {
+            session_id: `sess_${crypto.randomUUID().replaceAll("-", "")}`,
+            client_message_id: crypto.randomUUID(),
+            grade_band: pendingBatch.gradeBand,
+            subject: "math" as const,
+            model_profile_id: pendingBatch.profileId,
+            message: thought
+              ? `${problem.problem_text}\n\n我的思路：${thought}`
+              : problem.problem_text,
+            problem_text: problem.problem_text,
+            student_initial_thought: thought,
+            problem_image_data_url: null
+          };
+        })
+      };
+      pendingSessionBatchesRef.current.set(originatingViewToken, pendingBatch);
+      savePendingSessionBatch(window.localStorage, pendingBatch);
+    }
+
+    if (!pendingBatch.sessions?.length) throw new Error("拆题模型没有返回可创建的题目");
+    const result = await batchStartSessions(pendingBatch.sessions);
+    clearPendingSessionBatch(window.localStorage, pendingBatch.operationId);
+    pendingSessionBatchesRef.current.delete(originatingViewToken);
+    saveActiveSessionId(window.localStorage, result.sessions[0]?.session_id ?? "");
+    await finishSessionBatchStart(result.sessions, originatingViewToken);
+  }
+
+  async function restoreWorkspaceAfterRefresh() {
+    const recoveredSessionIds: string[] = [];
+    const pendingBatch = loadPendingSessionBatch(window.localStorage);
+    if (pendingBatch) {
+      const token = viewTokenRef.current;
+      pendingSessionBatchesRef.current.set(token, pendingBatch);
+      setSelectedProfileId(pendingBatch.profileId);
+      setGradeBand(pendingBatch.gradeBand);
+      runtime.addMessage("student", pendingBatch.text, undefined, undefined, `recovery:${pendingBatch.operationId}`);
+      runtime.startComposerTask("start");
+      try {
+        await submitPendingSessionBatch(pendingBatch, token);
+        clearComposerDraft(window.localStorage, DRAFT_SCOPE);
+      } catch (nextError) {
+        updateComposerInput(pendingBatch.text, DRAFT_SCOPE);
+        runtime.failComposerTask(nextError instanceof Error ? nextError.message : "恢复待提交请求失败");
+      }
+    }
+
+    for (const pending of listPendingStudentRequests(window.localStorage)) {
+      try {
+        await resumePendingStudentRequest(pending);
+        recoveredSessionIds.push(pending.sessionId);
+      } catch (nextError) {
+        saveActiveSessionId(window.localStorage, pending.sessionId);
+        updateComposerInput(pending.text, draftScope(pending.sessionId));
+        runtime.setError(nextError instanceof Error ? nextError.message : "恢复待提交消息失败");
+      }
+    }
+
+    if (!pendingBatch) {
+      const activeSessionId = loadActiveSessionId(window.localStorage)
+        || recoveredSessionIds.at(-1)
+        || "";
+      if (activeSessionId) {
+        try {
+          await restoreSessionAfterRefresh(activeSessionId);
+        } catch (nextError) {
+          saveActiveSessionId(window.localStorage, "");
+          setInput(loadComposerDraft(window.localStorage, DRAFT_SCOPE));
+          runtime.setError(nextError instanceof Error ? nextError.message : "恢复当前会话失败");
+        }
+      } else {
+        setInput(loadComposerDraft(window.localStorage, DRAFT_SCOPE));
+      }
+    }
+
+    for (const recoveredSessionId of recoveredSessionIds) {
+      if (recoveredSessionId !== loadActiveSessionId(window.localStorage)) {
+        void recoverSessionRun(recoveredSessionId, false);
+      }
+    }
+    await refreshHistory();
+  }
+
   async function refreshHistory() {
     const requestId = historyRequestRef.current + 1;
     historyRequestRef.current = requestId;
@@ -247,7 +455,8 @@ export default function Home() {
     setImageConfirmBusy(false);
     setOpenSessionBusyId("");
     runtime.clearSession();
-    setInput("");
+    saveActiveSessionId(window.localStorage, "");
+    setInput(loadComposerDraft(window.localStorage, DRAFT_SCOPE));
     setViewingCard(null);
     runtime.clearError();
   }
@@ -267,7 +476,10 @@ export default function Home() {
       runtime.loadSession(opened);
       setSelectedProfileId(opened.model_profile_id);
       setGradeBand(opened.grade_band);
+      saveActiveSessionId(window.localStorage, opened.session_id);
+      setInput(loadComposerDraft(window.localStorage, draftScope(opened.session_id)));
       setViewingCard(null);
+      await recoverSessionRun(opened.session_id, true);
     } catch (nextError) {
       if (openSessionRequestRef.current !== requestId) return;
       runtime.setError(nextError instanceof Error ? nextError.message : "打开会话失败");
@@ -282,6 +494,8 @@ export default function Home() {
     runtime.clearError();
     try {
       await deleteSession(item.session_id);
+      clearPendingStudentRequestsForSession(window.localStorage, item.session_id);
+      clearComposerDraft(window.localStorage, draftScope(item.session_id));
       setHistoryItems((current) => current.filter((candidate) => candidate.session_id !== item.session_id));
       if (sessionId === item.session_id) clearCurrentSessionState();
     } catch (nextError) {
@@ -297,6 +511,7 @@ export default function Home() {
     runtime.clearError();
     try {
       await deleteAllSessions();
+      clearAllRequestRecovery(window.localStorage);
       setHistoryItems([]);
       clearCurrentSessionState();
     } catch (nextError) {
@@ -327,10 +542,14 @@ export default function Home() {
           runtime.loadSession(opened);
           setSelectedProfileId(opened.model_profile_id);
           setGradeBand(opened.grade_band);
+          saveActiveSessionId(window.localStorage, opened.session_id);
+          setInput(loadComposerDraft(window.localStorage, draftScope(opened.session_id)));
         }
       } catch {
         if (viewTokenRef.current === originatingViewToken && runtime.isDraftActive()) {
           runtime.bindStartedSession(results[0]);
+          saveActiveSessionId(window.localStorage, results[0].session_id);
+          setInput(loadComposerDraft(window.localStorage, draftScope(results[0].session_id)));
           runtime.finishComposerTask();
         }
       }
@@ -362,7 +581,6 @@ export default function Home() {
     const operationKey = sessionId ? `session:${sessionId}` : `draft:${originatingViewToken}`;
     if (sendInFlightKeysRef.current.has(operationKey)) return;
     sendInFlightKeysRef.current.add(operationKey);
-    setInput("");
     if (sessionId) {
       const targetSessionId = sessionId;
       if (streamBusy) {
@@ -374,12 +592,23 @@ export default function Home() {
         }
       }
       const respondsToCheckpoint = workflow.mode === "checkpoint" && workflow.phase === "ready";
-      const previous = pendingStudentMessagesRef.current.get(targetSessionId);
+      const previous = pendingStudentMessagesRef.current.get(targetSessionId)
+        ?? listPendingStudentRequests(window.localStorage).find(
+          (candidate) => candidate.sessionId === targetSessionId && candidate.text === text
+        );
       const isRetry = previous?.sessionId === sessionId && previous.text === text;
       const pending = isRetry
         ? previous
-        : { sessionId: targetSessionId, text, clientMessageId: crypto.randomUUID() };
+        : {
+            operationId: crypto.randomUUID(),
+            sessionId: targetSessionId,
+            text,
+            clientMessageId: crypto.randomUUID(),
+            createdAt: new Date().toISOString()
+          };
       pendingStudentMessagesRef.current.set(targetSessionId, pending);
+      savePendingStudentRequest(window.localStorage, pending);
+      clearComposerInput(draftScope(targetSessionId));
       if (!isRetry) {
         runtime.addMessage(
           "student",
@@ -402,10 +631,11 @@ export default function Home() {
         if (accepted.interruption_id) runtime.activateInterruption(accepted.interruption_id);
         pendingStudentMessagesRef.current.delete(targetSessionId);
         if (respondsToCheckpoint) runtime.completeCheckpointFreeTextSubmission();
+        clearPendingStudentRequest(window.localStorage, pending.operationId);
         await runtime.runStream(targetSessionId);
       } catch (nextError) {
         if (runtime.isSessionActive(targetSessionId)) {
-          setInput((current) => current || text);
+          restoreComposerInput(text, draftScope(targetSessionId));
           if (respondsToCheckpoint) {
             runtime.failCheckpointSubmission(
               nextError instanceof Error ? nextError.message : "提交文字回应失败"
@@ -426,10 +656,18 @@ export default function Home() {
       && previousBatch.profileId === selectedProfileId
       && previousBatch.gradeBand === gradeBand
     );
-    let pendingBatch: PendingSessionBatch = isStartRetry && previousBatch
+    const pendingBatch: PendingSessionBatch = isStartRetry && previousBatch
       ? previousBatch
-      : { text, profileId: selectedProfileId, gradeBand };
+      : {
+          operationId: crypto.randomUUID(),
+          text,
+          profileId: selectedProfileId,
+          gradeBand,
+          createdAt: new Date().toISOString()
+        };
     pendingSessionBatchesRef.current.set(originatingViewToken, pendingBatch);
+    savePendingSessionBatch(window.localStorage, pendingBatch);
+    clearComposerInput(DRAFT_SCOPE);
     if (!isStartRetry) {
       runtime.addMessage(
         "student",
@@ -442,40 +680,10 @@ export default function Home() {
     runtime.startComposerTask("start");
     runtime.clearError();
     try {
-      if (!pendingBatch.sessions) {
-        const analyzed = await analyzeProblemText({
-          model_profile_id: pendingBatch.profileId,
-          text: pendingBatch.text
-        });
-        pendingBatch = {
-          ...pendingBatch,
-          sessions: analyzed.problems.map((problem) => {
-            const thought = problem.student_initial_thought.trim();
-            return {
-              session_id: `sess_${crypto.randomUUID().replaceAll("-", "")}`,
-              client_message_id: crypto.randomUUID(),
-              grade_band: pendingBatch.gradeBand,
-              subject: "math",
-              model_profile_id: pendingBatch.profileId,
-              message: thought
-                ? `${problem.problem_text}\n\n我的思路：${thought}`
-                : problem.problem_text,
-              problem_text: problem.problem_text,
-              student_initial_thought: thought,
-              problem_image_data_url: null
-            };
-          })
-        };
-        pendingSessionBatchesRef.current.set(originatingViewToken, pendingBatch);
-      }
-      const sessionsToStart = pendingBatch.sessions;
-      if (!sessionsToStart?.length) throw new Error("拆题模型没有返回可创建的题目");
-      const result = await batchStartSessions(sessionsToStart);
-      pendingSessionBatchesRef.current.delete(originatingViewToken);
-      await finishSessionBatchStart(result.sessions, originatingViewToken);
+      await submitPendingSessionBatch(pendingBatch, originatingViewToken);
     } catch (nextError) {
       if (viewTokenRef.current === originatingViewToken && runtime.isDraftActive()) {
-        setInput((current) => current || text);
+        restoreComposerInput(text, DRAFT_SCOPE);
         runtime.failComposerTask(nextError instanceof Error ? nextError.message : "拆题或创建答疑会话失败");
       } else {
         pendingSessionBatchesRef.current.delete(originatingViewToken);
@@ -751,6 +959,9 @@ export default function Home() {
           selectedProfile={selectedProfile}
           streamBusy={streamBusy}
           problemImageUrl={originalProblemImage}
+          progressLabel={runtime.timeline.run?.status === "streaming"
+            ? runtime.timeline.run.progress?.label
+            : undefined}
           onExpandLeft={() => setLeftOpen(true)}
           onToggleCards={() => setRightOpen((value) => !value)}
           onViewProblemImage={() => {
@@ -812,16 +1023,19 @@ export default function Home() {
           selectedProfile={selectedProfile}
           profiles={profiles}
           deleteBusy={deleteBusy}
+          reasoningBusy={reasoningBusy}
           streamBusy={streamBusy}
           stopBusy={stopBusy}
           startBusy={startBusy}
+          speechPhase={speechInput.phase}
+          speechElapsedSeconds={speechInput.elapsedSeconds}
           onClearError={runtime.clearError}
           onRemoveImage={() => {
             setPendingComposerImage(null);
             if (imageInputRef.current) imageInputRef.current.value = "";
             runtime.clearError();
           }}
-          onInputChange={setInput}
+          onInputChange={updateComposerInput}
           onSend={() => void handleSend()}
           onImageFile={(file) => void handleImageFile(file)}
           onPasteImages={handlePastedImages}
@@ -830,7 +1044,9 @@ export default function Home() {
           onAddProfile={openNewProfileDialog}
           onEditProfile={openSelectedProfileDialog}
           onDeleteProfiles={deleteProfiles}
+          onReasoningEffortChange={setReasoningEffort}
           onStop={() => void runtime.stopStream()}
+          onToggleSpeech={speechInput.toggle}
         />
       </section>
 
