@@ -2,7 +2,7 @@
 
 按时间倒序，列重要改动与对应的根因/影响。
 
-## v0.1.0 — 2026-08-02
+## v0.5.0 — 2026-08-02
 
 ### 本地版产品化、三种交付方式与刷新恢复
 
@@ -10,7 +10,8 @@
 - 新增刷新安全的请求 outbox：首条题目和普通回复在清空输入框前保存稳定客户端幂等键，刷新后与 SQLite 已接纳输入及 `session_runs` 对账并继续，不重复创建会话或丢失输入文字。
 - 本地演示模型无需填写 Base URL/API key；桌面壳只允许同源页面申请纯音频麦克风权限，继续拒绝摄像头、外部导航和其他权限。
 - 新增轻量 Docker 镜像与可选 CPU 语音镜像。SQLite、日志和模型缓存映射到 `runtime/`；语音镜像使用 CPU 版 PyTorch，不包含 NVIDIA/CUDA 依赖。
-- 恢复 Electron + PyInstaller + NSIS 构建链，统一版本为 0.1.0，生成 `Diagnostic-Teaching-Setup-0.1.0-x64.exe`。
+- 恢复 Electron + PyInstaller + NSIS 构建链，统一版本为 0.5.0，生成 `Diagnostic-Teaching-Setup-0.5.0-x64.exe`。
+- 0.5.0 首次安装会一次性清理 0.4.0 及更早版本的整个 `%APPDATA%\DiagnosticTeaching`，包括 SQLite、WAL/SHM、密钥、模型种子状态和日志；重置标记保证同版本修复安装不会再次删除新数据。
 - 重写中文版 README，将 Windows 安装版、源码命令行和 Docker 作为三条可复制的 Quick Start 路径。
 
 ### 验证

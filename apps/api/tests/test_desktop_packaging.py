@@ -24,15 +24,19 @@ def test_desktop_bundle_passes_encrypted_seed_to_the_upgrade_aware_api_sync():
     root = Path(__file__).resolve().parents[2]
     main_source = (root / "desktop" / "src" / "main.cjs").read_text(encoding="utf-8")
     builder_config = (root / "desktop" / "electron-builder.yml").read_text(encoding="utf-8")
+    installer_include = (root / "desktop" / "build" / "installer.nsh").read_text(encoding="utf-8")
     package = json.loads((root / "desktop" / "package.json").read_text(encoding="utf-8"))
 
-    assert package["version"] == "0.1.0"
+    assert package["version"] == "0.5.0"
     assert "BUNDLED_MODEL_SEED_DATABASE_PATH" in main_source
     assert "BUNDLED_MODEL_SEED_SECRET_PATH" in main_source
     assert "BUNDLED_MODEL_SEED_VERSION: app.getVersion()" in main_source
     assert "installBundledModelSeed" not in main_source
     assert "appId: cn.ai4edu.diagnostic-teaching" in builder_config
     assert "oneClick: false" in builder_config
+    assert "include: build/installer.nsh" in builder_config
+    assert "src/data-reset.cjs" in builder_config
+    assert 'resetLegacyUserData(app.getPath("userData"))' in main_source
     assert 'permission === "media"' in main_source
     assert "mediaTypes.length === 1" in main_source
     assert 'mediaTypes[0] === "audio"' in main_source
@@ -41,6 +45,14 @@ def test_desktop_bundle_passes_encrypted_seed_to_the_upgrade_aware_api_sync():
     assert "allowToChangeInstallationDirectory: true" in builder_config
     assert "deleteAppDataOnUninstall: false" in builder_config
     assert "from: ../../dist/windows/seed" in builder_config
+    assert 'IfFileExists "$APPDATA\\DiagnosticTeaching\\.data-reset-v0.5.0"' in installer_include
+    assert 'RMDir /r "$APPDATA\\DiagnosticTeaching"' in installer_include
+    assert 'CreateDirectory "$APPDATA\\DiagnosticTeaching"' in installer_include
+    assert 'FileOpen $0 "$APPDATA\\DiagnosticTeaching\\.data-reset-v0.5.0" w' in installer_include
+    assert "Abort" in installer_include
+    assert 'RMDir /r "$APPDATA"' not in installer_include
+    assert 'RMDir /r "$PROFILE"' not in installer_include
+    assert 'RMDir /r "$LOCALAPPDATA"' not in installer_include
 
 
 def test_catalog_network_refresh_defaults_on_for_development(monkeypatch, tmp_path: Path):

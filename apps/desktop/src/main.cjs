@@ -4,6 +4,7 @@ const { createServer } = require("node:net");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { app, BrowserWindow, dialog, session } = require("electron");
+const { resetLegacyUserData } = require("./data-reset.cjs");
 
 const APP_USER_MODEL_ID = "cn.ai4edu.diagnostic-teaching";
 const API_START_TIMEOUT_MS = 30_000;
@@ -14,12 +15,21 @@ let apiUrl = "";
 let mainWindow = null;
 let readyToQuit = false;
 let shutdownToken = "";
+let startupDataResetError = null;
 
 app.setPath("userData", path.join(app.getPath("appData"), "DiagnosticTeaching"));
 app.setAppUserModelId(APP_USER_MODEL_ID);
 
 const singleInstanceLock = app.requestSingleInstanceLock();
-if (!singleInstanceLock) app.quit();
+if (!singleInstanceLock) {
+  app.quit();
+} else {
+  try {
+    resetLegacyUserData(app.getPath("userData"));
+  } catch (error) {
+    startupDataResetError = error;
+  }
+}
 
 app.on("second-instance", () => {
   if (!mainWindow) return;
@@ -182,6 +192,9 @@ async function stopApi() {
 
 app.whenReady().then(async () => {
   try {
+    if (startupDataResetError) {
+      throw new Error(`无法完成 0.5.0 数据重置：${startupDataResetError.message}`);
+    }
     await startApi();
     restrictRendererNetwork();
     createWindow();

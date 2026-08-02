@@ -2,7 +2,7 @@
 
 ## 运行方式选择
 
-普通用户优先下载 [Windows 0.1.0 安装包](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest)；参与开发时使用本页的源码模式；需要可复现的隔离环境或局域网服务时使用 Docker。三种方式共用同一套教学核心和 SQLite schema。
+普通用户优先下载 [Windows 0.5.0 安装包](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest)；参与开发时使用本页的源码模式；需要可复现的隔离环境或局域网服务时使用 Docker。第一次从 0.4.0 安装 0.5.0 会清空 `%APPDATA%\DiagnosticTeaching` 下的旧数据库、密钥和日志，必须先备份需要保留的数据。三种方式共用同一套教学核心和 SQLite schema。
 
 ### Docker 轻量核心版
 

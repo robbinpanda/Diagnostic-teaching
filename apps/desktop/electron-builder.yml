@@ -10,6 +10,7 @@ electronDist: node_modules/electron/dist
 
 files:
   - src/main.cjs
+  - src/data-reset.cjs
   - package.json
 
 extraResources:
@@ -28,6 +29,7 @@ win:
   requestedExecutionLevel: asInvoker
 
 nsis:
+  include: build/installer.nsh
   oneClick: false
   perMachine: false
   allowElevation: false

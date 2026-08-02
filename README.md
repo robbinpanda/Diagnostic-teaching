@@ -2,7 +2,7 @@
 
 > Windows 优先、数据留在本机的数学答疑产品：先定位学生真正卡住的地方，再提问、讲解、检查和总结。
 
-[![版本](https://img.shields.io/badge/版本-0.1.0-4c7dff)](https://github.com/robbinpanda/Diagnostic-teaching/releases/tag/v0.1.0)
+[![版本](https://img.shields.io/badge/版本-0.5.0-4c7dff)](https://github.com/robbinpanda/Diagnostic-teaching/releases/tag/v0.5.0)
 [![平台](https://img.shields.io/badge/平台-Windows-0078d4)](https://github.com/robbinpanda/Diagnostic-teaching/releases)
 [![存储](https://img.shields.io/badge/存储-SQLite-0f80cc)](./docs/database.md)
 [![Docker](https://img.shields.io/badge/Docker-可用-2496ed)](./compose.local.yml)
@@ -13,13 +13,15 @@
 
 ### 方式一：Windows 安装版（推荐普通用户）
 
-1. 从 [GitHub Releases](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest) 下载 `Diagnostic-Teaching-Setup-0.1.0-x64.exe`。
+1. 从 [GitHub Releases](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest) 下载 `Diagnostic-Teaching-Setup-0.5.0-x64.exe`。
 2. 双击安装并启动“诊断式数学答疑”。
 3. 添加模型服务，或选择本地演示模式体验流程。
 
 安装版已包含前后端、Python 运行时和语音识别依赖，不要求另装 Node.js、Python、Conda 或 SQLite。SenseVoice 模型在第一次使用麦克风时下载，之后从本机缓存加载。
 
-安装包当前未做商业代码签名，Windows SmartScreen 可能显示“未知发布者”。请确认下载来源为本仓库 Release。数据默认保存在 `%APPDATA%\DiagnosticTeaching`，卸载应用不会自动删除会话。
+> **0.4.0 升级提醒：**第一次安装 0.5.0 会永久清空 `%APPDATA%\DiagnosticTeaching`，包括旧 SQLite、会话、卡片、模型配置、API key、WAL/SHM 和诊断日志。需要保留时必须在安装前备份；清理完成后，同版本修复安装不会再次删除 0.5.0 新数据。
+
+安装包当前未做商业代码签名，Windows SmartScreen 可能显示“未知发布者”。请确认下载来源为本仓库 Release。卸载应用本身仍保留 0.5.0 数据。
 
 ### 方式二：本地命令行（推荐开发者）
 
@@ -160,7 +162,7 @@ npm test
 npm run build
 ```
 
-构建 Windows 0.1.0 安装包：
+构建 Windows 0.5.0 安装包：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build-windows-installer.ps1

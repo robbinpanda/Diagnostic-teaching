@@ -1,6 +1,6 @@
 # Windows 安装包
 
-当前发布版本为 0.1.0，面向 Windows 10/11 x64。终端用户只需运行 `Diagnostic-Teaching-Setup-0.1.0-x64.exe`，不需要另装 Node.js、Python、Conda、SQLite 或浏览器运行时。
+当前发布版本为 0.5.0，面向 Windows 10/11 x64。终端用户只需运行 `Diagnostic-Teaching-Setup-0.5.0-x64.exe`，不需要另装 Node.js、Python、Conda、SQLite 或浏览器运行时。0.5.0 高于历史 0.4.0，Electron Builder 会沿用相同 `appId` 和 GUID 执行正常覆盖升级。
 
 ## 用户安装
 
@@ -16,7 +16,13 @@
 %APPDATA%\DiagnosticTeaching\logs\desktop.log
 ```
 
-覆盖安装会保留 SQLite 会话、卡片和用户模型配置。卸载默认也保留上述数据，避免误删；需要彻底清理时，在确认不再需要历史数据后手工删除该目录。
+**破坏性升级合同：**第一次安装 0.5.0 会在 NSIS 安装阶段递归删除整个 `%APPDATA%\DiagnosticTeaching`。SQLite 主库、`-wal`、`-shm`、加密主密钥、会话、卡片、模型配置、模型种子状态、Electron 本地状态和诊断日志都会永久清除，无法恢复；需要保留时必须在安装前备份。
+
+清理失败时安装器会中止，避免新程序继续读取残留旧库。清理成功后写入 `.data-reset-v0.5.0` 标记；Electron 首次启动执行同一合同的兜底检查，然后创建全新的 SQLite 和密钥。
+
+该标记保证修复安装或重复安装同一个 0.5.0 时不会再次删除 0.5.0 产生的新数据。标记被手工删除或损坏时，下一次启动会按未完成迁移处理并重新清理。
+
+单独卸载 0.5.0 仍保留当前数据；本次强制清理只属于 0.5.0 的一次性升级迁移。
 
 ## 安装版架构
 
@@ -27,6 +33,8 @@
 桌面窗口启用 Chromium sandbox、关闭 Node 集成和开发者工具，拒绝外部导航、弹窗、摄像头和其他权限；只允许当前本机应用页面申请纯音频麦克风。API key 只在后端加密存储，不进入前端持久化或桌面日志。
 
 桌面版固定关闭 OpenCode 公共目录的后台刷新。外网访问只会发生在用户主动测试/调用模型，或第一次下载 SenseVoice/FSMN-VAD 时。
+NSIS 的 `customInstall` 宏和 Electron 的 `resetLegacyUserData()` 使用同一版本标记。两处都把清理范围固定为 `%APPDATA%\DiagnosticTeaching`；任何其他目录都不在删除范围内。
+
 
 ## 构建环境
 
@@ -85,13 +93,13 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows-installer.ps1 `
 发布前至少完成：
 
 1. 校验安装包文件名、版本、大小和 SHA-256。
-2. 静默或交互安装到干净目录，确认主程序版本为 0.1.0。
+2. 静默或交互安装到干净目录，确认主程序版本为 0.5.0。
 3. 启动桌面应用，从日志解析随机端口并请求 `/api/health`。
 4. 请求 `/api/speech/status`，确认语音依赖可用且模型按需加载。
 5. 新建本地演示会话，刷新页面并确认输入与消息恢复且没有重复记录。
 6. 测试真实模型、显式停止、题图上传、麦克风输入和卡片导出。
 7. 正常退出，确认 Electron 会请求 sidecar 关闭而不是留下后台进程。
-8. 在干净 Windows 10 x64 和 Windows 11 x64 环境复测安装、覆盖安装和卸载保留数据。
+8. 先准备包含旧 SQLite、WAL/SHM、密钥和日志的 0.4.0 用户目录，再安装 0.5.0；确认旧文件全部消失、新库为空、重置标记存在，并确认重复安装 0.5.0 不会再次删除新数据。
 
 ## 代码签名
 
