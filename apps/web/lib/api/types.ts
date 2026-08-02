@@ -193,3 +193,27 @@ export type SessionInputAcceptance = {
   folder_id?: string | null;
   card_discarded?: boolean;
 };
+
+export type SessionRun = {
+  run_id: string;
+  session_id: string;
+  attempt: number;
+  status: "queued" | "running" | "completed" | "failed" | "interrupted";
+  queued_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  updated_at: string;
+  last_committed_action_index: number;
+  error?: {
+    code?: string;
+    message?: string;
+    type?: string;
+    retryable?: boolean;
+  } | null;
+};
+
+export type SessionRunStatus = {
+  active: boolean;
+  running: boolean;
+  run?: SessionRun | null;
+};

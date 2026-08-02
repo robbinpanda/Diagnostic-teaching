@@ -339,6 +339,8 @@ test("composer exposes the three probed protocol reasoning effort labels", () =>
       streamBusy={false}
       stopBusy={false}
       startBusy={false}
+      speechPhase="idle"
+      speechElapsedSeconds={0}
       onClearError={() => {}}
       onRemoveImage={() => {}}
       onInputChange={() => {}}
@@ -351,6 +353,7 @@ test("composer exposes the three probed protocol reasoning effort labels", () =>
       onDeleteProfiles={async () => true}
       onReasoningEffortChange={async () => true}
       onStop={() => {}}
+      onToggleSpeech={() => {}}
     />
   );
 
@@ -426,4 +429,19 @@ test("workspace keeps text and image multi-problem intake wired", () => {
   assert.match(pageSource, /detectProblemImageRegions/);
   assert.match(pageSource, /<ProblemImageSelector/);
   assert.match(pageSource, /batchStartImageSessions/);
+});
+
+test("workspace persists recoverable requests before clearing visible text", () => {
+  const pageSource = readFileSync(resolve(__dirname, "../../../app/page.tsx"), "utf8");
+  const studentPersist = pageSource.indexOf("savePendingStudentRequest(window.localStorage, pending)");
+  const studentClear = pageSource.indexOf("clearComposerInput(draftScope(targetSessionId))");
+  const batchPersist = pageSource.indexOf("savePendingSessionBatch(window.localStorage, pendingBatch)", studentPersist);
+  const batchClear = pageSource.indexOf("clearComposerInput(DRAFT_SCOPE)", batchPersist);
+
+  assert.ok(studentPersist >= 0 && studentPersist < studentClear);
+  assert.ok(batchPersist >= 0 && batchPersist < batchClear);
+  assert.match(pageSource, /RECOVERABLE_RUN_CODES/);
+  assert.match(pageSource, /fetchSessionRunStatus/);
+  assert.match(pageSource, /last_committed_action_index/);
+  assert.match(pageSource, /restoreWorkspaceAfterRefresh/);
 });

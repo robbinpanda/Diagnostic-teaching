@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { modelProfileLabel, streamChat } from "../lib/api";
+import { fetchSessionRunStatus, modelProfileLabel, streamChat } from "../lib/api";
 
 test("model labels use the intended middle-dot separator", () => {
   assert.equal(
@@ -61,4 +61,28 @@ test("legacy requests omit after_seq and replay requests add it only when explic
 
   assert.equal("after_seq" in bodies[0], false);
   assert.equal(bodies[1].after_seq, 12);
+});
+
+test("run status lookup uses a no-store session-scoped request", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  let requestedCache: RequestCache | undefined;
+  globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    requestedUrl = String(input);
+    requestedCache = init?.cache;
+    return Response.json({ active: false, running: false, run: null });
+  }) as typeof fetch;
+
+  try {
+    assert.deepEqual(await fetchSessionRunStatus("session-refresh"), {
+      active: false,
+      running: false,
+      run: null
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.match(requestedUrl, /\/api\/sessions\/session-refresh\/run$/);
+  assert.equal(requestedCache, "no-store");
 });
