@@ -45,7 +45,7 @@ SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 re
 
 前端会话运行态由 timeline reducer、互斥 workflow 状态机和按 session 隔离的 stream controller 管理。切换会话或新建答疑只切换当前视图，不会关闭其他 session 的 HTTP 流；多个 session 可以同时生成，同一 session 的新 run 仍只会替换该 session 的旧 run。点击停止只中断当前打开的 session，页面卸载才统一收束所有本地流。每个 chat 事件同时绑定 session id 与本地 run id，后台流不能写入后来打开的 session；重新打开仍在生成的 session 时，页面从 SQLite 快照恢复已提交内容并重新接回该 session 的活动流。高频 `message_delta/message_reset` 没有 durable seq；稳定业务边界由独立的 session-events SSE 提供严格递增的 `seq` 和断线重放。
 
-模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name，并可选择 OpenAI-compatible chat completions 或 Anthropic Messages 协议。多个 model name 的连接测试最多四项并行执行，每个模型独立显示成功或失败并设置是否多模态；图片能力使用每次随机排列的颜色/图形挑战验证模型是否真正读懂图片，而不是只判断请求是否返回文字。模型选择器会根据名称长度自适应宽度，长名称自动省略，多模态项显示“支持上传图片”；管理模式可复选并原子批量删除自定义配置。用户配置显示为“供应商名称 · model name”；OpenCode 托管免费模型显示为 `opencodefree-<model-id>`，由 `models.dev` 目录同步协议与图片能力，且不能手动删除。
+模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name，并可选择 OpenAI-compatible chat completions 或 Anthropic Messages 协议。多个 model name 的连接测试最多四项并行执行，每个模型独立显示成功或失败并设置是否多模态；测试请求以及题图分析、题目框检测、文字拆题和正式答疑都会使用表单当前填写并保存的 temperature，不再用固定值覆盖供应商要求。连接测试同时使用当前 timeout 和 max output tokens。图片能力使用每次随机排列的颜色/图形挑战验证模型是否真正读懂图片，而不是只判断请求是否返回文字。模型选择器会根据名称长度自适应宽度，长名称自动省略，多模态项显示“支持上传图片”；管理模式可复选并原子批量删除自定义配置。用户配置显示为“供应商名称 · model name”；OpenCode 托管免费模型显示为 `opencodefree-<model-id>`，由 `models.dev` 目录同步协议与图片能力，且不能手动删除。
 
 教学上下文的前置 intake 已取消；新增的拆题阶段只决定“一段输入要创建几个 session”，不参与教学 action。文字首发先调用 `POST /api/problem-intake/analyze-text`，由当前选定模型返回严格 `problems[]` JSON；单题返回一项，多题返回多个自包含题目，再由 `POST /api/sessions/batch-start` 在同一 SQLite 事务中为每题创建正式 session、写入 `session_inputs` 并保存首条 `STUDENT_RESPONSE`。每个子会话都有稳定 session id 与 `client_message_id`，整批重试不会重复创建。进入正式 session 后，题目和学生思路仍由答疑模型按完整对话语义更新；`context_status=need_problem|need_thought` 时后端强制只允许 `ASK_OPEN_QUESTION`，两项明确后进入 `ready`。
 
@@ -53,17 +53,19 @@ SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 re
 
 Checkpoint answer 也进入 `session_inputs`，并由数据库唯一约束保证每个 checkpoint 只成功回答一次：相同选项重试返回第一次的结果，不同选项重试返回 `409 CHECKPOINT_ANSWER_CONFLICT`。提交后的 checkpoint 会作为结构化用户作答卡片留在消息时间线，保留原题与全部选项，并把正确选择标绿、错误选择标红；重新打开历史会话时从 SQLite checkpoint 与 message metadata 恢复，不展示内部使用的冗长答案文本。知识卡片解决后的继续命令使用 `CARD_DISMISSED_CONTINUE`：保存会原子归档最终编辑内容，舍弃则原子记录控制输入并删除待归档卡片，两种选择完成后才触发继续生成。事件重放由 `session_events` 承担，生成中断与重启遗留清理由 `session_runs` 承担，两者不混入输入接纳服务。
 
-左侧会话栏直接从 SQLite 读取并通过 `GET /api/sessions/{session_id}` 打开原 session，不会仅因查看而复制记录；选择某个 session 后会话栏保持展开，只有用户主动点击收起按钮或初次进入窄屏布局时才收起。原有 `POST /api/sessions/restore` 仍保留给需要显式创建实验分支的调用方。左侧可清空全部会话和 session 日志，右侧可清空全部卡片；两项操作都需要二次确认，且互不删除对方保留的数据。
+左侧会话栏直接从 SQLite 读取并通过 `GET /api/sessions/{session_id}` 打开原 session，不会仅因查看而复制记录；选择某个 session 后会话栏保持展开，只有用户主动点击收起按钮或初次进入窄屏布局时才收起。浏览器记住的活动 session 若已因清空数据库、切换 SQLite 文件或其他窗口删除而不存在，刷新时会自动清理该陈旧引用并回到新题界面，不显示 404；侧栏并发删除产生的失效条目也会自动移除。原有 `POST /api/sessions/restore` 仍保留给需要显式创建实验分支的调用方。左侧可清空全部会话和 session 日志，右侧可清空全部卡片；两项操作都需要二次确认，且互不删除对方保留的数据。
 
 图片可通过回形针选择本地文件，也可在新建题目的输入框中直接粘贴；两种入口都会先显示可移除的待发送缩略图，用户点击发送后才开始识别。第一版图片与文字草稿互斥，已有答疑会话暂不支持追加图片。`POST /api/problem-images/detect` 使用当前选定的多模态模型返回最多 20 个归一化题目框；每个框必须同时覆盖完整题干、该题全部学生演算/草稿/最终答案和批改痕迹，学生过程写在题干下方、右侧或空白处时也不能截掉。前端在原图上叠加框，支持手动拖拽新增框、点选后按 Delete/Backspace 删除、拖动平移、拖动四边和四角缩放。用户确认后，`POST /api/sessions/image-batch-start` 在后端按最终框从原图裁剪，并在同一 SQLite 事务中创建等量 session；每个 session 只保存自己的裁剪题图，全部继续使用同一个多模态答疑模型。前端打开第一题并并行启动各 session，其他题同步出现在左侧列表中。
 
 进入图片题目的答疑会话后，顶部“查看题目”按钮和消息中的题图都可打开全屏查看器。查看器默认适应屏幕，支持滚轮或按钮在 100%—500% 之间缩放、放大后拖动、重置视图，并可通过关闭按钮、Esc 或点击遮罩退出。
 
-每次 `POST /api/chat/stream` 现在都有持久化 `run_id` 和递增 `attempt`，状态依次为 `queued -> running -> completed`，异常或中断则进入 `failed / interrupted`。同一 session 的 run 按进入顺序串行，不同 session 可并行；`GET /api/sessions/{session_id}/run` 可查询活动或最新 run，`POST /api/sessions/{session_id}/interrupt` 会显式取消 provider 请求和后续 bounded loop，空闲或重复中断是幂等 no-op。浏览器仅停止读取不会伪装成显式中断，而会记录为结构化 `failed/client_disconnected`。
+每次 `POST /api/chat/stream` 现在都有持久化 `run_id` 和递增 `attempt`，状态依次为 `queued -> running -> completed`，异常或中断则进入 `failed / interrupted`。同一 session 的 run 按进入顺序串行，不同 session 可并行；`GET /api/sessions/{session_id}/run` 可查询活动或最新 run，`POST /api/sessions/{session_id}/interrupt` 会显式取消 provider 请求和后续 bounded loop，空闲或重复中断是幂等 no-op。浏览器仅停止读取不会伪装成显式中断，而会记录为结构化 `failed/client_disconnected`。provider 若完成推理却没有返回任何可见内容，本轮会用相同请求透明重试一次；连续两次空响应才把 run 标为可重试失败。
 
 run 中只有完整解析并通过 SQLite 事务提交的教学 action 才进入会话历史；流式显示到一半的 step 不会写成 assistant message。应用启动时会把上次进程遗留的 `queued/running` run 标为 `failed/process_restarted`，不会静默恢复可能重复的 provider 工作。
 
-知识卡片策略为：`EXPLAIN_PRINCIPLE` 必须输出；`EXPLAIN_LOCAL` 一旦讲清了值得脱离本题独立记忆、可迁移复用的公式、定理、性质或方法辨析，也必须输出。题目卡片只由 `SUMMARIZE` 产生，必须保存当前具体题目的完整条件、结构化步骤和最终答案，不能把通用知识点改写成题目卡片；同一道题可以先后各产生一张知识卡和题目卡。任一 knowledge card 都会在消息结束后嵌入对话，学生可修改内容后选择保存文件夹归档，或连续点击两次“舍弃/确认舍弃”不入库。卡片出现时输入框仍可使用；学生先发新问题时，该卡片会原子标记为待处理并折叠保留，后续回答期间不会生成第二张卡片。稍后保存或舍弃待处理卡片不会额外触发一轮重复续讲。新库自动创建“默认知识卡片”和“默认题目卡片”两个系统文件夹；已归档知识卡片可再次编辑并通过 `PUT /api/cards/{id}` 保存修改，题目卡片保持只读。
+知识卡片策略为：`EXPLAIN_PRINCIPLE` 必须输出；`EXPLAIN_LOCAL` 一旦讲清了值得脱离本题独立记忆、可迁移复用的公式、定理、性质或方法辨析，也必须输出。题目卡片只由 `SUMMARIZE` 产生，必须保存当前具体题目的完整条件、结构化步骤和最终答案，不能把通用知识点改写成题目卡片；同一道题可以先后各产生一张知识卡和题目卡。所有卡片字段中的变量、上下标、方程、不等式和数学符号都必须放在 `$...$` 或 `$$...$$` 中；后端发现裸写数学表达会要求模型重试，确保卡片库和 PDF 中可由 KaTeX 正确排版。任一 knowledge card 都会在消息结束后嵌入对话，学生可修改内容后选择保存文件夹归档，或连续点击两次“舍弃/确认舍弃”不入库。卡片出现时输入框仍可使用；学生先发新问题时，该卡片会原子标记为待处理并折叠保留，后续回答期间不会生成第二张卡片。稍后保存或舍弃待处理卡片不会额外触发一轮重复续讲。新库自动创建“默认知识卡片”和“默认题目卡片”两个系统文件夹；已归档知识卡片可再次编辑并通过 `PUT /api/cards/{id}` 保存修改，题目卡片保持只读。
+
+“完全没思路”仍是有效的学生思路状态，会让上下文进入 `ready` 并开始正式教学，但不代表教学目标已经完成，也不构成学生缺少某个具体原理的证据。system prompt 明确要求：若最新学生消息表达完全不会、看不懂或不知道如何开始，先用只推进一个连接的低门槛数学问题引导学生识别第一条必要关系或条件，默认优先选择诊断式选择题；只有学生作答、选择“我不知道”、明确追问或既有对话已经暴露具体知识缺口后，才使用 `EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE`。两类讲解严格互斥：`EXPLAIN_LOCAL` 一次只修一个具体步骤，`EXPLAIN_PRINCIPLE` 一次只讲一个可迁移原理，不能在同一 message 中既讲原理又完成本题的具体推导、代入或计算。模型不得直接代入其余条件推到答案，也不得把标准答案包装成 `SUMMARIZE` 直接结束。该语义判断保留给模型结合完整对话完成，后端不使用中文关键词正则猜测或拒绝 action。
 
 右侧学习卡片库采用文件管理器形态：虚拟根目录下可创建主文件夹，任意文件夹内可继续创建子文件夹；卡片支持复制、剪切后粘贴、直接移动和删除。已归档知识卡片和题目卡片可以在“从卡片库导出”窗口中按目录树浏览、按文件夹批选或逐张选择后导出 PDF。窗口默认全选，并按 `saved_at` 从新到旧排列；选择编号就是打印顺序。排版预设包括 A4 竖版单列、A4 竖版双列和 A4 横版三列，默认双列；导出会打开系统打印面板，选择“另存为 PDF”即可保留 KaTeX 公式与彩色版式。
 
@@ -168,7 +170,7 @@ config     模型配置预设示例
 - `ASK_MULTIPLE_CHOICE`：用选择题检查关键理解。
 - `EXPLAIN_LOCAL`：只修复当前局部卡点。
 - `EXPLAIN_PRINCIPLE`：讲清可迁移的原理并生成知识卡片。
-- `RESPOND_TO_CHECKPOINT`：针对检查结果反馈。
+- `RESPOND_TO_CHECKPOINT`：只根据答对、答错或“我不知道”提供简短、具体的情绪支持，不解释正误、不纠正误区，也不提供公式、提示或下一步方法；数学反馈和讲解交给后续独立 action。
 - `SUMMARIZE`：收束方法、步骤与易错点并生成题目卡片。
 
 模型决定下一步教学动作，后端负责合同校验、等待规则、原子写入、幂等控制和失败兜底。`wait_for_student` 始终由后端按动作推导，不能交给模型自由决定。

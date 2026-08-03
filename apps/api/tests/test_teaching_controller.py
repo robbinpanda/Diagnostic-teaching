@@ -176,7 +176,13 @@ def test_action_protocol_keeps_teaching_responsibilities_distinct():
     assert "只对最近一次" in definitions["RESPOND_TO_CHECKPOINT"]["description"]
     assert "情绪价值" in definitions["RESPOND_TO_CHECKPOINT"]["description"]
     assert "降低挫败感" in definitions["RESPOND_TO_CHECKPOINT"]["description"]
-    assert "后续教学交给下一个 action" in definitions["RESPOND_TO_CHECKPOINT"]["boundaries"]
+    checkpoint_boundaries = "".join(definitions["RESPOND_TO_CHECKPOINT"]["boundaries"])
+    assert "不承担任何数学讲解职责" in definitions["RESPOND_TO_CHECKPOINT"]["description"]
+    assert "不得解释答案为什么正确或错误" in checkpoint_boundaries
+    assert "不得指出、纠正或分析具体误区" in checkpoint_boundaries
+    assert "不得承担 EXPLAIN_LOCAL 或 EXPLAIN_PRINCIPLE" in checkpoint_boundaries
+    assert "后续讲解、提问或总结必须交给下一个 action" in checkpoint_boundaries
+    assert "只负责情绪反馈，不负责数学反馈或讲解" in teaching.ACTION_PROTOCOL
     assert "不要先给出整题的上帝视角路线图" in teaching.SYSTEM_PROMPT
     assert "确认性问题当作进入总结的必经步骤" in teaching.SYSTEM_PROMPT
     assert "不要求学生先答出最终答案" in definitions["SUMMARIZE"]["use_when"]
@@ -185,15 +191,43 @@ def test_action_protocol_keeps_teaching_responsibilities_distinct():
     assert "默认优先选择 ASK_MULTIPLE_CHOICE" in teaching.SYSTEM_PROMPT
     assert "不得根据消息是“第一条”还是“第二条”" in teaching.SYSTEM_PROMPT
     assert "完全没思路" in teaching.SYSTEM_PROMPT
+    assert "教学尚未开始" in teaching.SYSTEM_PROMPT
+    assert "绝不能把完整答案包装成 SUMMARIZE" in teaching.SYSTEM_PROMPT
+    assert "也不构成缺少某个具体原理的证据" in teaching.SYSTEM_PROMPT
+    assert "先选择 ASK_MULTIPLE_CHOICE" in teaching.SYSTEM_PROMPT
+    assert "也不要直接 EXPLAIN_PRINCIPLE / EXPLAIN_LOCAL" in teaching.SYSTEM_PROMPT
+    assert "每次最多推进一个必要连接" in teaching.SYSTEM_PROMPT
+    assert "局部讲解与原理讲解必须严格互斥" in teaching.SYSTEM_PROMPT
+    assert "EXPLAIN_LOCAL 一次只讲解一个具体步骤" in teaching.SYSTEM_PROMPT
+    assert "EXPLAIN_PRINCIPLE 一次只讲解一个可迁移原理" in teaching.SYSTEM_PROMPT
+    assert "按本条 message 的唯一主要职责选择" in teaching.SYSTEM_PROMPT
+    assert "该 action 绝不解释正误、纠正误区" in teaching.SYSTEM_PROMPT
+    assert "message 只能提供与答对、答错或‘我不知道’相符" in teaching.SYSTEM_PROMPT
+    assert "不得在同一条消息中同时系统讲解原理" in "".join(
+        definitions["EXPLAIN_LOCAL"]["boundaries"]
+    )
+    assert "不得在同一条消息中混入 EXPLAIN_LOCAL" in "".join(
+        definitions["EXPLAIN_PRINCIPLE"]["boundaries"]
+    )
+    assert "仅有‘完全不会’不是选择本 action 的充分证据" in definitions["EXPLAIN_LOCAL"]["use_when"]
+    assert "不得仅凭‘完全不会’推断这个知识缺口" in definitions["EXPLAIN_PRINCIPLE"]["use_when"]
+    assert "不得继续代入本题条件、完成局部推导或计算" in "".join(
+        definitions["EXPLAIN_PRINCIPLE"]["boundaries"]
+    )
     assert "只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以向学生提问" in teaching.SYSTEM_PROMPT
+    assert "关键等式、连续推导" in teaching.SYSTEM_PROMPT
+    assert "不得裸写 `a_3`" in teaching.SYSTEM_PROMPT
+    assert "卡片字段只写纯文本和 LaTeX" in teaching.SYSTEM_PROMPT
     assert "其余 action 的 message 必须为纯陈述句" in teaching.JSON_CONTRACT
+    assert "所有可见字符串中的数学表达必须使用" in teaching.JSON_CONTRACT
     assert "EXPLAIN_LOCAL 的讲解一旦形成" in teaching.ACTION_PROTOCOL
     assert "也必须输出 knowledge_card" in teaching.ACTION_PROTOCOL
     assert "EXPLAIN_LOCAL：仅当讲解含可迁移知识时增加" in teaching.JSON_CONTRACT
     assert "即使值为 null 也不要输出" in teaching.JSON_CONTRACT
     assert "必须是 0.0 到 1.0（含边界）的 JSON 数字" in teaching.JSON_CONTRACT
     assert '"high"、"medium"、"low"' in teaching.JSON_CONTRACT
-    assert "必须是 0.0 到 1.0（含边界）的 JSON 数字" in teaching.CHECKPOINT_RESPONSE_CONTRACT
+    assert "只含情绪支持、不含任何数学信息" in teaching.CHECKPOINT_RESPONSE_CONTRACT
+    assert "不得增加 breakpoint_description" in teaching.CHECKPOINT_RESPONSE_CONTRACT
 
 
 def test_removed_decompose_step_is_rejected_as_an_invalid_action():
@@ -589,6 +623,52 @@ def test_summarize_requires_structured_problem_card():
     assert turn.problem_card.solution_steps[0].step == 1
 
 
+def test_problem_card_rejects_bare_math_outside_latex_delimiters():
+    payload = {
+        "state_hint": "summarizing",
+        "action": "SUMMARIZE",
+        "message": "本题结论已经得到。",
+        "problem_card": {
+            "type": "problem_card",
+            "title": "求等比数列中的 a_3",
+            "problem_summary": "已知 a_1、a_5 是方程 x^2+6x+1=0 的两根。",
+            "solution_overview": "利用韦达定理与等比中项关系。",
+            "solution_steps": [
+                {
+                    "step": 1,
+                    "title": "建立关系",
+                    "reasoning": "使用等比中项性质。",
+                    "result": "a_1a_5=a_3^2",
+                }
+            ],
+            "pitfalls": ["不要漏掉符号判断"],
+            "how_to_think": ["看到两个根时联想到韦达定理"],
+            "final_answer": "a_3=-1",
+        },
+    }
+
+    raw = json.dumps(payload, ensure_ascii=False)
+    with pytest.raises(ValueError, match="card math expressions must use") as exc_info:
+        teaching.parse_and_validate_tutor_turn(raw)
+
+    retry_messages = teaching.build_format_retry_messages([], raw, exc_info.value)
+    assert "未被 LaTeX 定界符包裹" in retry_messages[-1]["content"]
+    assert "`$a_3$`" in retry_messages[-1]["content"]
+
+    payload["problem_card"].update(
+        {
+            "title": "求等比数列中的 $a_3$",
+            "problem_summary": "已知 $a_1$、$a_5$ 是方程 $x^2+6x+1=0$ 的两根。",
+            "final_answer": "$a_3=-1$",
+        }
+    )
+    payload["problem_card"]["solution_steps"][0]["result"] = "$a_1a_5=a_3^2$"
+
+    turn = teaching.parse_and_validate_tutor_turn(json.dumps(payload, ensure_ascii=False))
+    assert turn.problem_card is not None
+    assert turn.problem_card.final_answer == "$a_3=-1$"
+
+
 def test_build_messages_deduplicates_legacy_initial_thought():
     session = {
         "grade_band": "junior",
@@ -840,6 +920,60 @@ def test_stream_retries_invalid_json_and_resets_partial_message(monkeypatch):
     assert turn.message == "请重新说说你目前想到哪一步？"
     assert turn.debug["format_retry_count"] == 1
     assert "完整、合法" in requests[1][-1]["content"]
+
+
+def test_stream_retries_once_when_provider_returns_no_content(monkeypatch):
+    valid_response = json.dumps(
+        {
+            "state_hint": "checking",
+            "context_status": "ready",
+            "action": "ASK_OPEN_QUESTION",
+            "message": "在等比数列中，$a_1$、$a_3$、$a_5$ 之间有什么关系？",
+        },
+        ensure_ascii=False,
+    )
+    requests = []
+
+    async def fake_chat_stream_completion(profile, messages, **kwargs):
+        requests.append(messages)
+        if len(requests) == 1:
+            yield {"event": "reasoning_delta", "delta": "", "finish_reason": None}
+            raise teaching.LlmEmptyResponseError("模型返回了空内容，请重试或换一道题")
+        yield {"event": "content_delta", "delta": valid_response, "finish_reason": None}
+        yield {"delta": "", "finish_reason": "stop"}
+
+    monkeypatch.setattr(teaching, "chat_stream_completion", fake_chat_stream_completion)
+    profile = LlmProfile(
+        id="prof_test",
+        provider="openai_compatible",
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="test-model",
+        timeout_ms=30000,
+        temperature=0.2,
+        max_output_tokens=1200,
+    )
+    session = {
+        "id": "sess_test",
+        "problem_text": "求等比数列中的 $a_3$。",
+        "student_initial_thought": "完全没思路。",
+        "context_status": "ready",
+        "phase": "diagnosing",
+    }
+
+    async def collect_events():
+        return [event async for event in teaching.generate_tutor_turn_stream(profile, session, [])]
+
+    events = asyncio.run(collect_events())
+
+    assert len(requests) == 2
+    assert any(
+        kind == "progress" and value["stage"] == "retrying_empty_response"
+        for kind, value in events
+    )
+    turn = next(value for kind, value in events if kind == "turn")
+    assert turn.action == "ASK_OPEN_QUESTION"
+    assert turn.debug["empty_response_retry_count"] == 1
 
 
 def test_stream_recovers_invalid_generated_card_when_cards_are_suppressed(monkeypatch):

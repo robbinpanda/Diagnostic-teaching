@@ -493,6 +493,8 @@ test("workspace persists recoverable requests before clearing visible text", () 
   assert.match(pageSource, /fetchSessionRunStatus/);
   assert.match(pageSource, /last_committed_action_index/);
   assert.match(pageSource, /restoreWorkspaceAfterRefresh/);
+  assert.match(pageSource, /isApiResponseError\(nextError, 404\)/);
+  assert.match(pageSource, /clearPendingStudentRequestsForSession\(window\.localStorage, activeSessionId\)/);
 });
 test("local demo configuration never asks users for real credentials", () => {
   const dialogSource = readFileSync(resolve(__dirname, "../../../components/ModelConfigDialog.tsx"), "utf8");
@@ -502,4 +504,10 @@ test("local demo configuration never asks users for real credentials", () => {
   assert.match(dialogSource, /api_key: isLocalDemo \? "local-demo"/);
   assert.match(dialogSource, /disabled=\{isManaged \|\| isLocalDemo\}/);
   assert.match(dialogSource, /本地演示完全离线，不需要 Base URL 或 API key/);
+});
+
+test("model connection test sends the current temperature field", () => {
+  const dialogSource = readFileSync(resolve(__dirname, "../../../components/ModelConfigDialog.tsx"), "utf8");
+
+  assert.match(dialogSource, /testModelProfile\(\{[\s\S]*?temperature,[\s\S]*?max_output_tokens/);
 });

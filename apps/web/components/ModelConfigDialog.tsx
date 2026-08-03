@@ -151,6 +151,7 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
                 : apiKey.trim() ? { api_key: apiKey.trim() } : {}),
               model: entry.model.trim(),
               timeout_ms: Math.min(timeoutMs, 60000),
+              temperature,
               max_output_tokens: maxOutputTokens,
               probe_multimodal: true,
               require_multimodal: entry.isMultimodal

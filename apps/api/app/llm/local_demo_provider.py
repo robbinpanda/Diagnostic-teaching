@@ -281,20 +281,18 @@ def local_demo_response(messages: list[dict[str, Any]]) -> str:
         if not checkpoint_already_responded:
             if answer.startswith("UNKNOWN") or "我不知道" in answer:
                 state_hint = "recovering"
-                message = "你选择了“我不知道”，这很有价值：它说明目前还不能确定负号会怎样改变平方项对整体大小的影响。我们先把这个关系讲清楚。"
+                message = "你愿意直接选择“我不知道”很有价值，这让接下来的帮助有了明确方向，不用着急。"
             elif answer.startswith("A") or "尽量小" in answer or "为 0" in answer:
                 state_hint = "scaffolding"
-                message = "你选对了：要让带负号的平方项对整体的减小作用最弱，平方项应尽量小，并在能取到时取 $0$。这说明你已经抓住了负系数与平方项的关系。"
+                message = "这一步判断正确，你已经稳稳推进了一个关键小步骤，继续保持这个节奏。"
             else:
                 state_hint = "recovering"
-                message = "这个选择暴露了一个具体误区：平方项本身虽然非负，但它前面有负号；平方项越大，整体反而越小。因此求最大值时应让平方项尽量小。"
+                message = "这一步暂时没有选对，但你的选择让卡点更清楚了，这正是继续推进所需要的信息，不用气馁。"
             payload = {
                 "state_hint": state_hint,
                 **context_fields,
                 "action": "RESPOND_TO_CHECKPOINT",
                 "message": message,
-                "breakpoint_description": "已根据最近一次选择题结果完成针对性反馈",
-                "breakpoint_confidence": 0.85,
                 "checkpoint": None,
                 "debug": {"source": "local_demo", "recent": joined[-120:]},
             }

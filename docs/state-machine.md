@@ -71,19 +71,21 @@ sequenceDiagram
 
 - 没有正式 session 内的前置教学 intake。文字草稿和题图可以先经过只决定 session 数量的拆题或框选阶段；兼容的单题 `/start` 调用，以及拆题/框选确认后的每个子题，才在接纳事务中创建正式 session，并与对应 `session_inputs`、`STUDENT_RESPONSE` message 原子落库。客户端提供稳定 session id 和 `client_message_id`，相同请求重试返回原结果。
 - `context_status` 取 `need_problem / need_thought / ready`。模型依据完整对话语义更新 `problem_summary / student_thought_summary`，后端把它们与 assistant action 原子写回 `sessions.problem_text / student_initial_thought`。不得按消息序号猜测字段。
-- `need_problem` 或 `need_thought` 时后端清除 checkpoint/card，并强制 action 为 `ASK_OPEN_QUESTION`；只有 `ready` 后才能讲解、出选择题、总结或生成卡片。“完全没思路”是有效的思路状态，可以进入 ready。模型明确输出 `ready` 且题目已经存在时，后端不会仅因本轮省略可选的 `student_thought_summary` 而退回 `need_thought`。
+- `need_problem` 或 `need_thought` 时后端清除 checkpoint/card，并强制 action 为 `ASK_OPEN_QUESTION`；只有 `ready` 后才能讲解、出选择题、总结或生成卡片。“完全没思路”是有效的思路状态，可以进入 ready，但它只表示上下文信息已收齐，不表示教学已完成，也不是缺少某个具体原理的证据。system prompt 要求此时先用只推进一个连接的低门槛数学问题让学生进入第一步，默认优先 `ASK_MULTIPLE_CHOICE`；只有后续作答、选择“我不知道”、明确追问或既有对话暴露具体缺口后，才选择 `EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE`。具体语义由模型结合完整对话判断，后端不使用中文关键词正则拦截 action。模型明确输出 `ready` 且题目已经存在时，后端不会仅因本轮省略可选的 `student_thought_summary` 而退回 `need_thought`。
 - 正式 session 的输入接纳和模型生成是两个服务边界。`POST /api/sessions/{session_id}/inputs` 与 checkpoint answer 接口先把输入及其业务结果写入 SQLite；`POST /api/chat/stream` 再从权威历史生成。客户端断开 SSE 不会使已经接纳的输入消失。
 - 题目与思路可在同一条或任意多条消息中、以任意顺序提供；标签只帮助语义理解，不决定字段。寒暄、表情和无关文字不能成为题目或思路摘要。
 - LLM 每轮决定 `state_hint`、`action`、`message`、`breakpoint_description`、`checkpoint`、`knowledge_card`、`problem_card`。
 - 后端不信任模型给出的等待判断；`wait_for_student` 由后端根据 action 强制推导。
 - `ASK_OPEN_QUESTION` 和 `ASK_MULTIPLE_CHOICE` 是阻塞动作，会停下等待学生。`ASK_MULTIPLE_CHOICE` 等待期间仍允许学生在输入框直接输入原文；文字提交会原子结束当前 checkpoint，并作为普通学生消息进入后续教学。
-- `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是教学语义上的非阻塞动作。`RESPOND_TO_CHECKPOINT` 直接继续；`EXPLAIN_PRINCIPLE` 必须内嵌展示 `knowledge_card`，`EXPLAIN_LOCAL` 仅在模型判断本次内容值得独立记忆和迁移复用时展示，确认归档后继续。
+- `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是教学语义上的非阻塞动作。`RESPOND_TO_CHECKPOINT` 直接继续；`EXPLAIN_PRINCIPLE` 必须内嵌展示 `knowledge_card`，`EXPLAIN_LOCAL` 仅在模型判断本次内容值得独立记忆和迁移复用时展示，确认归档后继续。两类讲解的内容职责严格互斥：`EXPLAIN_LOCAL` 每条只修一个具体步骤或局部连接，`EXPLAIN_PRINCIPLE` 每条只讲一个可迁移原理并仅指出其与下一步的关联；不得在同一 message 中混合原理讲解与具体应用，需要两者时拆成不同 action。
 - knowledge/problem card 出现后不锁住输入框。学生先发送问题时，后端原子暂存卡片并继续生成，前端保留一张可折叠的待处理卡片；该卡片解决前禁止再生成新卡。稍后保存或舍弃暂存卡片不会重复启动续讲。
 - knowledge card 只保存脱离当前题仍成立的公式、定理、性质或通用方法；problem card 只保存当前具体题目的条件、完整步骤和最终答案。整题依赖的可迁移原理已讲清但尚未制卡时，先生成知识卡，再在后续 `SUMMARIZE` 生成题目卡；同一道题允许各有一张。
+- message、checkpoint 和两类卡片的所有可见字段统一使用纯文本 + KaTeX：短公式用 `$...$`，关键推导可用 `$$...$$` 独立成行，不使用界面不会解释的 Markdown 标题或列表。卡片合同额外拒绝定界符外明显的下标、上标、方程和数学符号，并触发一次带具体格式说明的模型重试。
 - 连续 3 个非阻塞动作后，下一轮 prompt 会要求模型在“自然总结”和“获取必要的新证据”之间选择；若仍输出非阻塞动作，后端会转成 `ASK_OPEN_QUESTION`。
 - `SUMMARIZE` 是终止动作，不等待学生回答，但会内嵌展示 `problem_card`；确认归档后流程结束。
 - `SUMMARIZE` 不要求学生先独立给出最终答案，也不要求额外插入确认性问题；当前结论或卡点已经讲清即可自然收束。
 - 项目不主动截断、压缩或摘要历史；模型供应商自身的硬上下文限制仍然存在。
+- provider 流式请求若只产生推理事件、最终没有任何可见 content，本轮会保留原消息透明重试一次，并向前端发送“模型未返回内容，正在自动重试”进度；第二次仍为空才进入 `failed/provider_error`。这只处理传输结果，不判断或改写教学 action。
 - AI 正在流式输出时，学生仍可输入。发送新问题会显式中断 run，把已展示片段持久化为“讲解被新问题打断”，再按原文接纳学生消息；单独点击停止仍按取消处理，不保存半截输出。
 - 打断原文会开启一层支线并获得最高优先级；支线解决前不得总结或接续原讲解。模型标记支线解决后自动从断点继续，学生也可以点击“回到原讲解”提前返回；支线中的解释和作答全部保留在后续模型历史中。
 
@@ -150,10 +152,10 @@ system prompt 会在 `ACTION_PROTOCOL` 中逐项告诉模型每个 action 的功
 |---|---|---|
 | `EXPLAIN_LOCAL` | 非阻塞；可选卡片确认 | 针对学生当前具体卡点；若其中包含可复用的公式、定理、性质或方法辨析，可输出 `knowledge_card` 并在关闭归档后继续 |
 | `EXPLAIN_PRINCIPLE` | 非阻塞 + 卡片确认 | 从定义和原理出发讲清一个知识点，输出 `knowledge_card`，关闭归档后继续 |
-| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 闭环当前待处理的选择结果，指出理解证据或误区，并提供具体、真诚的情绪支持 |
+| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 只根据答对、答错或“我不知道”提供具体、真诚的情绪支持；不解释正误、不分析或纠正误区、不透露答案或提示，数学教学交给后续 action |
 | `ASK_OPEN_QUESTION` | 阻塞 | 展示开放问题，`wait_for_student=true`，等待学生输入 |
 | `ASK_MULTIPLE_CHOICE` | 阻塞 | 要求存在合法 checkpoint，用三个可诊断选项定位学生误区 |
-| `SUMMARIZE` | 终止 + 卡片确认 | 自然总结并输出整题上帝视角解法的 `problem_card`，关闭归档后结束 |
+| `SUMMARIZE` | 终止 + 卡片确认 | 仅在教学目标已实际处理时自然总结并输出整题上帝视角解法的 `problem_card`，关闭归档后结束；prompt 要求学生最新仍明确表示不会或无法开始时不要使用 |
 
 后端会做动作归一化：
 

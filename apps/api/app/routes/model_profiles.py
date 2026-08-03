@@ -294,7 +294,7 @@ async def test_profile(
         api_key=api_key,
         model=payload.model,
         timeout_ms=payload.timeout_ms,
-        temperature=0,
+        temperature=payload.temperature,
         max_output_tokens=payload.max_output_tokens,
         reasoning_effort=DEFAULT_REASONING_EFFORT,
     )

@@ -24,6 +24,7 @@ __all__ = [
     "IMAGE_ANALYSIS_PROMPT",
     "IMAGE_PROBLEM_DETECTION_PROMPT",
     "LlmProfile",
+    "LlmEmptyResponseError",
     "LlmProviderError",
     "TEXT_PROBLEM_SPLIT_PROMPT",
     "_anthropic_response_events",
@@ -60,6 +61,12 @@ class LlmProfile:
 
 
 class LlmProviderError(RuntimeError):
+    pass
+
+
+class LlmEmptyResponseError(LlmProviderError):
+    """Provider completed a request without emitting any visible model content."""
+
     pass
 
 
@@ -198,7 +205,7 @@ async def test_multimodal_connection(
         profile,
         messages,
         max_tokens=probe_max_tokens,
-        temperature=0,
+        temperature=profile.temperature,
     )
     try:
         async for event in stream:
@@ -243,7 +250,7 @@ async def _test_messages(
         profile,
         messages,
         max_tokens=max_tokens,
-        temperature=0,
+        temperature=profile.temperature,
     )
     try:
         async for event in stream:
@@ -314,7 +321,7 @@ async def analyze_problem_image(profile: LlmProfile, image_data_url: str) -> str
         profile,
         messages,
         max_tokens=min(max(profile.max_output_tokens, 4000), 16000),
-        temperature=0,
+        temperature=profile.temperature,
     )
 
 
@@ -349,7 +356,7 @@ async def detect_problem_regions(profile: LlmProfile, image_data_url: str) -> st
         profile,
         messages,
         max_tokens=min(max(profile.max_output_tokens, 2000), 8000),
-        temperature=0,
+        temperature=profile.temperature,
     )
 
 
@@ -387,7 +394,7 @@ async def analyze_problem_text(profile: LlmProfile, text: str) -> str:
             {"role": "user", "content": text},
         ],
         max_tokens=min(max(profile.max_output_tokens, 3000), 12000),
-        temperature=0,
+        temperature=profile.temperature,
     )
 
 
@@ -397,10 +404,10 @@ def _assert_nonempty(
     if not content:
         if finish_reason == "length":
             token_hint = f"={max_tokens}" if max_tokens is not None else ""
-            raise LlmProviderError(
+            raise LlmEmptyResponseError(
                 f"模型因 max_tokens{token_hint} 截断未输出任何可见内容，请调大 max_output_tokens 或精简历史"
             )
-        raise LlmProviderError("模型返回了空内容，请重试或换一道题")
+        raise LlmEmptyResponseError("模型返回了空内容，请重试或换一道题")
 
 
 async def chat_stream_completion(

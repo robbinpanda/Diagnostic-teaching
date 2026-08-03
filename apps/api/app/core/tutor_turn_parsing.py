@@ -217,6 +217,14 @@ def build_format_retry_messages(
             "请修正 action，并重新生成该 action 对应的最小 JSON。"
             "只输出一个完整 JSON 对象，不要解释、不要 Markdown，也不要添加无关 null 字段。"
         )
+    elif "card math expressions must use" in str(error):
+        retry_instruction = (
+            "你刚才的学习卡片含有未被 LaTeX 定界符包裹的数学表达。请重写本轮 JSON："
+            "卡片标题和所有字段中的变量、下标、上标、方程、不等式、运算式与数学符号都必须"
+            "完整放进 $...$ 或 $$...$$，例如写 `$a_3$`、`$x^2+6x+1=0$`、"
+            "`$a_1a_5=a_3^2$`，不得裸写。JSON 中的反斜杠必须正确转义。"
+            "只输出完整 JSON，不要解释、不要 Markdown，也不要添加无关 null 字段。"
+        )
     else:
         retry_instruction = (
             "你刚才的输出不是完整、合法且满足合同的 JSON。请重新生成本轮结果。"

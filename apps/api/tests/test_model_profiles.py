@@ -689,6 +689,7 @@ def test_edit_connection_test_uses_saved_api_key_when_input_is_blank(tmp_path: P
             "provider": "openai_compatible",
             "base_url": "https://new.example.com/v1",
             "model": "new-model",
+            "temperature": 0.6,
             "max_output_tokens": 8000,
         },
     )
@@ -706,6 +707,7 @@ def test_edit_connection_test_uses_saved_api_key_when_input_is_blank(tmp_path: P
         for tested_profile in captured
     )
     assert all(tested_profile.model == "new-model" for tested_profile in captured)
+    assert all(tested_profile.temperature == 0.6 for tested_profile in captured)
 
 
 def test_connection_test_keeps_only_successful_reasoning_efforts(
@@ -758,6 +760,7 @@ def test_connection_test_probes_and_reports_multimodal_support(tmp_path: Path, m
         return True, 11, "文本连接成功"
 
     async def fake_test_multimodal_connection(profile, image_data_url, expected_answer):
+        captured["temperature"] = profile.temperature
         captured["image_data_url"] = image_data_url
         captured["expected_answer"] = expected_answer
         return True, 17, "图片请求成功"
@@ -773,6 +776,7 @@ def test_connection_test_probes_and_reports_multimodal_support(tmp_path: Path, m
             "base_url": "https://example.com/v1",
             "api_key": "test-secret",
             "model": "vision-model",
+            "temperature": 0.6,
             "probe_multimodal": True,
         },
     )
@@ -784,6 +788,7 @@ def test_connection_test_probes_and_reports_multimodal_support(tmp_path: Path, m
     assert payload["multimodal_ok"] is True
     assert payload["multimodal_latency_ms"] == 17
     assert "图片探测通过" in payload["message"]
+    assert captured["temperature"] == 0.6
     assert captured["image_data_url"].startswith("data:image/png;base64,")
     assert len(captured["expected_answer"].split("|")) == 2
 
