@@ -1070,7 +1070,7 @@ export default function Home() {
           onOpenImage={setViewerImageUrl}
           anchoredInteraction={activeCard ? {
             sourceActionId: activeCard.source_action_id,
-            render: (autoCollapsed) => (
+            render: (autoCollapsed, returnToAnchor) => (
               <StudyCardModal
                 key={activeCard.id}
                 card={activeCard}
@@ -1082,6 +1082,7 @@ export default function Home() {
                 busy={cardSaveBusy}
                 editable={activeCard.card_type === "knowledge_card"}
                 autoCollapsed={autoCollapsed}
+                onExpandCollapsed={returnToAnchor}
               />
             )
           } : undefined}

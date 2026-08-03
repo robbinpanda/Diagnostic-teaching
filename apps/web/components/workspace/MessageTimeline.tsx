@@ -19,12 +19,24 @@ type Props = {
   interaction?: ReactNode;
   anchoredInteraction?: {
     sourceActionId: string;
-    render: (autoCollapsed: boolean) => ReactNode;
+    render: (autoCollapsed: boolean, returnToAnchor: () => void) => ReactNode;
   };
   onOpenImage?: (imageUrl: string) => void;
 };
 
-function AnchoredInteraction({ render }: { render: (autoCollapsed: boolean) => ReactNode }) {
+export function anchoredInteractionScrollTop(
+  currentScrollTop: number,
+  viewportTop: number,
+  anchorTop: number
+) {
+  return Math.max(0, currentScrollTop + anchorTop - viewportTop - 20);
+}
+
+function AnchoredInteraction({
+  render
+}: {
+  render: (autoCollapsed: boolean, returnToAnchor: () => void) => ReactNode;
+}) {
   const sentinelRef = useRef<HTMLSpanElement | null>(null);
   const [scrolledPast, setScrolledPast] = useState(false);
 
@@ -35,7 +47,7 @@ function AnchoredInteraction({ render }: { render: (autoCollapsed: boolean) => R
 
     const update = () => {
       const viewportTop = viewport.getBoundingClientRect().top + 10;
-      if (sentinel.getBoundingClientRect().top < viewportTop) setScrolledPast(true);
+      setScrolledPast(sentinel.getBoundingClientRect().top < viewportTop);
     };
     update();
     viewport.addEventListener("scroll", update, { passive: true });
@@ -46,11 +58,29 @@ function AnchoredInteraction({ render }: { render: (autoCollapsed: boolean) => R
     };
   }, []);
 
+  function returnToAnchor() {
+    const sentinel = sentinelRef.current;
+    const viewport = sentinel?.closest(".messageViewport");
+    if (sentinel && viewport instanceof HTMLElement) {
+      viewport.scrollTo({
+        top: anchoredInteractionScrollTop(
+          viewport.scrollTop,
+          viewport.getBoundingClientRect().top,
+          sentinel.getBoundingClientRect().top
+        ),
+        behavior: "auto"
+      });
+    } else {
+      sentinel?.scrollIntoView({ behavior: "auto", block: "start" });
+    }
+    setScrolledPast(false);
+  }
+
   return (
     <>
       <span className="anchoredInteractionSentinel" ref={sentinelRef} aria-hidden="true" />
       <div className={`anchoredInteraction${scrolledPast ? " scrolledPast" : ""}`}>
-        {render(scrolledPast)}
+        {render(scrolledPast, returnToAnchor)}
       </div>
     </>
   );

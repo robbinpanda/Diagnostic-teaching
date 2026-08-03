@@ -29,6 +29,7 @@ type Props = {
   displayMode?: "inline" | "viewer";
   libraryView?: boolean;
   autoCollapsed?: boolean;
+  onExpandCollapsed?: () => void;
 };
 
 function TextList({ items }: { items: string[] }) {
@@ -238,7 +239,8 @@ export function StudyCardModal({
   editable = false,
   displayMode = "inline",
   libraryView = false,
-  autoCollapsed = false
+  autoCollapsed = false,
+  onExpandCollapsed
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<KnowledgeCardContent | null>(() => (
@@ -324,9 +326,18 @@ export function StudyCardModal({
             <button
               className="cardEditButton"
               type="button"
-              onClick={() => setCollapsed((value) => !value)}
+              onClick={() => {
+                if (collapsed && autoCollapsed && onExpandCollapsed) {
+                  onExpandCollapsed();
+                  setCollapsed(false);
+                  return;
+                }
+                setCollapsed((value) => !value);
+              }}
               disabled={busy}
               aria-expanded={!collapsed}
+              aria-label={collapsed && autoCollapsed ? "回到卡片位置并展开" : undefined}
+              title={collapsed && autoCollapsed ? "回到卡片位置并展开" : undefined}
             >
               {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
               {collapsed ? "展开卡片" : "收起卡片"}

@@ -7,7 +7,10 @@ import { CheckpointModal } from "../components/CheckpointModal";
 import { LearningCardExportDialog } from "../components/LearningCardExportDialog";
 import { StudyCardModal } from "../components/StudyCardModal";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
-import { MessageTimeline } from "../components/workspace/MessageTimeline";
+import {
+  anchoredInteractionScrollTop,
+  MessageTimeline
+} from "../components/workspace/MessageTimeline";
 import { ModelProfilePicker } from "../components/workspace/ModelProfilePicker";
 import { TutorComposer } from "../components/workspace/TutorComposer";
 import { boxFromPoints, ProblemImageSelector } from "../components/ProblemImageSelector";
@@ -198,6 +201,17 @@ test("checkpoint and pending card interactions render inside the conversation wi
     />
   );
   assert.match(anchoredTimeline, /卡片来源[\s\S]*原位卡片 false[\s\S]*后续插嘴/);
+
+  const pinnedCard = renderToStaticMarkup(
+    <StudyCardModal
+      card={{ ...cardFixture, deferred_at: "2026-08-03T00:00:00Z" }}
+      autoCollapsed
+      onExpandCollapsed={() => {}}
+    />
+  );
+  assert.match(pinnedCard, /aria-label="回到卡片位置并展开"/);
+  assert.equal(anchoredInteractionScrollTop(500, 100, 350), 730);
+  assert.equal(anchoredInteractionScrollTop(5, 100, 50), 0);
 
   const answeredTimeline = renderToStaticMarkup(
     <MessageTimeline
