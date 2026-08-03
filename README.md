@@ -53,7 +53,7 @@ SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 re
 
 Checkpoint answer 也进入 `session_inputs`，并由数据库唯一约束保证每个 checkpoint 只成功回答一次：相同选项重试返回第一次的结果，不同选项重试返回 `409 CHECKPOINT_ANSWER_CONFLICT`。提交后的 checkpoint 会作为结构化用户作答卡片留在消息时间线，保留原题与全部选项，并把正确选择标绿、错误选择标红；重新打开历史会话时从 SQLite checkpoint 与 message metadata 恢复，不展示内部使用的冗长答案文本。知识卡片解决后的继续命令使用 `CARD_DISMISSED_CONTINUE`：保存会原子归档最终编辑内容，舍弃则原子记录控制输入并删除待归档卡片，两种选择完成后才触发继续生成。事件重放由 `session_events` 承担，生成中断与重启遗留清理由 `session_runs` 承担，两者不混入输入接纳服务。
 
-左侧会话栏直接从 SQLite 读取并通过 `GET /api/sessions/{session_id}` 打开原 session，不会仅因查看而复制记录；选择某个 session 后会话栏保持展开，只有用户主动点击收起按钮或初次进入窄屏布局时才收起。原有 `POST /api/sessions/restore` 仍保留给需要显式创建实验分支的调用方。左侧可清空全部会话和 session 日志，右侧可清空全部卡片；两项操作都需要二次确认，且互不删除对方保留的数据。
+左侧会话栏直接从 SQLite 读取并通过 `GET /api/sessions/{session_id}` 打开原 session，不会仅因查看而复制记录；选择某个 session 后会话栏保持展开，只有用户主动点击收起按钮或初次进入窄屏布局时才收起。浏览器记住的活动 session 若已因清空数据库、切换 SQLite 文件或其他窗口删除而不存在，刷新时会自动清理该陈旧引用并回到新题界面，不显示 404；侧栏并发删除产生的失效条目也会自动移除。原有 `POST /api/sessions/restore` 仍保留给需要显式创建实验分支的调用方。左侧可清空全部会话和 session 日志，右侧可清空全部卡片；两项操作都需要二次确认，且互不删除对方保留的数据。
 
 图片可通过回形针选择本地文件，也可在新建题目的输入框中直接粘贴；两种入口都会先显示可移除的待发送缩略图，用户点击发送后才开始识别。第一版图片与文字草稿互斥，已有答疑会话暂不支持追加图片。`POST /api/problem-images/detect` 使用当前选定的多模态模型返回最多 20 个归一化题目框；每个框必须同时覆盖完整题干、该题全部学生演算/草稿/最终答案和批改痕迹，学生过程写在题干下方、右侧或空白处时也不能截掉。前端在原图上叠加框，支持手动拖拽新增框、点选后按 Delete/Backspace 删除、拖动平移、拖动四边和四角缩放。用户确认后，`POST /api/sessions/image-batch-start` 在后端按最终框从原图裁剪，并在同一 SQLite 事务中创建等量 session；每个 session 只保存自己的裁剪题图，全部继续使用同一个多模态答疑模型。前端打开第一题并并行启动各 session，其他题同步出现在左侧列表中。
 

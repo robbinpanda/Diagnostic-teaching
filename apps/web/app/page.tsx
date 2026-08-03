@@ -34,6 +34,7 @@ import {
   fetchSession,
   fetchSessionHistory,
   fetchSessionRunStatus,
+  isApiResponseError,
   saveCard,
   DetectedProblemRegion,
   SessionHistoryItem,
@@ -397,6 +398,17 @@ export default function Home() {
         await resumePendingStudentRequest(pending);
         recoveredSessionIds.push(pending.sessionId);
       } catch (nextError) {
+        if (isApiResponseError(nextError, 404)) {
+          clearPendingStudentRequest(window.localStorage, pending.operationId);
+          clearPendingStudentRequestsForSession(window.localStorage, pending.sessionId);
+          if (!loadComposerDraft(window.localStorage, DRAFT_SCOPE)) {
+            saveComposerDraft(window.localStorage, DRAFT_SCOPE, pending.text);
+          }
+          if (loadActiveSessionId(window.localStorage) === pending.sessionId) {
+            saveActiveSessionId(window.localStorage, "");
+          }
+          continue;
+        }
         saveActiveSessionId(window.localStorage, pending.sessionId);
         updateComposerInput(pending.text, draftScope(pending.sessionId));
         runtime.setError(nextError instanceof Error ? nextError.message : "恢复待提交消息失败");
@@ -413,7 +425,13 @@ export default function Home() {
         } catch (nextError) {
           saveActiveSessionId(window.localStorage, "");
           setInput(loadComposerDraft(window.localStorage, DRAFT_SCOPE));
-          runtime.setError(nextError instanceof Error ? nextError.message : "恢复当前会话失败");
+          if (isApiResponseError(nextError, 404)) {
+            clearPendingStudentRequestsForSession(window.localStorage, activeSessionId);
+            runtime.clearSession();
+            runtime.clearError();
+          } else {
+            runtime.setError(nextError instanceof Error ? nextError.message : "恢复当前会话失败");
+          }
         }
       } else {
         setInput(loadComposerDraft(window.localStorage, DRAFT_SCOPE));
@@ -482,7 +500,19 @@ export default function Home() {
       await recoverSessionRun(opened.session_id, true);
     } catch (nextError) {
       if (openSessionRequestRef.current !== requestId) return;
-      runtime.setError(nextError instanceof Error ? nextError.message : "打开会话失败");
+      if (isApiResponseError(nextError, 404)) {
+        setHistoryItems((current) => current.filter(
+          (candidate) => candidate.session_id !== nextSessionId
+        ));
+        clearPendingStudentRequestsForSession(window.localStorage, nextSessionId);
+        if (loadActiveSessionId(window.localStorage) === nextSessionId) {
+          clearCurrentSessionState();
+        } else {
+          runtime.clearError();
+        }
+      } else {
+        runtime.setError(nextError instanceof Error ? nextError.message : "打开会话失败");
+      }
     } finally {
       if (openSessionRequestRef.current === requestId) setOpenSessionBusyId("");
     }
