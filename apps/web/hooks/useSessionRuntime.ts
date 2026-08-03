@@ -4,7 +4,6 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import {
   type AnsweredCheckpoint,
   interruptSession,
-  resumeInterruptedExplanation,
   streamChat,
   type Checkpoint,
   type RestoredSession,
@@ -50,15 +49,11 @@ function messageId() {
   return crypto.randomUUID();
 }
 
-export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
+export function useSessionRuntime(input: { onRunSettled?: (sessionId: string) => void } = {}) {
   const [context, setContext] = useState<SessionContext>(EMPTY_SESSION_CONTEXT);
   const [runningSessionIds, setRunningSessionIds] = useState<string[]>([]);
-  const [pendingCard, setPendingCard] = useState<StudyCard | null>(null);
+  const [pendingCards, setPendingCards] = useState<StudyCard[]>([]);
   const [cardSaveBusy, setCardSaveBusy] = useState(false);
-  const [pendingInterruption, setPendingInterruption] = useState<{
-    messageId: string;
-    resumeState: "awaiting_question" | "detour_active" | "resuming";
-  } | null>(null);
   const [timeline, dispatchTimeline] = useReducer(timelineReducer, undefined, () => createTimelineState());
   const [workflow, dispatchWorkflow] = useReducer(
     sessionWorkflowReducer,
@@ -113,8 +108,7 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     dispatchWorkflow({ type: "run_stop_requested", ...cancelled });
     dispatchTimeline({
       type: "run_cancelled",
-      ...cancelled,
-      preservePartial: reason === "student-message"
+      ...cancelled
     });
     dispatchWorkflow({ type: "run_finished", ...cancelled });
     setRunningSessionIds(controllerRef.current?.activeSessionIds ?? []);
@@ -123,9 +117,8 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
 
   function prepareSessionChange() {
     dispatchWorkflow({ type: "session_reset" });
-    setPendingCard(null);
+    setPendingCards([]);
     setCardSaveBusy(false);
-    setPendingInterruption(null);
   }
 
   function clearSession() {
@@ -164,6 +157,7 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
           role: message.role,
           text: message.text,
           action: message.action,
+          actionId: message.action_id,
           checkpointResult: message.checkpoint_result ?? undefined,
           imageUrl:
             index === firstStudentIndex ? opened.problem_image_data_url : undefined
@@ -178,11 +172,7 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
       pendingCard: opened.pending_card,
       now: Date.now()
     });
-    setPendingCard(opened.pending_card ?? null);
-    setPendingInterruption(opened.pending_interruption ? {
-      messageId: opened.pending_interruption.message_id,
-      resumeState: opened.pending_interruption.resume_state
-    } : null);
+    setPendingCards(opened.pending_cards ?? (opened.pending_card ? [opened.pending_card] : []));
     const activeRun = controllerRef.current?.currentFor(opened.session_id);
     if (activeRun) {
       dispatchTimeline({ type: "run_started", ...activeRun });
@@ -276,7 +266,11 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
           if (event.kind === "card_ready") {
             receivedCard = true;
             if (contextRef.current.sessionId === nextSessionId) {
-              setPendingCard(event.data as StudyCard);
+              const nextCard = event.data as StudyCard;
+              setPendingCards((cards) => [
+                ...cards.filter((card) => card.id !== nextCard.id),
+                nextCard
+              ]);
             }
           }
           if (event.kind === "message_done") {
@@ -296,16 +290,6 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
             receivedError = true;
             dispatchTimeline({ type: "run_cancelled", sessionId: nextSessionId, runId });
             dispatchWorkflow({ type: "run_finished", sessionId: nextSessionId, runId });
-          }
-          if (event.kind === "interruption_state") {
-            const next = event.data as {
-              message_id: string;
-              resume_state: "resuming" | "resolved";
-            };
-            setPendingInterruption(next.resume_state === "resolved" ? null : {
-              messageId: next.message_id,
-              resumeState: next.resume_state
-            });
           }
         }
       });
@@ -338,7 +322,7 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     } finally {
       if (mountedRef.current) {
         setRunningSessionIds(controllerRef.current?.activeSessionIds ?? []);
-        onRunSettledRef.current?.();
+        onRunSettledRef.current?.(nextSessionId);
       }
     }
   }
@@ -381,46 +365,6 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     });
   }
 
-  async function interruptForStudentMessage() {
-    const activeSessionId = contextRef.current.sessionId;
-    const active = activeSessionId
-      ? controllerRef.current?.currentFor(activeSessionId)
-      : null;
-    if (!active) return false;
-    const currentAction = timeline.run?.runId === active.runId
-      ? timeline.run.actions[timeline.run.currentActionIndex]
-      : null;
-    const partialMessage = currentAction?.done ? "" : (currentAction?.text ?? "").trim();
-    dispatchWorkflow({ type: "run_stop_requested", ...active });
-    try {
-      await interruptSession(active.sessionId, {
-        reason: "student_message",
-        ...(partialMessage ? { partial_message: partialMessage } : {})
-      });
-    } catch (error) {
-      dispatchWorkflow({ type: "run_finished", ...active });
-      setError(error instanceof Error ? error.message : "中断当前讲解失败");
-      return false;
-    }
-    cancelRun(active.sessionId, "student-message");
-    return true;
-  }
-
-  function activateInterruption(messageId: string) {
-    setPendingInterruption({ messageId, resumeState: "detour_active" });
-  }
-
-  async function resumeInterruption() {
-    const activeSessionId = contextRef.current.sessionId;
-    if (!activeSessionId || !pendingInterruption) return;
-    await resumeInterruptedExplanation(activeSessionId);
-    setPendingInterruption({
-      messageId: pendingInterruption.messageId,
-      resumeState: "resuming"
-    });
-    await runStream(activeSessionId);
-  }
-
   function completeCheckpointFreeTextSubmission() {
     dispatchTimeline({ type: "interaction_cleared", sessionKey: currentSessionKey() });
     dispatchWorkflow({ type: "checkpoint_submitted" });
@@ -434,8 +378,8 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     setCardSaveBusy(true);
   }
 
-  function completeCardSave() {
-    setPendingCard(null);
+  function completeCardSave(cardId: string) {
+    setPendingCards((cards) => cards.filter((card) => card.id !== cardId));
     setCardSaveBusy(false);
   }
 
@@ -445,7 +389,9 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
   }
 
   function deferPendingCard(cardId: string, deferredAt: string) {
-    setPendingCard((card) => card?.id === cardId ? { ...card, deferred_at: deferredAt } : card);
+    setPendingCards((cards) => cards.map((card) => (
+      card.id === cardId ? { ...card, deferred_at: deferredAt } : card
+    )));
   }
 
   function setError(message: string) {
@@ -470,15 +416,14 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     timeline,
     workflow,
     error: workflow.error,
-    composerBlocked: isComposerBlocked(workflow)
-      || (workflow.mode === "run" && pendingInterruption !== null),
+    composerBlocked: isComposerBlocked(workflow),
     streamBusy: workflow.mode === "run",
     runningSessionIds,
     checkpoint: workflow.mode === "checkpoint" ? workflow.checkpoint : null,
     checkpointStartedAt: workflow.mode === "checkpoint" ? workflow.startedAt : null,
-    activeCard: pendingCard,
+    activeCard: pendingCards.at(-1) ?? null,
+    activeCards: pendingCards,
     cardSaveBusy,
-    pendingInterruption,
     addMessage,
     bindStartedSession,
     beginCardSave,
@@ -501,9 +446,6 @@ export function useSessionRuntime(input: { onRunSettled?: () => void } = {}) {
     setError,
     startComposerTask,
     stopStream,
-    interruptForStudentMessage,
-    activateInterruption,
-    resumeInterruption,
     updateDraft
   };
 }

@@ -65,10 +65,6 @@ FORMAT_RETRY_LIMIT = 1
 EMPTY_RESPONSE_RETRY_LIMIT = 1
 
 
-def _raw_contains_suppressed_card(raw: str) -> bool:
-    return '"knowledge_card"' in raw or '"problem_card"' in raw
-
-
 TEACHING_ACTION_DEFINITIONS = [
     {
         "name": "ASK_OPEN_QUESTION",
@@ -324,28 +320,8 @@ def build_messages(
     *,
     nonblocking_streak: int = 0,
     force_blocking: bool = False,
-    suppress_cards: bool = False,
 ) -> list[dict[str, Any]]:
     history = _without_legacy_initial_thought(session, history)
-    pending_interruption = None
-    history_by_id = {_row_value(row, "id"): row for row in history}
-    for row in reversed(history):
-        if _row_value(row, "action") != "INTERRUPTED_EXPLANATION":
-            continue
-        metadata = _message_metadata(row)
-        resume_state = metadata.get("resume_state")
-        if resume_state in {"awaiting_question", "detour_active", "resuming"}:
-            pending_interruption = {
-                "message_id": _row_value(row, "id"),
-                "partial_message": _row_value(row, "content", ""),
-                "resume_state": resume_state,
-                "question_message": _row_value(
-                    history_by_id.get(metadata.get("interruption_question_message_id"), {}),
-                    "content",
-                    "",
-                ),
-            }
-        break
     loop_instruction = (
         "本轮已经连续执行了 3 个非阻塞教学动作。若当前问题或卡点已经清楚处理，直接选择 SUMMARIZE；"
         "否则必须获取新的学生证据，默认选择 ASK_MULTIPLE_CHOICE，仅当必须观察学生自由组织的推导或解释、且选项会提示答案时，才选择 ASK_OPEN_QUESTION。"
@@ -383,55 +359,16 @@ def build_messages(
             {"type": "image_url", "image_url": {"url": problem_image_data_url}},
         ]
 
-    card_instruction = (
-        "\n当前已有一张尚未处理的学习卡片。本轮绝对不得生成 knowledge_card 或 problem_card；"
-        "不得选择 EXPLAIN_PRINCIPLE 或 SUMMARIZE。可以继续局部讲解、提问或检查理解。"
-        if suppress_cards
-        else ""
-    )
-    interruption_contract_instruction = (
-        "\n当前处于学生打断支线。仅在这条支线中允许增加 debug 对象，并严格按后续最高优先级指令"
-        "设置 interruption_detour_resolved 或 interruption_resume_completed；不要增加其他 debug 字段。"
-        if pending_interruption
-        else ""
-    )
     system_prompt, output_contract = _prompt_and_contract_for_request(session, history)
     system = (
         f"{system_prompt}\n{output_contract}\n\n当前工作流约束："
-        f"{loop_instruction}{card_instruction}{interruption_contract_instruction}"
+        f"{loop_instruction}"
     )
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user_content},
         *(render_history_message(row) for row in history),
     ]
-    interruption_instruction = None
-    if pending_interruption:
-        if pending_interruption["resume_state"] == "detour_active":
-            interruption_instruction = {
-                "kind": "student_interruption_detour",
-                "priority": "highest",
-                "interrupted_partial_explanation": pending_interruption["partial_message"],
-                "student_interruption_question": pending_interruption["question_message"],
-                "instruction": (
-                    "学生刚刚主动打断了原讲解。必须优先、直接回应 student_interruption_question，"
-                    "并结合它之后属于同一支线的最新学生消息或 checkpoint_result，"
-                    "不得接续原讲解，不得 SUMMARIZE 当前题目。若学生是在更正刚才的选项或表达，"
-                    "先明确承认并按更正后的原意回应。只有这条支线问题已经完整解决时，才在 debug "
-                    "中输出 interruption_detour_resolved=true；未解决时不得输出该标记。"
-                ),
-            }
-        elif pending_interruption["resume_state"] == "resuming":
-            interruption_instruction = {
-                "kind": "resume_interrupted_explanation",
-                "priority": "highest",
-                "interrupted_partial_explanation": pending_interruption["partial_message"],
-                "instruction": (
-                    "支线问题已经解决。现在自然回到被打断的原讲解，从断点之后继续，"
-                    "不要逐字重复已显示片段。完成本次返回动作时在 debug 中输出 "
-                    "interruption_resume_completed=true。"
-                ),
-            }
     if nonblocking_streak > 0:
         workflow_continue = {
             "kind": "workflow_continue",
@@ -452,13 +389,6 @@ def build_messages(
             {
                 "role": "user",
                 "content": json.dumps(workflow_continue, ensure_ascii=False),
-            }
-        )
-    if interruption_instruction:
-        messages.append(
-            {
-                "role": "user",
-                "content": json.dumps(interruption_instruction, ensure_ascii=False),
             }
         )
     return messages
@@ -588,8 +518,6 @@ async def generate_tutor_turn_stream(
     logger: SessionLogger | None = None,
     nonblocking_streak: int = 0,
     force_blocking: bool = False,
-    suppress_cards: bool = False,
-    interruption_state: str | None = None,
 ) -> AsyncIterator:
     """流式答疑生成器：边从 LLM 收增量边 yield message 可见字符，最后 yield 完整 TutorTurn。
 
@@ -607,7 +535,6 @@ async def generate_tutor_turn_stream(
         history,
         nonblocking_streak=nonblocking_streak,
         force_blocking=force_blocking,
-        suppress_cards=suppress_cards,
     )
     started = time.perf_counter()
     latency_metrics: dict[str, int | None] = {
@@ -704,44 +631,12 @@ async def generate_tutor_turn_stream(
                     used_fallback = True
                     request_messages = build_format_retry_messages(messages, raw, exc)
                     continue
-                if suppress_cards and _raw_contains_suppressed_card(raw):
-                    turn_final = recover_tutor_turn_from_raw(raw)
-                    apply_backend_action_policy(
-                        turn_final,
-                        force_blocking=force_blocking,
-                        current_context_status=_row_value(
-                            session, "context_status", "ready"
-                        ),
-                        current_problem_text=_row_value(session, "problem_text", ""),
-                        current_student_thought=_row_value(
-                            session, "student_initial_thought", ""
-                        ),
-                    )
-                    turn_final.debug["card_generation_suppressed"] = True
-                    used_fallback = True
-                    emitted_message_parts = []
-                else:
-                    raise LlmProviderError("模型连续返回不完整或不合法的 JSON，请重试") from exc
+                raise LlmProviderError("模型连续返回不完整或不合法的 JSON，请重试") from exc
 
             if format_retry_count:
                 turn_final.debug["format_retry_count"] = format_retry_count
             if empty_response_retry_count:
                 turn_final.debug["empty_response_retry_count"] = empty_response_retry_count
-            if suppress_cards:
-                suppressed = bool(turn_final.knowledge_card or turn_final.problem_card)
-                turn_final.knowledge_card = None
-                turn_final.problem_card = None
-                if turn_final.action in {"EXPLAIN_PRINCIPLE", "SUMMARIZE"}:
-                    turn_final.action = "EXPLAIN_LOCAL"
-                    turn_final.wait_for_student = False
-                    suppressed = True
-                if suppressed:
-                    turn_final.debug["card_generation_suppressed"] = True
-            if interruption_state == "detour_active" and turn_final.action == "SUMMARIZE":
-                turn_final.action = "EXPLAIN_LOCAL"
-                turn_final.problem_card = None
-                turn_final.wait_for_student = False
-                turn_final.debug["interruption_summary_suppressed"] = True
             parse_ok = True
             emitted_message = "".join(emitted_message_parts)
             if turn_final.message:

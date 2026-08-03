@@ -202,8 +202,8 @@ export function TutorComposer({
             disabled={streamBusy && !input.trim()
               ? stopBusy
               : composerBlocked || speechBusy || (!input.trim() && !pendingImageUrl)}
-            aria-label={streamBusy && !input.trim() ? "停止生成" : streamBusy ? "发送并打断讲解" : "发送"}
-            title={streamBusy && !input.trim() ? "停止生成" : streamBusy ? "发送并打断讲解" : "发送"}
+            aria-label={streamBusy && !input.trim() ? "停止生成" : streamBusy ? "插嘴（当前回复结束后发送）" : "发送"}
+            title={streamBusy && !input.trim() ? "停止生成" : streamBusy ? "插嘴（当前回复结束后发送）" : "发送"}
           >
             {streamBusy && !input.trim()
               ? (stopBusy ? <Loader2 size={18} className="spin" /> : <Square size={14} />)

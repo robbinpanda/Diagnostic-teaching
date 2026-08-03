@@ -133,8 +133,6 @@ class SessionRepository(
         *,
         action_index: int,
         run_id: str | None = None,
-        interruption_message_id: str | None = None,
-        interruption_resume_state: str | None = None,
     ) -> tuple[sqlite3.Row, sqlite3.Row | None, sqlite3.Row | None]:
         return persist_tutor_action(
             self.db,
@@ -143,6 +141,4 @@ class SessionRepository(
             turn,
             action_index=action_index,
             run_id=run_id,
-            interruption_message_id=interruption_message_id,
-            interruption_resume_state=interruption_resume_state,
         )

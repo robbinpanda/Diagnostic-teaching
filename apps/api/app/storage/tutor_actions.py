@@ -10,11 +10,6 @@ from app.storage.repository_utils import new_id, now_iso
 from app.storage.run_state import RunStateConflict
 from app.storage.session_events import SessionEventRepository
 
-INTERRUPTION_TRANSITIONS = {
-    "resuming": "detour_active",
-    "resolved": "resuming",
-}
-
 
 def record_tutor_action(
     db: Database,
@@ -24,17 +19,8 @@ def record_tutor_action(
     *,
     action_index: int,
     run_id: str | None = None,
-    interruption_message_id: str | None = None,
-    interruption_resume_state: str | None = None,
 ) -> tuple[sqlite3.Row, sqlite3.Row | None, sqlite3.Row | None]:
-    """Atomically save an assistant action and its interruption transition."""
-    if (interruption_message_id is None) != (interruption_resume_state is None):
-        raise ValueError("interruption message and state must be provided together")
-    if (
-        interruption_resume_state is not None
-        and interruption_resume_state not in INTERRUPTION_TRANSITIONS
-    ):
-        raise ValueError(interruption_resume_state)
+    """Atomically save one complete assistant action and its side effects."""
     message_id = new_id("msg")
     action_id = new_id("act")
     checkpoint_id = new_id("chk") if turn.checkpoint else None
@@ -129,41 +115,6 @@ def record_tutor_action(
                 ts,
             ),
         )
-
-        if interruption_message_id is not None and interruption_resume_state is not None:
-            interruption_row = conn.execute(
-                """
-                SELECT session_id, metadata_json
-                FROM messages
-                WHERE id = ? AND action = 'INTERRUPTED_EXPLANATION'
-                """,
-                (interruption_message_id,),
-            ).fetchone()
-            if interruption_row is None:
-                raise KeyError(interruption_message_id)
-            if interruption_row["session_id"] != session_id:
-                raise PermissionError(interruption_message_id)
-            interruption_metadata = json.loads(
-                interruption_row["metadata_json"] or "{}"
-            )
-            expected_state = INTERRUPTION_TRANSITIONS[interruption_resume_state]
-            current_state = interruption_metadata.get("resume_state")
-            if current_state != expected_state:
-                raise ValueError(
-                    "interruption state conflict: "
-                    f"expected {expected_state}, received {current_state}"
-                )
-            interruption_metadata["resume_state"] = interruption_resume_state
-            interruption_metadata["resume_pending"] = (
-                interruption_resume_state != "resolved"
-            )
-            conn.execute(
-                "UPDATE messages SET metadata_json = ? WHERE id = ?",
-                (
-                    json.dumps(interruption_metadata, ensure_ascii=False, sort_keys=True),
-                    interruption_message_id,
-                ),
-            )
 
         checkpoint_row = None
         if turn.checkpoint and checkpoint_id:

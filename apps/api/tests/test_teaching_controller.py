@@ -289,7 +289,7 @@ def test_prompt_separates_reusable_knowledge_from_complete_problem_solution():
     assert "当前具体题目的完整条件、结构化步骤和最终答案" in system
 
 
-def test_interruption_detour_is_the_last_and_highest_priority_prompt():
+def test_legacy_interruption_metadata_does_not_create_a_detour_prompt():
     session = {
         "grade_band": "junior",
         "subject": "math",
@@ -330,11 +330,10 @@ def test_interruption_detour_is_the_last_and_highest_priority_prompt():
     messages = build_messages(session, history, nonblocking_streak=1)
     control = json.loads(messages[-1]["content"])
 
-    assert control["kind"] == "student_interruption_detour"
-    assert control["priority"] == "highest"
-    assert control["student_interruption_question"] == "选错了，我想选 A。"
-    assert "不得接续原讲解" in control["instruction"]
-    assert "不得 SUMMARIZE" in control["instruction"]
+    assert control["kind"] == "workflow_continue"
+    assert "student_interruption_detour" not in "\n".join(
+        str(message["content"]) for message in messages
+    )
 
 
 def test_build_messages_uses_structured_roles_and_keeps_full_history():
@@ -974,72 +973,6 @@ def test_stream_retries_once_when_provider_returns_no_content(monkeypatch):
     turn = next(value for kind, value in events if kind == "turn")
     assert turn.action == "ASK_OPEN_QUESTION"
     assert turn.debug["empty_response_retry_count"] == 1
-
-
-def test_stream_recovers_invalid_generated_card_when_cards_are_suppressed(monkeypatch):
-    raw = """{
-  "message": "这道题已经讲清，现在收束关键步骤。",
-  "action": "SUMMARIZE",
-  "context_status": "ready",
-  "state_hint": "summarizing",
-  "problem_card": {
-    "type": "problem_card",
-    "title": "本轮不应生成的新卡片",
-    "how_to_think": ["看到"未转义引号会破坏整段 JSON"]
-  }
-}"""
-    requests = []
-
-    async def fake_chat_stream_completion(profile, messages, **kwargs):
-        requests.append(messages)
-        yield {"delta": raw, "finish_reason": None}
-        yield {"delta": "", "finish_reason": "stop"}
-
-    monkeypatch.setattr(teaching, "chat_stream_completion", fake_chat_stream_completion)
-    profile = LlmProfile(
-        id="prof_test",
-        provider="openai_compatible",
-        base_url="https://example.test/v1",
-        api_key="test-key",
-        model="test-model",
-        timeout_ms=30000,
-        temperature=0.2,
-        max_output_tokens=1200,
-    )
-    session = {
-        "id": "sess_test",
-        "problem_text": "求函数最大值。",
-        "student_initial_thought": "我卡在负号。",
-        "context_status": "ready",
-        "phase": "explaining",
-    }
-
-    async def collect_events():
-        return [
-            event
-            async for event in teaching.generate_tutor_turn_stream(
-                profile,
-                session,
-                [],
-                suppress_cards=True,
-            )
-        ]
-
-    events = asyncio.run(collect_events())
-    last_reset = max(index for index, event in enumerate(events) if event[0] == "message_reset")
-    visible_after_reset = "".join(
-        value for kind, value in events[last_reset + 1 :] if kind == "message_delta"
-    )
-    turn = next(value for kind, value in events if kind == "turn")
-
-    assert len(requests) == 2
-    assert turn.action == "EXPLAIN_LOCAL"
-    assert turn.knowledge_card is None
-    assert turn.problem_card is None
-    assert turn.debug["parse_fallback"] is True
-    assert turn.debug["card_generation_suppressed"] is True
-    assert turn.debug["format_retry_count"] == 1
-    assert visible_after_reset == turn.message
 
 
 def test_stream_resets_model_text_when_context_guard_replaces_it(monkeypatch):

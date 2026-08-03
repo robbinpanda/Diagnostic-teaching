@@ -57,32 +57,6 @@ def _parse_sse_events(body: str) -> list[tuple[str, dict]]:
     return events
 
 
-def _insert_interrupted_explanation(
-    client: TestClient,
-    session_id: str,
-    *,
-    resume_state: str,
-) -> str:
-    message_id = f"msg_interrupted_{resume_state}"
-    metadata = {
-        "interrupted": True,
-        "resume_pending": resume_state != "resolved",
-        "resume_state": resume_state,
-    }
-    with client.app.state.db.connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO messages (
-              id, session_id, role, content, action_id, action,
-              in_reply_to_action_id, metadata_json, created_at
-            ) VALUES (?, ?, 'assistant', '原讲解说到一半', ?, 'INTERRUPTED_EXPLANATION',
-                      NULL, ?, '2026-08-02T00:00:00+00:00')
-            """,
-            (message_id, session_id, f"act_{message_id}", json.dumps(metadata)),
-        )
-    return message_id
-
-
 def test_local_demo_chat_stream_emits_checkpoint(tmp_path: Path):
     client, session_id = _bootstrap_app(tmp_path)
     response = client.post("/api/chat/stream", json={"session_id": session_id})
@@ -179,146 +153,6 @@ def test_tutor_action_rolls_back_if_card_insert_fails(tmp_path: Path):
     assert session["phase"] == "diagnosing"
     assert client.app.state.sessions.list_messages(session_id) == []
     assert client.app.state.sessions.list_cards(session_id, include_pending=True) == []
-
-
-def test_tutor_action_atomically_updates_interruption_state(tmp_path: Path):
-    client, session_id = _bootstrap_app(tmp_path)
-    interruption_id = _insert_interrupted_explanation(
-        client,
-        session_id,
-        resume_state="detour_active",
-    )
-    turn = TutorTurn(
-        state_hint="explaining",
-        action="EXPLAIN_LOCAL",
-        message="支线问题已经解释清楚。",
-    )
-
-    client.app.state.sessions.record_tutor_action(
-        session_id,
-        turn,
-        action_index=0,
-        interruption_message_id=interruption_id,
-        interruption_resume_state="resuming",
-    )
-
-    messages = client.app.state.sessions.list_messages(session_id)
-    assert [row["content"] for row in messages] == [
-        "原讲解说到一半",
-        "支线问题已经解释清楚。",
-    ]
-    pending = client.app.state.sessions.latest_pending_interruption(session_id)
-    assert pending["metadata"]["resume_state"] == "resuming"
-
-
-def test_tutor_action_rolls_back_if_interruption_transition_fails(tmp_path: Path):
-    client, session_id = _bootstrap_app(tmp_path)
-    interruption_id = _insert_interrupted_explanation(
-        client,
-        session_id,
-        resume_state="awaiting_question",
-    )
-    turn = TutorTurn(
-        state_hint="explaining",
-        action="EXPLAIN_LOCAL",
-        message="这条回答不能单独提交。",
-    )
-
-    with pytest.raises(ValueError, match="expected detour_active"):
-        client.app.state.sessions.record_tutor_action(
-            session_id,
-            turn,
-            action_index=0,
-            interruption_message_id=interruption_id,
-            interruption_resume_state="resuming",
-        )
-
-    messages = client.app.state.sessions.list_messages(session_id)
-    assert [row["content"] for row in messages] == ["原讲解说到一半"]
-    metadata = json.loads(messages[0]["metadata_json"])
-    assert metadata["resume_state"] == "awaiting_question"
-    assert client.app.state.sessions.get(session_id)["phase"] == "diagnosing"
-
-
-def test_chat_keeps_resuming_state_without_completion_marker(tmp_path: Path, monkeypatch):
-    client, session_id = _bootstrap_app(tmp_path)
-    interruption_id = _insert_interrupted_explanation(
-        client,
-        session_id,
-        resume_state="resuming",
-    )
-    turn = TutorTurn(
-        state_hint="checking",
-        action="ASK_OPEN_QUESTION",
-        message="这条消息没有声明已经续写完成。",
-        wait_for_student=True,
-    )
-
-    async def fake_generate_tutor_turn_stream(*args, **kwargs):
-        yield "message_delta", turn.message
-        yield "turn", turn
-
-    monkeypatch.setattr(chat_routes, "generate_tutor_turn_stream", fake_generate_tutor_turn_stream)
-
-    response = client.post("/api/chat/stream", json={"session_id": session_id})
-    events = _parse_sse_events(response.text)
-    metadata = json.loads(
-        next(
-            row["metadata_json"]
-            for row in client.app.state.sessions.list_messages(session_id)
-            if row["id"] == interruption_id
-        )
-    )
-
-    assert response.status_code == 200
-    assert metadata["resume_state"] == "resuming"
-    assert all(event != "interruption_state" for event, _ in events)
-
-
-def test_chat_resolves_state_with_completion_marker(tmp_path: Path, monkeypatch):
-    client, session_id = _bootstrap_app(tmp_path)
-    interruption_id = _insert_interrupted_explanation(
-        client,
-        session_id,
-        resume_state="resuming",
-    )
-    calls = 0
-
-    async def fake_generate_tutor_turn_stream(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            turn = TutorTurn(
-                state_hint="explaining",
-                action="EXPLAIN_LOCAL",
-                message="现在从原断点之后继续讲解。",
-                debug={"interruption_resume_completed": True},
-            )
-        else:
-            turn = TutorTurn(
-                state_hint="checking",
-                action="ASK_OPEN_QUESTION",
-                message="续写完成后再检查理解。",
-                wait_for_student=True,
-            )
-        yield "message_delta", turn.message
-        yield "turn", turn
-
-    monkeypatch.setattr(chat_routes, "generate_tutor_turn_stream", fake_generate_tutor_turn_stream)
-
-    response = client.post("/api/chat/stream", json={"session_id": session_id})
-    events = _parse_sse_events(response.text)
-    metadata = json.loads(
-        next(
-            row["metadata_json"]
-            for row in client.app.state.sessions.list_messages(session_id)
-            if row["id"] == interruption_id
-        )
-    )
-
-    assert response.status_code == 200
-    assert metadata["resume_state"] == "resolved"
-    assert ("interruption_state", {"message_id": interruption_id, "resume_state": "resolved"}) in events
 
 
 def test_checkpoint_answer_drives_followup_instead_of_loop(tmp_path: Path):
@@ -551,7 +385,7 @@ def test_optional_explain_local_card_pauses_then_requests_continuation(tmp_path:
     assert [item["id"] for item in client.get("/api/cards").json()["cards"]] == [card["id"]]
 
 
-def test_card_suppression_stays_enabled_for_whole_run_if_card_is_saved_mid_run(
+def test_deferred_card_does_not_suppress_a_later_card(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -588,34 +422,45 @@ def test_card_suppression_stays_enabled_for_whole_run_if_card_is_saved_mid_run(
     )
     assert accepted.status_code == 201
 
-    calls: list[bool] = []
+    calls = 0
 
     async def fake_generate_tutor_turn_stream(*args, **kwargs):
-        calls.append(kwargs["suppress_cards"])
-        if len(calls) == 1:
-            client.app.state.sessions.save_card(card["id"], session_id=session_id)
-            turn = TutorTurn(
-                state_hint="explaining",
-                action="EXPLAIN_LOCAL",
-                message="皮带不打滑，所以接触处通过的线长度一致。",
-            )
-        else:
-            turn = TutorTurn(
-                state_hint="checking",
-                action="ASK_OPEN_QUESTION",
-                message="你能用半径和转角写出这个等式吗？",
-                wait_for_student=True,
-            )
+        nonlocal calls
+        calls += 1
+        turn = TutorTurn.model_validate(
+            {
+                "state_hint": "summarizing",
+                "action": "SUMMARIZE",
+                "message": "这道题现在可以形成新的题目卡片。",
+                "problem_card": {
+                    "type": "problem_card",
+                    "title": "新的题目卡片",
+                    "problem_summary": "一道新的题目。",
+                    "solution_overview": "按条件完成推导。",
+                    "solution_steps": [
+                        {"step": 1, "title": "推导", "reasoning": "使用已知条件。", "result": "得到结论。"}
+                    ],
+                    "pitfalls": [],
+                    "how_to_think": ["识别条件"],
+                    "final_answer": "结论",
+                },
+            }
+        )
         yield "message_delta", turn.message
         yield "turn", turn
 
     monkeypatch.setattr(chat_routes, "generate_tutor_turn_stream", fake_generate_tutor_turn_stream)
 
     response = client.post("/api/chat/stream", json={"session_id": session_id})
+    events = _parse_sse_events(response.text)
+    new_card = next(data for event, data in events if event == "card_ready")
 
     assert response.status_code == 200
-    assert calls == [True, True]
-    assert client.app.state.sessions.latest_pending_card(session_id) is None
+    assert calls == 1
+    assert new_card["id"] != card["id"]
+    restored = client.get(f"/api/sessions/{session_id}").json()
+    assert [item["id"] for item in restored["pending_cards"]] == [card["id"], new_card["id"]]
+    assert restored["pending_card"]["id"] == new_card["id"]
 
 
 def test_checkpoint_answer_is_structured_student_result(tmp_path: Path):

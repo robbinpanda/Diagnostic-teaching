@@ -1,5 +1,4 @@
 import asyncio
-import json
 from dataclasses import replace
 
 from app.core.streaming import MessageStreamExtractor
@@ -90,75 +89,6 @@ def test_local_demo_stream_emits_deltas_then_finish():
     assert deltas.strip() != ""
     assert "state_hint" in deltas  # local_demo 输出的 JSON
     assert finish == "stop"
-
-
-def test_local_demo_resolves_student_interruption_detour():
-    response = provider.local_demo_response(
-        [
-            {"role": "system", "content": "S"},
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {"kind": "session_context", "context_status": "ready"},
-                    ensure_ascii=False,
-                ),
-            },
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {"kind": "student_message", "message": "为什么负号会改变大小关系？"},
-                    ensure_ascii=False,
-                ),
-            },
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {
-                        "kind": "student_interruption_detour",
-                        "student_interruption_question": "为什么负号会改变大小关系？",
-                        "interrupted_partial_explanation": "这里是已显示的原讲解片段。",
-                    },
-                    ensure_ascii=False,
-                ),
-            },
-        ]
-    )
-
-    turn = json.loads(response)
-    assert turn["action"] == "EXPLAIN_LOCAL"
-    assert "为什么负号会改变大小关系" in turn["message"]
-    assert turn["debug"]["interruption_detour_resolved"] is True
-
-
-def test_local_demo_resumes_interrupted_explanation_from_breakpoint():
-    response = provider.local_demo_response(
-        [
-            {"role": "system", "content": "S"},
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {"kind": "session_context", "context_status": "ready"},
-                    ensure_ascii=False,
-                ),
-            },
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {
-                        "kind": "resume_interrupted_explanation",
-                        "interrupted_partial_explanation": "这里是已显示的原讲解片段。",
-                    },
-                    ensure_ascii=False,
-                ),
-            },
-        ]
-    )
-
-    turn = json.loads(response)
-    assert turn["action"] == "EXPLAIN_LOCAL"
-    assert "从断点之后继续" in turn["message"]
-    assert "这里是已显示的原讲解片段" not in turn["message"]
-    assert turn["debug"]["interruption_resume_completed"] is True
 
 
 def test_profile_factory_local_demo_works():

@@ -54,6 +54,17 @@ class StudyCardRepositoryMixin:
                 (session_id,),
             ).fetchone()
 
+    def list_pending_cards(self, session_id: str) -> list[sqlite3.Row]:
+        with self.db.connect() as conn:
+            return conn.execute(
+                """
+                SELECT * FROM study_cards
+                WHERE session_id = ? AND saved_at IS NULL
+                ORDER BY created_at ASC, rowid ASC
+                """,
+                (session_id,),
+            ).fetchall()
+
     def save_card(
         self,
         card_id: str,

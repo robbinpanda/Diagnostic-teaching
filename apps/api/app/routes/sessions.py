@@ -11,7 +11,6 @@ from app.core.schemas import (
     SessionCreate,
     SessionCreateResponse,
     SessionHistoryListResponse,
-    SessionInterruptRequest,
     SessionInterruptResponse,
     SessionRestoredMessage,
     SessionRestoreRequest,
@@ -271,19 +270,11 @@ def session_detail_response(request: Request, session) -> SessionRestoreResponse
     checkpoints = request.app.state.sessions.list_checkpoints(session["id"])
     pending = next((row for row in reversed(checkpoints) if row["answered_at"] is None), None)
     pending_payload = checkpoint_public_payload(pending) if pending else None
-    pending_card_row = request.app.state.sessions.latest_pending_card(session["id"])
+    pending_card_rows = request.app.state.sessions.list_pending_cards(session["id"])
+    pending_card_row = pending_card_rows[-1] if pending_card_rows else None
     pending_card_payload = (
         card_from_row(pending_card_row).model_dump(mode="json")
         if pending_card_row is not None
-        else None
-    )
-    pending_interruption = request.app.state.sessions.latest_pending_interruption(session["id"])
-    pending_interruption_payload = (
-        {
-            "message_id": pending_interruption["row"]["id"],
-            "resume_state": pending_interruption["metadata"].get("resume_state"),
-        }
-        if pending_interruption is not None
         else None
     )
     return SessionRestoreResponse(
@@ -300,7 +291,7 @@ def session_detail_response(request: Request, session) -> SessionRestoreResponse
         messages=restored_messages(messages, checkpoints),
         pending_checkpoint=pending_payload,
         pending_card=pending_card_payload,
-        pending_interruption=pending_interruption_payload,
+        pending_cards=[card_from_row(row).model_dump(mode="json") for row in pending_card_rows],
     )
 
 
@@ -311,22 +302,6 @@ def get_session(session_id: str, request: Request) -> SessionRestoreResponse:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
     return session_detail_response(request, session)
-
-
-@router.post("/{session_id}/interruptions/resume")
-def resume_interrupted_explanation(session_id: str, request: Request) -> dict:
-    try:
-        request.app.state.sessions.get(session_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="会话不存在") from exc
-    pending = request.app.state.sessions.latest_pending_interruption(session_id)
-    if pending is None:
-        raise HTTPException(status_code=409, detail="当前没有可恢复的原讲解")
-    request.app.state.sessions.set_interruption_resume_state(
-        pending["row"]["id"],
-        "resuming",
-    )
-    return {"message_id": pending["row"]["id"], "resume_state": "resuming"}
 
 
 @router.get("/{session_id}/run", response_model=SessionRunStatusResponse)
@@ -356,7 +331,6 @@ async def get_session_run_status(
 async def interrupt_session(
     session_id: str,
     request: Request,
-    payload: SessionInterruptRequest | None = None,
 ) -> SessionInterruptResponse:
     try:
         request.app.state.sessions.get(session_id)
@@ -364,15 +338,9 @@ async def interrupt_session(
         raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
 
     targets = await request.app.state.chat_streams.request_interrupt(session_id)
-    reason = payload.reason if payload is not None else "user_stop"
-    partial_message = payload.partial_message if payload is not None else None
     error = {
-        "code": "student_message_interrupt" if reason == "student_message" else "explicit_interrupt",
-        "message": (
-            "学生发送新问题，中断当前讲解。"
-            if reason == "student_message"
-            else "用户通过 interrupt 接口显式中断本轮生成。"
-        ),
+        "code": "explicit_interrupt",
+        "message": "用户通过 interrupt 接口显式中断本轮生成。",
         "type": "RunInterrupted",
         "retryable": True,
     }
@@ -380,7 +348,6 @@ async def interrupt_session(
         request.app.state.sessions.mark_run_interrupted(
             handle.run_id,
             error,
-            partial_message=partial_message if reason == "student_message" else None,
         )
     request.app.state.chat_streams.cancel_execution_tasks(targets)
     status = await request.app.state.chat_streams.status(session_id)
@@ -436,7 +403,8 @@ def restore_session(payload: SessionRestoreRequest, request: Request) -> Session
     checkpoints = request.app.state.sessions.list_checkpoints(session["id"])
     pending = next((row for row in reversed(checkpoints) if row["answered_at"] is None), None)
     pending_payload = checkpoint_public_payload(pending) if pending else None
-    pending_card_row = request.app.state.sessions.latest_pending_card(session["id"])
+    pending_card_rows = request.app.state.sessions.list_pending_cards(session["id"])
+    pending_card_row = pending_card_rows[-1] if pending_card_rows else None
     pending_card_payload = (
         card_from_row(pending_card_row).model_dump(mode="json")
         if pending_card_row is not None
@@ -478,4 +446,5 @@ def restore_session(payload: SessionRestoreRequest, request: Request) -> Session
         messages=restored_messages(messages, checkpoints),
         pending_checkpoint=pending_payload,
         pending_card=pending_card_payload,
+        pending_cards=[card_from_row(row).model_dump(mode="json") for row in pending_card_rows],
     )

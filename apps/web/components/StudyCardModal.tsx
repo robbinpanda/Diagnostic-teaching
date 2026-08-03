@@ -28,6 +28,9 @@ type Props = {
   editable?: boolean;
   displayMode?: "inline" | "viewer";
   libraryView?: boolean;
+  autoCollapsed?: boolean;
+  forceExpanded?: boolean;
+  onExpandCollapsed?: () => void;
 };
 
 function TextList({ items }: { items: string[] }) {
@@ -236,7 +239,10 @@ export function StudyCardModal({
   busy = false,
   editable = false,
   displayMode = "inline",
-  libraryView = false
+  libraryView = false,
+  autoCollapsed = false,
+  forceExpanded = false,
+  onExpandCollapsed
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<KnowledgeCardContent | null>(() => (
@@ -257,6 +263,14 @@ export function StudyCardModal({
     if (card?.deferred_at) setCollapsed(true);
   }, [card?.deferred_at]);
 
+  useEffect(() => {
+    if (autoCollapsed) setCollapsed(true);
+  }, [autoCollapsed]);
+
+  useEffect(() => {
+    if (forceExpanded) setCollapsed(false);
+  }, [forceExpanded]);
+
   if (!card) return null;
   const currentCard = card;
   const isKnowledge = currentCard.content.type === "knowledge_card";
@@ -264,6 +278,7 @@ export function StudyCardModal({
     ? (editable && draft ? draft : currentCard.content)
     : null;
   const title = knowledgeContent?.title ?? currentCard.content.title;
+  const collapsible = Boolean(currentCard.deferred_at) || autoCollapsed;
 
   function handleSave() {
     if (!onSave) return;
@@ -296,7 +311,7 @@ export function StudyCardModal({
 
   return (
     <article
-      className={`${displayMode === "viewer" ? "cardViewerDialog" : "inlineInteraction"} studyCardDialog ${isKnowledge ? "knowledgeCard" : "problemCard"}`}
+      className={`${displayMode === "viewer" ? "cardViewerDialog" : "inlineInteraction"} studyCardDialog ${isKnowledge ? "knowledgeCard" : "problemCard"}${collapsed ? " collapsed" : ""}`}
       aria-label={title}
       role={displayMode === "viewer" ? "dialog" : undefined}
     >
@@ -313,16 +328,25 @@ export function StudyCardModal({
           <h2><MathText text={title} /></h2>
         </div>
         <div className="studyCardHeaderActions">
-          {currentCard.deferred_at && displayMode === "inline" && (
+          {collapsible && displayMode === "inline" && (
             <button
               className="cardEditButton"
               type="button"
-              onClick={() => setCollapsed((value) => !value)}
+              onClick={() => {
+                if (collapsed && autoCollapsed && onExpandCollapsed) {
+                  onExpandCollapsed();
+                  setCollapsed(false);
+                  return;
+                }
+                setCollapsed((value) => !value);
+              }}
               disabled={busy}
               aria-expanded={!collapsed}
+              aria-label={collapsed && autoCollapsed ? "回到卡片位置并展开" : undefined}
+              title={collapsed && autoCollapsed ? "回到卡片位置并展开" : undefined}
             >
               {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-              {collapsed ? "展开待处理卡片" : "收起待处理卡片"}
+              {collapsed ? "展开卡片" : "收起卡片"}
             </button>
           )}
           {!collapsed && isKnowledge && editable && onSave && (

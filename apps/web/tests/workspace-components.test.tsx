@@ -7,7 +7,11 @@ import { CheckpointModal } from "../components/CheckpointModal";
 import { LearningCardExportDialog } from "../components/LearningCardExportDialog";
 import { StudyCardModal } from "../components/StudyCardModal";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
-import { MessageTimeline } from "../components/workspace/MessageTimeline";
+import {
+  anchoredInteractionScrollTop,
+  MessageTimeline,
+  shouldCollapseAnchoredInteraction
+} from "../components/workspace/MessageTimeline";
 import { ModelProfilePicker } from "../components/workspace/ModelProfilePicker";
 import { TutorComposer } from "../components/workspace/TutorComposer";
 import { boxFromPoints, ProblemImageSelector } from "../components/ProblemImageSelector";
@@ -120,6 +124,8 @@ test("checkpoint and pending card interactions render inside the conversation wi
   assert.match(checkpoint, /对话中的检查点/);
   assert.match(checkpoint, /提交答案/);
   assert.match(checkpoint, /aria-pressed="false"/);
+  assert.match(checkpoint, /我想自己输入回答/);
+  assert.equal((checkpoint.match(/class="optionButton/g) ?? []).length, 5);
   assert.doesNotMatch(checkpoint, /modalBackdrop/);
 
   const answeredCheckpoint = renderToStaticMarkup(
@@ -181,6 +187,39 @@ test("checkpoint and pending card interactions render inside the conversation wi
     />
   );
   assert.match(timeline, /先看这一步[\s\S]*内嵌交互/);
+
+  const anchoredTimeline = renderToStaticMarkup(
+    <MessageTimeline
+      messages={[
+        { id: "message-1", role: "assistant", text: "卡片来源", actionId: cardFixture.source_action_id },
+        { id: "message-2", role: "student", text: "后续插嘴" }
+      ]}
+      messageEndRef={{ current: null }}
+      anchoredInteractions={[{
+        id: cardFixture.id,
+        sourceActionId: cardFixture.source_action_id,
+        title: cardFixture.content.title,
+        cardType: cardFixture.card_type,
+        render: (autoCollapsed) => <span>原位卡片 {String(autoCollapsed)}</span>
+      }]}
+    />
+  );
+  assert.match(anchoredTimeline, /卡片来源[\s\S]*原位卡片 false[\s\S]*后续插嘴/);
+
+  const pinnedCard = renderToStaticMarkup(
+    <StudyCardModal
+      card={{ ...cardFixture, deferred_at: "2026-08-03T00:00:00Z" }}
+      autoCollapsed
+      onExpandCollapsed={() => {}}
+    />
+  );
+  assert.match(pinnedCard, /aria-label="回到卡片位置并展开"/);
+  assert.match(pinnedCard, /studyCardDialog knowledgeCard collapsed/);
+  assert.equal(anchoredInteractionScrollTop(500, 100, 350), 730);
+  assert.equal(anchoredInteractionScrollTop(5, 100, 50), 0);
+  assert.equal(shouldCollapseAnchoredInteraction(110, 500), false);
+  assert.equal(shouldCollapseAnchoredInteraction(110, 110), false);
+  assert.equal(shouldCollapseAnchoredInteraction(110, 109), true);
 
   const answeredTimeline = renderToStaticMarkup(
     <MessageTimeline
