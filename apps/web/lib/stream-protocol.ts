@@ -9,7 +9,6 @@ export type StreamEventKind =
   | "card_ready"
   | "message_done"
   | "run_interrupted"
-  | "interruption_state"
   | "error";
 
 export type StreamDecision = {
@@ -41,7 +40,6 @@ export type StreamEventData = {
   card_ready: StudyCard;
   message_done: StreamMessageDone;
   run_interrupted: { run_id: string; status: "interrupted" };
-  interruption_state: { message_id: string; resume_state: "resuming" | "resolved" };
   error: { message: string; action_index?: number };
 };
 
@@ -72,7 +70,6 @@ const KNOWN_EVENTS = new Set<StreamEventKind>([
   "card_ready",
   "message_done",
   "run_interrupted",
-  "interruption_state",
   "error"
 ]);
 

@@ -1,5 +1,5 @@
 import { Bot } from "lucide-react";
-import type { ReactNode, RefObject } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { ChatMessage } from "../../lib/timeline";
 import { CheckpointModal } from "../CheckpointModal";
 import { MathText } from "../MathText";
@@ -10,18 +10,65 @@ const ACTION_LABELS: Record<string, string> = {
   EXPLAIN_LOCAL: "局部讲解",
   EXPLAIN_PRINCIPLE: "原理讲解",
   RESPOND_TO_CHECKPOINT: "检查点反馈",
-  SUMMARIZE: "总结",
-  INTERRUPTED_EXPLANATION: "讲解被新问题打断"
+  SUMMARIZE: "总结"
 };
 
 type Props = {
   messages: ChatMessage[];
   messageEndRef: RefObject<HTMLDivElement | null>;
   interaction?: ReactNode;
+  anchoredInteraction?: {
+    sourceActionId: string;
+    render: (autoCollapsed: boolean) => ReactNode;
+  };
   onOpenImage?: (imageUrl: string) => void;
 };
 
-export function MessageTimeline({ messages, messageEndRef, interaction, onOpenImage }: Props) {
+function AnchoredInteraction({ render }: { render: (autoCollapsed: boolean) => ReactNode }) {
+  const sentinelRef = useRef<HTMLSpanElement | null>(null);
+  const [scrolledPast, setScrolledPast] = useState(false);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const viewport = sentinel?.closest(".messageViewport");
+    if (!sentinel || !(viewport instanceof HTMLElement)) return;
+
+    const update = () => {
+      const viewportTop = viewport.getBoundingClientRect().top + 10;
+      if (sentinel.getBoundingClientRect().top < viewportTop) setScrolledPast(true);
+    };
+    update();
+    viewport.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      viewport.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  return (
+    <>
+      <span className="anchoredInteractionSentinel" ref={sentinelRef} aria-hidden="true" />
+      <div className={`anchoredInteraction${scrolledPast ? " scrolledPast" : ""}`}>
+        {render(scrolledPast)}
+      </div>
+    </>
+  );
+}
+
+export function MessageTimeline({
+  messages,
+  messageEndRef,
+  interaction,
+  anchoredInteraction,
+  onOpenImage
+}: Props) {
+  const anchorIndex = anchoredInteraction
+    ? messages.findIndex((message) => message.actionId === anchoredInteraction.sourceActionId)
+    : -1;
+  const anchoredNode = anchoredInteraction
+    ? <AnchoredInteraction render={anchoredInteraction.render} />
+    : null;
   return (
     <div className="messageViewport">
       <div className="messageColumn">
@@ -37,11 +84,8 @@ export function MessageTimeline({ messages, messageEndRef, interaction, onOpenIm
           </div>
         )}
 
-        {messages.map((message) => (
-          <article
-            className={`chatMessage ${message.role} ${message.checkpointResult ? "checkpointResponseMessage" : ""}`.trim()}
-            key={message.id}
-          >
+        {messages.map((message, index) => (<div className="timelineEntry" key={message.id}>
+          <article className={`chatMessage ${message.role} ${message.checkpointResult ? "checkpointResponseMessage" : ""}`.trim()}>
             <div className="messageAvatar">
               {message.role === "assistant" ? <Bot size={17} /> : message.role === "student" ? "你" : "·"}
             </div>
@@ -74,7 +118,9 @@ export function MessageTimeline({ messages, messageEndRef, interaction, onOpenIm
               )}
             </div>
           </article>
-        ))}
+          {index === anchorIndex ? anchoredNode : null}
+        </div>))}
+        {anchoredInteraction && anchorIndex < 0 ? anchoredNode : null}
         {interaction}
         <div ref={messageEndRef} />
       </div>

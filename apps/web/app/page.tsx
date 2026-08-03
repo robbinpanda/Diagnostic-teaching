@@ -108,12 +108,14 @@ export default function Home() {
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const sendInFlightKeysRef = useRef(new Set<string>());
   const pendingStudentMessagesRef = useRef(new Map<string, PendingStudentRequest>());
+  const queuedInterjectionsRef = useRef(new Map<string, PendingStudentRequest[]>());
+  const flushingInterjectionsRef = useRef(new Set<string>());
   const pendingSessionBatchesRef = useRef(new Map<number, PendingSessionBatch>());
   const openSessionRequestRef = useRef(0);
   const historyRequestRef = useRef(0);
   const viewTokenRef = useRef(0);
   const speechBaseInputRef = useRef("");
-  const runtime = useSessionRuntime({ onRunSettled: () => void refreshHistory() });
+  const runtime = useSessionRuntime({ onRunSettled: handleRunSettled });
   const {
     activeCard,
     cardSaveBusy,
@@ -123,12 +125,16 @@ export default function Home() {
     error,
     messages,
     originalProblemImage,
-    pendingInterruption,
     runningSessionIds,
     sessionId,
     streamBusy,
     workflow
   } = runtime;
+
+  function handleRunSettled(targetSessionId: string) {
+    void refreshHistory();
+    void flushQueuedInterjections(targetSessionId);
+  }
 
   function draftScope(targetSessionId = sessionId) {
     return targetSessionId || DRAFT_SCOPE;
@@ -332,6 +338,57 @@ export default function Home() {
     clearPendingStudentRequest(window.localStorage, pending.operationId);
   }
 
+  function queueInterjection(targetSessionId: string, text: string) {
+    const pending: PendingStudentRequest = {
+      operationId: crypto.randomUUID(),
+      sessionId: targetSessionId,
+      text,
+      clientMessageId: crypto.randomUUID(),
+      createdAt: new Date().toISOString()
+    };
+    const queue = queuedInterjectionsRef.current.get(targetSessionId) ?? [];
+    queuedInterjectionsRef.current.set(targetSessionId, [...queue, pending]);
+    savePendingStudentRequest(window.localStorage, pending);
+    runtime.addMessage(
+      "student",
+      text,
+      "STUDENT_RESPONSE",
+      undefined,
+      `client:${pending.clientMessageId}`
+    );
+    clearComposerInput(draftScope(targetSessionId));
+  }
+
+  async function flushQueuedInterjections(targetSessionId: string) {
+    if (flushingInterjectionsRef.current.has(targetSessionId)) return;
+    if (!(queuedInterjectionsRef.current.get(targetSessionId)?.length)) return;
+    flushingInterjectionsRef.current.add(targetSessionId);
+    let shouldStartRun = false;
+    try {
+      while (true) {
+        const queue = queuedInterjectionsRef.current.get(targetSessionId) ?? [];
+        const pending = queue[0];
+        if (!pending) break;
+        await resumePendingStudentRequest(pending);
+        queuedInterjectionsRef.current.set(targetSessionId, queue.slice(1));
+        shouldStartRun = true;
+      }
+      queuedInterjectionsRef.current.delete(targetSessionId);
+      if (runtime.isSessionActive(targetSessionId)) {
+        runtime.loadSession(await fetchSession(targetSessionId));
+      }
+    } catch (nextError) {
+      if (runtime.isSessionActive(targetSessionId)) {
+        runtime.setError(nextError instanceof Error ? nextError.message : "提交插嘴消息失败");
+      }
+    } finally {
+      flushingInterjectionsRef.current.delete(targetSessionId);
+    }
+    if (shouldStartRun && !(queuedInterjectionsRef.current.get(targetSessionId)?.length)) {
+      void runtime.runStream(targetSessionId);
+    }
+  }
+
   async function submitPendingSessionBatch(
     initialBatch: PendingSessionBatch,
     originatingViewToken: number
@@ -394,8 +451,11 @@ export default function Home() {
 
     for (const pending of listPendingStudentRequests(window.localStorage)) {
       try {
+        await waitForActiveRunToSettle(pending.sessionId);
         await resumePendingStudentRequest(pending);
-        recoveredSessionIds.push(pending.sessionId);
+        if (!recoveredSessionIds.includes(pending.sessionId)) {
+          recoveredSessionIds.push(pending.sessionId);
+        }
       } catch (nextError) {
         saveActiveSessionId(window.localStorage, pending.sessionId);
         updateComposerInput(pending.text, draftScope(pending.sessionId));
@@ -583,13 +643,14 @@ export default function Home() {
     sendInFlightKeysRef.current.add(operationKey);
     if (sessionId) {
       const targetSessionId = sessionId;
-      if (streamBusy) {
-        const interrupted = await runtime.interruptForStudentMessage();
-        if (!interrupted) {
-          setInput((current) => current || text);
-          sendInFlightKeysRef.current.delete(operationKey);
-          return;
-        }
+      if (
+        streamBusy
+        || flushingInterjectionsRef.current.has(targetSessionId)
+        || Boolean(queuedInterjectionsRef.current.get(targetSessionId)?.length)
+      ) {
+        queueInterjection(targetSessionId, text);
+        sendInFlightKeysRef.current.delete(operationKey);
+        return;
       }
       const respondsToCheckpoint = workflow.mode === "checkpoint" && workflow.phase === "ready";
       const previous = pendingStudentMessagesRef.current.get(targetSessionId)
@@ -628,7 +689,6 @@ export default function Home() {
         if (accepted.deferred_card_id && accepted.card_deferred_at) {
           runtime.deferPendingCard(accepted.deferred_card_id, accepted.card_deferred_at);
         }
-        if (accepted.interruption_id) runtime.activateInterruption(accepted.interruption_id);
         pendingStudentMessagesRef.current.delete(targetSessionId);
         if (respondsToCheckpoint) runtime.completeCheckpointFreeTextSubmission();
         clearPendingStudentRequest(window.localStorage, pending.operationId);
@@ -840,6 +900,41 @@ export default function Home() {
     }
   }
 
+  async function handleCheckpointFreeText(responseText: string) {
+    const text = responseText.trim();
+    if (!text || !checkpoint || !sessionId || workflow.mode !== "checkpoint" || workflow.phase !== "ready") return;
+    const targetSessionId = sessionId;
+    const pending: PendingStudentRequest = {
+      operationId: crypto.randomUUID(),
+      sessionId: targetSessionId,
+      text,
+      clientMessageId: crypto.randomUUID(),
+      createdAt: new Date().toISOString()
+    };
+    runtime.beginCheckpointSubmission();
+    savePendingStudentRequest(window.localStorage, pending);
+    runtime.addMessage(
+      "student",
+      text,
+      "STUDENT_RESPONSE",
+      undefined,
+      `client:${pending.clientMessageId}`
+    );
+    try {
+      await resumePendingStudentRequest(pending);
+      if (runtime.isSessionActive(targetSessionId)) {
+        runtime.completeCheckpointFreeTextSubmission();
+      }
+      await runtime.runStream(targetSessionId);
+    } catch (nextError) {
+      if (runtime.isSessionActive(targetSessionId)) {
+        runtime.failCheckpointSubmission(
+          nextError instanceof Error ? nextError.message : "提交自定义回复失败"
+        );
+      }
+    }
+  }
+
   async function handleActiveCardSave(cardToSave: StudyCard, folderId?: string) {
     if (
       !activeCard
@@ -973,40 +1068,31 @@ export default function Home() {
           messages={messages}
           messageEndRef={messageEndRef}
           onOpenImage={setViewerImageUrl}
-          interaction={(activeCard || checkpoint || pendingInterruption) ? (
-            <>
-              {activeCard && (
-                <StudyCardModal
-                  key={activeCard.id}
-                  card={activeCard}
-                  folders={folders}
-                  onSave={(card, folderId) => void handleActiveCardSave(card, folderId)}
-                  onDiscard={activeCard.card_type === "knowledge_card"
-                    ? (card) => void handleActiveCardDiscard(card)
-                    : undefined}
-                  busy={cardSaveBusy}
-                  editable={activeCard.card_type === "knowledge_card"}
-                />
-              )}
-              {checkpoint && (
-                <CheckpointModal
-                  key={checkpoint.id}
-                  checkpoint={checkpoint}
-                  onSubmit={handleCheckpoint}
-                  busy={workflow.mode === "checkpoint" && workflow.phase === "submitting"}
-                />
-              )}
-              {pendingInterruption && pendingInterruption.resumeState !== "resuming" && (
-                <button
-                  className="resumeExplanationButton"
-                  type="button"
-                  onClick={() => void runtime.resumeInterruption()}
-                  disabled={streamBusy}
-                >
-                  回到原讲解
-                </button>
-              )}
-            </>
+          anchoredInteraction={activeCard ? {
+            sourceActionId: activeCard.source_action_id,
+            render: (autoCollapsed) => (
+              <StudyCardModal
+                key={activeCard.id}
+                card={activeCard}
+                folders={folders}
+                onSave={(card, folderId) => void handleActiveCardSave(card, folderId)}
+                onDiscard={activeCard.card_type === "knowledge_card"
+                  ? (card) => void handleActiveCardDiscard(card)
+                  : undefined}
+                busy={cardSaveBusy}
+                editable={activeCard.card_type === "knowledge_card"}
+                autoCollapsed={autoCollapsed}
+              />
+            )
+          } : undefined}
+          interaction={checkpoint ? (
+            <CheckpointModal
+              key={checkpoint.id}
+              checkpoint={checkpoint}
+              onSubmit={handleCheckpoint}
+              onSubmitFreeText={handleCheckpointFreeText}
+              busy={workflow.mode === "checkpoint" && workflow.phase === "submitting"}
+            />
           ) : null}
         />
 

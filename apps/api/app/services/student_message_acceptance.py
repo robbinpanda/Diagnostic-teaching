@@ -57,25 +57,6 @@ class StudentMessageAcceptanceMixin:
                 """,
                 (session_id,),
             ).fetchone()
-            interruption_row = conn.execute(
-                """
-                SELECT * FROM messages
-                WHERE session_id = ? AND action = 'INTERRUPTED_EXPLANATION'
-                ORDER BY created_at DESC, rowid DESC
-                LIMIT 1
-                """,
-                (session_id,),
-            ).fetchone()
-            interruption_metadata = (
-                _load_json(interruption_row["metadata_json"])
-                if interruption_row is not None
-                else {}
-            )
-            links_interruption = (
-                interruption_row is not None
-                and interruption_metadata.get("resume_state") == "awaiting_question"
-            )
-
             input_id = new_id("inp")
             message_id = new_id("msg")
             action_id = new_id("act")
@@ -104,7 +85,6 @@ class StudentMessageAcceptanceMixin:
                 "checkpoint_free_text_response": checkpoint_free_text_response,
                 "deferred_card_id": pending_card["id"] if pending_card is not None else None,
                 "card_deferred_at": ts if pending_card is not None else None,
-                "interruption_id": interruption_row["id"] if links_interruption else None,
             }
             conn.execute(
                 """
@@ -162,17 +142,6 @@ class StudentMessageAcceptanceMixin:
                     WHERE id = ? AND saved_at IS NULL AND deferred_at IS NULL
                     """,
                     (ts, pending_card["id"]),
-                )
-            if links_interruption and interruption_row is not None:
-                interruption_metadata.update(
-                    {
-                        "resume_state": "detour_active",
-                        "interruption_question_message_id": message_id,
-                    }
-                )
-                conn.execute(
-                    "UPDATE messages SET metadata_json = ? WHERE id = ?",
-                    (_canonical_json(interruption_metadata), interruption_row["id"]),
                 )
             conn.execute(
                 "UPDATE sessions SET updated_at = ? WHERE id = ?",

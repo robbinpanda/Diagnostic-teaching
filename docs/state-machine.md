@@ -1,7 +1,7 @@
 # 答疑状态机与 LLM 主导流程
 
-版本：v1.6
-日期：2026-07-23
+版本：v1.7
+日期：2026-08-03
 适用项目：诊断式数学答疑 MVP
 
 本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行上下文收集与教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作，同时判断 `context_status` 并提供可靠的新语义摘要；后端在上下文未 ready 时只允许开放提问，ready 后再根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop。`EXPLAIN_PRINCIPLE` 必须产生 `knowledge_card`，`EXPLAIN_LOCAL` 可按知识复用价值选择产生 `knowledge_card`，`SUMMARIZE` 必须产生 `problem_card`。**
@@ -78,14 +78,14 @@ sequenceDiagram
 - 后端不信任模型给出的等待判断；`wait_for_student` 由后端根据 action 强制推导。
 - `ASK_OPEN_QUESTION` 和 `ASK_MULTIPLE_CHOICE` 是阻塞动作，会停下等待学生。`ASK_MULTIPLE_CHOICE` 等待期间仍允许学生在输入框直接输入原文；文字提交会原子结束当前 checkpoint，并作为普通学生消息进入后续教学。
 - `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是教学语义上的非阻塞动作。`RESPOND_TO_CHECKPOINT` 直接继续；`EXPLAIN_PRINCIPLE` 必须内嵌展示 `knowledge_card`，`EXPLAIN_LOCAL` 仅在模型判断本次内容值得独立记忆和迁移复用时展示，确认归档后继续。
-- knowledge/problem card 出现后不锁住输入框。学生先发送问题时，后端原子暂存卡片并继续生成，前端保留一张可折叠的待处理卡片；该卡片解决前禁止再生成新卡。稍后保存或舍弃暂存卡片不会重复启动续讲。
+- knowledge/problem card 出现后不锁住输入框。学生先发送问题时，后端原子暂存卡片并继续生成；卡片始终锚定在来源 assistant 消息之后，滚离原位时自动折叠并吸附在对话视口顶部，滚回时仍回到原位置。该卡片解决前禁止再生成新卡；稍后保存或舍弃不会重复启动续讲。
 - knowledge card 只保存脱离当前题仍成立的公式、定理、性质或通用方法；problem card 只保存当前具体题目的条件、完整步骤和最终答案。整题依赖的可迁移原理已讲清但尚未制卡时，先生成知识卡，再在后续 `SUMMARIZE` 生成题目卡；同一道题允许各有一张。
 - 连续 3 个非阻塞动作后，下一轮 prompt 会要求模型在“自然总结”和“获取必要的新证据”之间选择；若仍输出非阻塞动作，后端会转成 `ASK_OPEN_QUESTION`。
 - `SUMMARIZE` 是终止动作，不等待学生回答，但会内嵌展示 `problem_card`；确认归档后流程结束。
 - `SUMMARIZE` 不要求学生先独立给出最终答案，也不要求额外插入确认性问题；当前结论或卡点已经讲清即可自然收束。
 - 项目不主动截断、压缩或摘要历史；模型供应商自身的硬上下文限制仍然存在。
-- AI 正在流式输出时，学生仍可输入。发送新问题会显式中断 run，把已展示片段持久化为“讲解被新问题打断”，再按原文接纳学生消息；单独点击停止仍按取消处理，不保存半截输出。
-- 打断原文会开启一层支线并获得最高优先级；支线解决前不得总结或接续原讲解。模型标记支线解决后自动从断点继续，学生也可以点击“回到原讲解”提前返回；支线中的解释和作答全部保留在后续模型历史中。
+- AI 正在流式输出时，学生仍可反复发送插嘴。当前 run 不被打断，也不保存半截 assistant 消息；插嘴先按顺序进入浏览器可恢复 outbox，当前完整输出提交后再逐条通过 `session_inputs` 幂等接纳，并只启动一次后续生成，因此模型能同时看到本轮积累的全部插嘴。
+- 插嘴不创建教学支线，不存在 detour/resume 或“回到原讲解”状态。单独点击停止仍调用显式 interrupt，丢弃未完成的瞬时片段。
 
 ## 2. LLM 输出合同：TutorTurn
 
@@ -152,7 +152,7 @@ system prompt 会在 `ACTION_PROTOCOL` 中逐项告诉模型每个 action 的功
 | `EXPLAIN_PRINCIPLE` | 非阻塞 + 卡片确认 | 从定义和原理出发讲清一个知识点，输出 `knowledge_card`，关闭归档后继续 |
 | `RESPOND_TO_CHECKPOINT` | 非阻塞 | 闭环当前待处理的选择结果，指出理解证据或误区，并提供具体、真诚的情绪支持 |
 | `ASK_OPEN_QUESTION` | 阻塞 | 展示开放问题，`wait_for_student=true`，等待学生输入 |
-| `ASK_MULTIPLE_CHOICE` | 阻塞 | 要求存在合法 checkpoint，用三个可诊断选项定位学生误区 |
+| `ASK_MULTIPLE_CHOICE` | 阻塞 | 要求存在合法 checkpoint；前端展示三个诊断选项、“我不知道”和自由输入，共五种回复方式 |
 | `SUMMARIZE` | 终止 + 卡片确认 | 自然总结并输出整题上帝视角解法的 `problem_card`，关闭归档后结束 |
 
 后端会做动作归一化：
@@ -214,7 +214,7 @@ RESPOND_TO_CHECKPOINT
 
 ## 7. 检查点如何反馈给 LLM
 
-学生可点击选项，也可直接输入自由文字回应检查点。两条路径都会先持久化输入，再继续生成。
+学生可点击三个诊断选项或“我不知道”，也可选择第五项“我想自己输入回答”后在卡片内填写原文；会话底部输入框仍可直接发送自由文字。所有路径都会先持久化输入，再继续生成。
 
 自由文字路径复用普通 `STUDENT_MESSAGE` 接纳，并在同一事务中把原文写入 `checkpoints.free_text_response`、设置 `answered_at`、写入学生原文 message 和 `checkpoint.completed(response_mode=free_text)` durable event。它不设置 `selected_option_id/is_correct`，因此不会伪造正误判断；刷新后不再恢复为待答 checkpoint，之后再选选项会返回冲突。
 

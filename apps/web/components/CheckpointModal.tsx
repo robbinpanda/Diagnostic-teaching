@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, HelpCircle, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, HelpCircle, Loader2, MessageSquareText, XCircle } from "lucide-react";
 import { useState } from "react";
 import type { AnsweredCheckpoint, Checkpoint } from "../lib/api";
 import { MathText } from "./MathText";
@@ -8,17 +8,31 @@ import { MathText } from "./MathText";
 type Props = {
   checkpoint: Checkpoint | null;
   onSubmit?: (optionId: string) => void;
+  onSubmitFreeText?: (text: string) => void;
   busy?: boolean;
   answer?: Pick<AnsweredCheckpoint, "selected_option_id" | "is_correct">;
 };
 
-export function CheckpointModal({ checkpoint, onSubmit, busy = false, answer }: Props) {
+const FREE_TEXT_OPTION_ID = "FREE_TEXT";
+
+export function CheckpointModal({
+  checkpoint,
+  onSubmit,
+  onSubmitFreeText,
+  busy = false,
+  answer
+}: Props) {
   const [selectedOptionId, setSelectedOptionId] = useState("");
+  const [freeText, setFreeText] = useState("");
 
   if (!checkpoint) return null;
   const answered = Boolean(answer);
   const visibleSelection = answer?.selected_option_id ?? selectedOptionId;
-  const options = [...checkpoint.options, checkpoint.unknown_option];
+  const options = [
+    ...checkpoint.options,
+    checkpoint.unknown_option,
+    { id: FREE_TEXT_OPTION_ID, text: "我想自己输入回答" }
+  ];
   const questionId = `checkpoint-question-${checkpoint.id}`;
 
   return (
@@ -45,7 +59,13 @@ export function CheckpointModal({ checkpoint, onSubmit, busy = false, answer }: 
               disabled={busy || answered}
               aria-pressed={selected}
             >
-              <span className="optionBadge">{option.id === "UNKNOWN" ? "?" : option.id}</span>
+              <span className="optionBadge">
+                {option.id === "UNKNOWN"
+                  ? "?"
+                  : option.id === FREE_TEXT_OPTION_ID
+                    ? <MessageSquareText size={14} />
+                    : option.id}
+              </span>
               <MathText className="optionText" text={option.text} />
               <span className="optionSelectionMark" aria-hidden="true">
                 {selected && answered && !answer?.is_correct ? <XCircle size={18} /> : null}
@@ -54,18 +74,39 @@ export function CheckpointModal({ checkpoint, onSubmit, busy = false, answer }: 
             </button>
           );
         })}
+        {!answered && selectedOptionId === FREE_TEXT_OPTION_ID && (
+          <textarea
+            className="checkpointCustomInput"
+            value={freeText}
+            onChange={(event) => setFreeText(event.target.value)}
+            placeholder="写下你的想法、推导或想追问的地方…"
+            disabled={busy}
+            rows={3}
+            autoFocus
+          />
+        )}
       </div>
       {!answered && (
         <div className="checkpointFooter">
           <p className="checkpointHint">
             <CheckCircle2 size={15} />
-            先选择，再提交；不知道也可以选。
+            共五种回复方式；也可以自行输入完整想法。
           </p>
           <button
             className="checkpointSubmitButton"
             type="button"
-            onClick={() => selectedOptionId && onSubmit?.(selectedOptionId)}
-            disabled={!selectedOptionId || busy}
+            onClick={() => {
+              if (selectedOptionId === FREE_TEXT_OPTION_ID) {
+                if (freeText.trim()) onSubmitFreeText?.(freeText.trim());
+              } else if (selectedOptionId) {
+                onSubmit?.(selectedOptionId);
+              }
+            }}
+            disabled={
+              !selectedOptionId
+              || busy
+              || (selectedOptionId === FREE_TEXT_OPTION_ID && !freeText.trim())
+            }
           >
             {busy ? <Loader2 size={16} className="spin" /> : null}
             {busy ? "提交中" : "提交答案"}

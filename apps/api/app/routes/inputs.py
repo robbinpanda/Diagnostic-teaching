@@ -36,7 +36,6 @@ def input_response(result) -> SessionInputAcceptResponse:
         card_discarded=bool(result.result.get("card_discarded", False)),
         deferred_card_id=result.result.get("deferred_card_id"),
         card_deferred_at=result.result.get("card_deferred_at"),
-        interruption_id=result.result.get("interruption_id"),
     )
 
 

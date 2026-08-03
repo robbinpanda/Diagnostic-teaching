@@ -255,7 +255,7 @@ def test_prompt_separates_reusable_knowledge_from_complete_problem_solution():
     assert "当前具体题目的完整条件、结构化步骤和最终答案" in system
 
 
-def test_interruption_detour_is_the_last_and_highest_priority_prompt():
+def test_legacy_interruption_metadata_does_not_create_a_detour_prompt():
     session = {
         "grade_band": "junior",
         "subject": "math",
@@ -296,11 +296,10 @@ def test_interruption_detour_is_the_last_and_highest_priority_prompt():
     messages = build_messages(session, history, nonblocking_streak=1)
     control = json.loads(messages[-1]["content"])
 
-    assert control["kind"] == "student_interruption_detour"
-    assert control["priority"] == "highest"
-    assert control["student_interruption_question"] == "选错了，我想选 A。"
-    assert "不得接续原讲解" in control["instruction"]
-    assert "不得 SUMMARIZE" in control["instruction"]
+    assert control["kind"] == "workflow_continue"
+    assert "student_interruption_detour" not in "\n".join(
+        str(message["content"]) for message in messages
+    )
 
 
 def test_build_messages_uses_structured_roles_and_keeps_full_history():

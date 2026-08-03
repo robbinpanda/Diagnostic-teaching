@@ -214,14 +214,6 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                     raise RunInterrupted(handle.run_id)
                 current_session = request.app.state.sessions.get(payload.session_id)
                 history = request.app.state.sessions.list_messages(payload.session_id)
-                pending_interruption = request.app.state.sessions.latest_pending_interruption(
-                    payload.session_id
-                )
-                interruption_state = (
-                    pending_interruption["metadata"].get("resume_state")
-                    if pending_interruption is not None
-                    else None
-                )
                 force_blocking = nonblocking_streak >= MAX_NONBLOCKING_ACTIONS
                 generation = generate_tutor_turn_stream(
                     profile_from_row(request, profile_row),
@@ -231,7 +223,6 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                     nonblocking_streak=nonblocking_streak,
                     force_blocking=force_blocking,
                     suppress_cards=suppress_cards_for_run,
-                    interruption_state=interruption_state,
                 )
                 turn = None
                 async for kind, value in coordinated_generation(coordinator, handle, generation):
@@ -251,23 +242,6 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                 if turn is None:
                     raise RuntimeError("本轮未拿到任何 teaching turn")
 
-                interruption_message_id = None
-                interruption_transition = None
-                if pending_interruption is not None:
-                    candidate_message_id = pending_interruption["row"]["id"]
-                    if (
-                        interruption_state == "detour_active"
-                        and turn.debug.get("interruption_detour_resolved") is True
-                    ):
-                        interruption_message_id = candidate_message_id
-                        interruption_transition = "resuming"
-                    elif (
-                        interruption_state == "resuming"
-                        and turn.debug.get("interruption_resume_completed") is True
-                    ):
-                        interruption_message_id = candidate_message_id
-                        interruption_transition = "resolved"
-
                 try:
                     assistant_row, checkpoint_row, card_row = (
                         request.app.state.sessions.record_tutor_action(
@@ -275,8 +249,6 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                             turn,
                             action_index=action_index,
                             run_id=handle.run_id,
-                            interruption_message_id=interruption_message_id,
-                            interruption_resume_state=interruption_transition,
                         )
                     )
                 except RunStateConflict as exc:
@@ -335,14 +307,6 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                         "run_id": handle.run_id,
                     },
                 )
-                if interruption_transition:
-                    yield sse(
-                        "interruption_state",
-                        {
-                            "message_id": pending_interruption["row"]["id"],
-                            "resume_state": interruption_transition,
-                        },
-                    )
                 if checkpoint_payload:
                     for option in checkpoint_payload["options"]:
                         option.pop("is_correct", None)

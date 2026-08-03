@@ -777,6 +777,26 @@
   color: var(--accent);
 }
 
+.checkpointCustomInput {
+  width: 100%;
+  min-height: 82px;
+  resize: vertical;
+  border: 1px solid #aacdbf;
+  border-radius: 10px;
+  outline: none;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: #fbfffd;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.checkpointCustomInput:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(42, 122, 95, 0.1);
+}
+
 .checkpointHint {
   display: flex;
   align-items: center;

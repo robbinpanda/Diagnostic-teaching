@@ -15,7 +15,8 @@ export const checkpointFixture: Checkpoint = {
   question: "哪一步正确？",
   options: [
     { id: "A", text: "选项 A" },
-    { id: "B", text: "选项 B" }
+    { id: "B", text: "选项 B" },
+    { id: "C", text: "选项 C" }
   ],
   unknown_option: { id: "UNKNOWN", text: "不知道" },
   tested_point: "移项",

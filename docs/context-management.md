@@ -273,7 +273,7 @@ assistant 教学动作类似：
 
 `ASK_MULTIPLE_CHOICE` 对应一个 `checkpoint` 选择题请求，它不是外部工具执行，而是等待学生作答的教学互动。
 
-学生可以点击选项，也可以在 checkpoint 等待期间直接输入原文。
+学生可以点击三个诊断选项或“我不知道”，也可以选择第五项“我想自己输入回答”在检查点卡片内填写原文；checkpoint 等待期间底部输入框也仍可直接输入。
 
 自由文字通过普通 `STUDENT_MESSAGE` 接口提交，并在一个事务内把学生原文写入 message 与 `checkpoints.free_text_response`，设置 `answered_at`，追加 `checkpoint.completed(response_mode=free_text)` 和 `message.completed`。该路径保留 `selected_option_id/is_correct=null`，不会把开放表达误判为某个选项；message metadata 中的 `checkpoint_free_text_response` 明确关联原 checkpoint。刷新或恢复后它不再属于待答 checkpoint，学生原文按普通气泡展示并进入模型历史。
 
@@ -331,7 +331,7 @@ id / session_id / card_type / title / content_json / folder_id
 source_action_id / source_message_id / created_at / saved_at / deferred_at
 ```
 
-`saved_at=null` 表示卡片尚未归档，不进入右侧卡片库。卡片刚出现时 `deferred_at=null`；学生可以直接处理卡片，也可以继续在输入框提问。发送新问题会在普通消息接纳事务中写入 `deferred_at` 和 `card.deferred`，前端把卡片折叠为仍可展开的“待处理卡片”。只要该 session 仍有未归档卡片，生成 prompt 与后端归一化会共同禁止产生第二张 knowledge/problem card；这个限制在 run 开始时固定，即使旧卡在多步骤回答中途被保存，本次 run 的后续步骤也不能立即出新卡。知识卡片支持在内嵌编辑器中删改内容；保存时带最终内容与 `folder_id` 的 `CARD_DISMISSED_CONTINUE` 会在同一事务写入 `title/content_json/saved_at/folder_id` 和 durable control input；二次确认舍弃会以 `save_to_library=false` 记录 control input 后删除待归档行；problem card 使用带 `folder_id` 的 `POST /api/cards/{id}/save` 只归档、不继续：
+`saved_at=null` 表示卡片尚未归档，不进入右侧卡片库。卡片刚出现时 `deferred_at=null`；学生可以直接处理卡片，也可以继续在输入框提问。卡片按 `source_action_id` 锚定在来源 assistant 消息之后，不再作为时间线最末尾的全局交互；原位滚出视口后卡片自动折叠并以 sticky 形式显示在视口顶部，滚回时仍占据原消息后的原位。发送新问题会在普通消息接纳事务中写入 `deferred_at` 和 `card.deferred`。只要该 session 仍有未归档卡片，生成 prompt 与后端归一化会共同禁止产生第二张 knowledge/problem card；这个限制在 run 开始时固定，即使旧卡在多步骤回答中途被保存，本次 run 的后续步骤也不能立即出新卡。知识卡片支持在内嵌编辑器中删改内容；保存时带最终内容与 `folder_id` 的 `CARD_DISMISSED_CONTINUE` 会在同一事务写入 `title/content_json/saved_at/folder_id` 和 durable control input；二次确认舍弃会以 `save_to_library=false` 记录 control input 后删除待归档行；problem card 使用带 `folder_id` 的 `POST /api/cards/{id}/save` 只归档、不继续：
 
 - knowledge card：若学生尚未继续提问，保存或舍弃后立即以无新增 student message 的 `/api/chat/stream` 继续；若已标记为待处理，稍后保存或舍弃只处理卡片，不重复启动生成。
 - problem card：保存后结束，因为来源 action 是终止动作 `SUMMARIZE`。
@@ -394,11 +394,9 @@ coordinator 只保存当前进程的执行对象、每 session 锁和 provider �
 
 assistant message、checkpoint、pending card 和 `last_committed_action_index` 在受 run 状态保护的 SQLite 事务中提交。未完整解析的 provider 输出、仅发送过 `message_delta` 的半成品和中断后才到达的结果都不会写入 messages。JSONL/Markdown 仍可记录取消前的诊断片段，但不能据此恢复 action。
 
-学生在生成期间发送新问题属于显式的 `student_message_interrupt`：前端把当前 action 已展示的文本随 interrupt 请求提交，后端在把 run 标记为 interrupted 的同一事务中将其保存为 `INTERRUPTED_EXPLANATION` message，并标记 `resume_pending=true`。随后学生原文仍通过普通 durable `STUDENT_MESSAGE` 接纳，确保部分讲解和新问题都进入 SQLite 历史。仅点击停止生成不保存未完成片段。
+学生在生成期间发送的新内容称为插嘴。前端允许连续发送多条，把每条原文及稳定 `client_message_id` 按顺序保存在浏览器 outbox，并立即显示学生气泡；当前 provider 请求继续完成，不调用 interrupt，也不把瞬时半截输出写成 message。当前完整 action/run 提交后，outbox 逐条调用普通 `STUDENT_MESSAGE` 接纳接口，全部成功后只启动一个新的 `/api/chat/stream`。因此新一轮模型历史中按顺序包含全部插嘴，而不会产生支线、恢复状态或重复 run。
 
-被打断片段的 message metadata 维护 `awaiting_question → detour_active → resuming → resolved`。第一条打断原文与片段原子关联；`detour_active` 时 prompt 把支线及其最新回复设为最高优先级，后端防御性禁止 `SUMMARIZE`。模型用 `debug.interruption_detour_resolved=true` 表示支线已闭环，下一 action 自动从原片段断点继续；学生也可调用 `POST /api/sessions/{id}/interruptions/resume` 手动返回。返回 action 提交后状态变为 resolved。支线生成期间不允许再次打断，限制为一层；所有支线 message/checkpoint 仍保留在正常历史中。
-
-补充约束：这里的“返回 action”专指明确输出 `debug.interruption_resume_completed=true` 的续写 action；该 action 与 `resolved` 状态转换在同一个 SQLite 事务中提交，任一步失败都会整体回滚。
+若当前输出最终产生 checkpoint，第一条插嘴按自由文字路径原子完成它；若产生 card，第一条插嘴按普通接纳规则原子设置 `deferred_at`。浏览器刷新恢复 outbox 时会先等待当前 active run 结束，再接纳尚未提交的插嘴，仍保证“先接纳、后生成”。显式停止生成是独立操作：`POST /api/sessions/{id}/interrupt` 只记录 `interrupted/explicit_interrupt` 并丢弃未完成片段。
 
 ## 8. 诊断日志
 

@@ -14,6 +14,25 @@
   gap: 22px;
 }
 
+.timelineEntry {
+  display: contents;
+}
+
+.anchoredInteractionSentinel {
+  width: 0;
+  height: 0;
+}
+
+.anchoredInteraction {
+  position: sticky;
+  top: 10px;
+  z-index: 6;
+}
+
+.anchoredInteraction.scrolledPast .studyCardDialog {
+  box-shadow: 0 10px 30px rgba(28, 29, 26, 0.16);
+}
+
 .welcomeState {
   min-height: calc(100vh - 320px);
   display: grid;
@@ -151,22 +170,6 @@
   border-radius: 11px;
   object-fit: contain;
   background: #ffffff;
-}
-
-.resumeExplanationButton {
-  align-self: center;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 9px 16px;
-  color: var(--accent-strong);
-  background: var(--surface);
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.resumeExplanationButton:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 
 .messageImageButton {

@@ -61,7 +61,7 @@ test("session batch recovery keeps stable SQLite idempotency keys until acceptan
   assert.equal(loadPendingSessionBatch(storage), null);
 });
 
-test("student outbox keeps one stable request per session and preserves other sessions", () => {
+test("student outbox preserves repeated interjections in one session", () => {
   const storage = new MemoryStorage();
   const first = {
     operationId: "operation-a",
@@ -87,9 +87,9 @@ test("student outbox keeps one stable request per session and preserves other se
   savePendingStudentRequest(storage, first);
   savePendingStudentRequest(storage, second);
   savePendingStudentRequest(storage, replacement);
-  assert.deepEqual(listPendingStudentRequests(storage), [second, replacement]);
+  assert.deepEqual(listPendingStudentRequests(storage), [first, second, replacement]);
   clearPendingStudentRequest(storage, replacement.operationId);
-  assert.deepEqual(listPendingStudentRequests(storage), [second]);
+  assert.deepEqual(listPendingStudentRequests(storage), [first, second]);
 });
 
 test("active session and composer drafts survive refresh without crossing session scopes", () => {

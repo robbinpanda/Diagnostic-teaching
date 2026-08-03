@@ -110,7 +110,7 @@ export function savePendingStudentRequest(storage: StorageLike, request: Pending
   writeEnvelope(storage, {
     ...envelope,
     studentRequests: [
-      ...envelope.studentRequests.filter((candidate) => candidate.sessionId !== request.sessionId),
+      ...envelope.studentRequests.filter((candidate) => candidate.operationId !== request.operationId),
       request
     ]
   });
