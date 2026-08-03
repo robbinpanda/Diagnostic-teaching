@@ -185,8 +185,14 @@ def test_action_protocol_keeps_teaching_responsibilities_distinct():
     assert "默认优先选择 ASK_MULTIPLE_CHOICE" in teaching.SYSTEM_PROMPT
     assert "不得根据消息是“第一条”还是“第二条”" in teaching.SYSTEM_PROMPT
     assert "完全没思路" in teaching.SYSTEM_PROMPT
+    assert "教学尚未开始" in teaching.SYSTEM_PROMPT
+    assert "绝不能把完整答案包装成 SUMMARIZE" in teaching.SYSTEM_PROMPT
     assert "只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以向学生提问" in teaching.SYSTEM_PROMPT
+    assert "关键等式、连续推导" in teaching.SYSTEM_PROMPT
+    assert "不得裸写 `a_3`" in teaching.SYSTEM_PROMPT
+    assert "卡片字段只写纯文本和 LaTeX" in teaching.SYSTEM_PROMPT
     assert "其余 action 的 message 必须为纯陈述句" in teaching.JSON_CONTRACT
+    assert "所有可见字符串中的数学表达必须使用" in teaching.JSON_CONTRACT
     assert "EXPLAIN_LOCAL 的讲解一旦形成" in teaching.ACTION_PROTOCOL
     assert "也必须输出 knowledge_card" in teaching.ACTION_PROTOCOL
     assert "EXPLAIN_LOCAL：仅当讲解含可迁移知识时增加" in teaching.JSON_CONTRACT
@@ -587,6 +593,52 @@ def test_summarize_requires_structured_problem_card():
     assert turn.action == "SUMMARIZE"
     assert turn.problem_card is not None
     assert turn.problem_card.solution_steps[0].step == 1
+
+
+def test_problem_card_rejects_bare_math_outside_latex_delimiters():
+    payload = {
+        "state_hint": "summarizing",
+        "action": "SUMMARIZE",
+        "message": "本题结论已经得到。",
+        "problem_card": {
+            "type": "problem_card",
+            "title": "求等比数列中的 a_3",
+            "problem_summary": "已知 a_1、a_5 是方程 x^2+6x+1=0 的两根。",
+            "solution_overview": "利用韦达定理与等比中项关系。",
+            "solution_steps": [
+                {
+                    "step": 1,
+                    "title": "建立关系",
+                    "reasoning": "使用等比中项性质。",
+                    "result": "a_1a_5=a_3^2",
+                }
+            ],
+            "pitfalls": ["不要漏掉符号判断"],
+            "how_to_think": ["看到两个根时联想到韦达定理"],
+            "final_answer": "a_3=-1",
+        },
+    }
+
+    raw = json.dumps(payload, ensure_ascii=False)
+    with pytest.raises(ValueError, match="card math expressions must use") as exc_info:
+        teaching.parse_and_validate_tutor_turn(raw)
+
+    retry_messages = teaching.build_format_retry_messages([], raw, exc_info.value)
+    assert "未被 LaTeX 定界符包裹" in retry_messages[-1]["content"]
+    assert "`$a_3$`" in retry_messages[-1]["content"]
+
+    payload["problem_card"].update(
+        {
+            "title": "求等比数列中的 $a_3$",
+            "problem_summary": "已知 $a_1$、$a_5$ 是方程 $x^2+6x+1=0$ 的两根。",
+            "final_answer": "$a_3=-1$",
+        }
+    )
+    payload["problem_card"]["solution_steps"][0]["result"] = "$a_1a_5=a_3^2$"
+
+    turn = teaching.parse_and_validate_tutor_turn(json.dumps(payload, ensure_ascii=False))
+    assert turn.problem_card is not None
+    assert turn.problem_card.final_answer == "$a_3=-1$"
 
 
 def test_build_messages_deduplicates_legacy_initial_thought():

@@ -9,6 +9,20 @@ NONBLOCKING_ACTIONS = {"EXPLAIN_LOCAL", "EXPLAIN_PRINCIPLE", "RESPOND_TO_CHECKPO
 TERMINAL_ACTIONS = {"SUMMARIZE"}
 VALID_ACTIONS = BLOCKING_ACTIONS | NONBLOCKING_ACTIONS | TERMINAL_ACTIONS
 
+_DELIMITED_MATH_RE = re.compile(
+    r"\$\$.*?\$\$|\\\[.*?\\\]|\\\(.*?\\\)|(?<!\\)\$(?:\\.|[^$])+?(?<!\\)\$",
+    re.DOTALL,
+)
+_BARE_MATH_RE = re.compile(
+    r"(?:"
+    r"[A-Za-z][A-Za-z0-9]*_[{]?[A-Za-z0-9+\-]+[}]?"
+    r"|[A-Za-z0-9)}]\^[{]?[A-Za-z0-9+\-]+[}]?"
+    r"|\\(?:frac|sqrt|cdot|times|pm|leq?|geq?|neq|sum|prod|angle|overline)\b"
+    r"|[≤≥≠±√]"
+    r"|(?<![\w$])(?:[A-Za-z]\d*|\d+)\s*(?:[+\-*/=<>]|·)\s*(?:[A-Za-z]\d*|\d+)"
+    r")"
+)
+
 
 class TutorTurnActionError(ValueError):
     """The model omitted action or returned an action outside the protocol."""
@@ -46,6 +60,41 @@ def validate_card_contract(turn: TutorTurn) -> None:
 
     if turn.action != "ASK_MULTIPLE_CHOICE" and turn.checkpoint is not None:
         raise ValueError("checkpoint is only allowed for ASK_MULTIPLE_CHOICE")
+
+    card = turn.knowledge_card or turn.problem_card
+    if card is None:
+        return
+
+    if turn.knowledge_card is not None:
+        visible_fields = [
+            card.title,
+            card.knowledge_point,
+            card.core_idea,
+            *(step.title for step in card.derivation_steps),
+            *(step.content for step in card.derivation_steps),
+            *card.when_to_use,
+            *card.common_mistakes,
+            card.connection_to_problem,
+        ]
+    else:
+        visible_fields = [
+            card.title,
+            card.problem_summary,
+            card.solution_overview,
+            *(step.title for step in card.solution_steps),
+            *(step.reasoning for step in card.solution_steps),
+            *(step.result for step in card.solution_steps),
+            *card.pitfalls,
+            *card.how_to_think,
+            card.final_answer,
+        ]
+
+    for text in visible_fields:
+        outside_math = _DELIMITED_MATH_RE.sub("", text)
+        if _BARE_MATH_RE.search(outside_math):
+            raise ValueError(
+                "card math expressions must use $...$ or $$...$$ delimiters"
+            )
 
 
 def apply_backend_action_policy(
