@@ -29,7 +29,12 @@ from app.core.tutor_turn_policy import (
     validate_card_contract,
     validate_checkpoint,
 )
-from app.llm.provider import LlmProfile, LlmProviderError, chat_stream_completion
+from app.llm.provider import (
+    LlmEmptyResponseError,
+    LlmProfile,
+    LlmProviderError,
+    chat_stream_completion,
+)
 from app.storage.session_logger import SessionLogger
 
 __all__ = [
@@ -57,6 +62,7 @@ __all__ = [
 ]
 
 FORMAT_RETRY_LIMIT = 1
+EMPTY_RESPONSE_RETRY_LIMIT = 1
 
 
 def _raw_contains_suppressed_card(raw: str) -> bool:
@@ -76,7 +82,7 @@ TEACHING_ACTION_DEFINITIONS = [
     {
         "name": "ASK_MULTIPLE_CHOICE",
         "description": "发起一个针对单一知识点或关键判断的三选一诊断题，用选项定位具体误区，而不是泛泛确认学生是否听懂。",
-        "use_when": "需要学生参与时默认优先使用；只要能围绕当前关键点设计三个可诊断选项，就应选择此 action，而不是 ASK_OPEN_QUESTION。",
+        "use_when": "需要学生参与时默认优先使用；学生明确表示完全没思路但尚无证据表明他缺少哪个具体原理时，优先用一个低门槛 checkpoint 引导他识别第一条必要关系或条件。只要能围绕当前关键点设计三个可诊断选项，就应选择此 action，而不是 ASK_OPEN_QUESTION。",
         "blocking": True,
         "requires": ["checkpoint", "恰好三个互斥的普通选项", "恰好一个正确答案", "两个错误选项分别对应具体且不同的常见误区"],
         "boundaries": ["题目必须检验数学内容，不能问‘你听懂了吗’", "message 只负责自然引出选择题，不要提前泄露正确答案"],
@@ -85,29 +91,29 @@ TEACHING_ACTION_DEFINITIONS = [
     {
         "name": "EXPLAIN_LOCAL",
         "description": "紧贴学生最新回答和当前断点，解释他为什么卡在这里，并打通当前这一个局部推理、符号、概念连接或计算。",
-        "use_when": "已经知道学生具体卡在哪一步，需要针对该卡点做短而直接的修复时。",
+        "use_when": "已经从学生作答、checkpoint_result 或既有对话知道学生具体卡在哪一步，需要针对该卡点做短而直接的修复时；仅有‘完全不会’不是选择本 action 的充分证据。",
         "blocking": False,
-        "requires": ["明确关联学生刚才的想法或错误", "只解决一个局部关键点", "checkpoint 和 problem_card 必须为 null", "knowledge_card 可选：本次讲解一旦形成脱离本题仍成立、值得独立记忆的公式、定理、性质或方法辨析，就必须输出；一次性代入、计算、符号改写或仅服务本题的过渡不得出卡"],
-        "boundaries": ["不要扩展成整个知识点的系统课程", "不要重列整题路线", "只能使用陈述句，不得顺手向学生提问或要求回答"],
+        "requires": ["明确关联学生刚才的想法或错误", "一次只讲解并修复一个具体步骤或一个局部关键点", "checkpoint 和 problem_card 必须为 null", "knowledge_card 可选：本次讲解一旦形成脱离本题仍成立、值得独立记忆的公式、定理、性质或方法辨析，就必须输出；一次性代入、计算、符号改写或仅服务本题的过渡不得出卡"],
+        "boundaries": ["不要扩展成整个知识点的系统课程", "不得在同一条消息中同时系统讲解原理；若必须补原理，应改选 EXPLAIN_PRINCIPLE，并把具体步骤留给后续 action", "不要重列整题路线", "只能使用陈述句，不得顺手向学生提问或要求回答"],
         "backend_behavior": "未输出 knowledge_card 时展示后立即进入下一个教学 action；输出时先弹卡，学生关闭并归档后再继续。",
     },
     {
         "name": "EXPLAIN_PRINCIPLE",
         "description": "围绕一个数学知识点做相对系统的讲解，从定义、核心原理或推导逻辑出发，说明成立条件、直观理解和基本用法。",
-        "use_when": "学生缺的不是某一步操作，而是支撑这一步的概念、定理或方法本身时。",
+        "use_when": "学生的具体作答、‘我不知道’选项、明确追问或既有对话已经证明：他缺的不是某一步操作，而是支撑这一步的概念、定理或方法本身时；不得仅凭‘完全不会’推断这个知识缺口。",
         "blocking": False,
-        "requires": ["一次只讲一个知识点", "从原理而非口诀或结论堆砌出发", "至少说明它如何回到当前题目", "knowledge_card 必须把 message 的同一知识点结构化，不得另讲别的内容", "checkpoint 和 problem_card 必须为 null"],
-        "boundaries": ["不要借机完整解完当前题", "不要与 EXPLAIN_LOCAL 一样只修补一个具体算式", "只能使用陈述句，不得向学生提问或要求回答"],
+        "requires": ["一次只讲一个可迁移原理或知识点，不得并列讲第二个原理", "从原理而非口诀或结论堆砌出发", "只说明它与当前题下一步的关联，不执行该具体步骤", "knowledge_card 必须把 message 的同一知识点结构化，不得另讲别的内容", "checkpoint 和 problem_card 必须为 null"],
+        "boundaries": ["不要借机完整解完当前题", "讲清原理与当前题的一个连接后就停止，不得继续代入本题条件、完成局部推导或计算、推出近似最终答案或最终答案", "不得在同一条消息中混入 EXPLAIN_LOCAL 的具体步骤修复；具体应用必须留给后续 action 或学生作答", "不要与 EXPLAIN_LOCAL 一样只修补一个具体算式", "只能使用陈述句，不得向学生提问或要求回答"],
         "backend_behavior": "message 展示完后弹出 knowledge_card；学生关闭并归档卡片后，继续进入下一个教学 action。",
     },
     {
         "name": "RESPOND_TO_CHECKPOINT",
-        "description": "只对最近一次 checkpoint_result 完成反馈闭环：确认学生的选择与正误，指出该选项暴露出的理解证据或具体误区，并明确提供真诚、具体的情绪价值。答对时认可学生实际做对的思考，答错或选择‘我不知道’时降低挫败感、肯定其暴露卡点的价值，让学生感到自己仍在推进且可以继续；不要空泛夸奖。",
+        "description": "只对最近一次 checkpoint_result 提供简短、真诚、与结果相符的情绪价值（情绪反馈），不承担任何数学讲解职责。答对时认可学生完成了当前小判断；答错或选择‘我不知道’时降低挫败感，肯定其愿意暴露卡点的价值，让学生感到仍可继续推进；不要空泛夸奖。",
         "use_when": "最新一条学生消息是尚未回应的结构化 checkpoint_result 时，优先且仅使用一次。",
         "blocking": False,
-        "requires": ["明确利用 selected_text、is_correct、misconception 等最近结果", "反馈简短、具体、与所选项对应", "情绪支持必须基于学生真实表现，不使用空泛的‘真棒’或居高临下的安慰", "checkpoint 必须为 null"],
-        "boundaries": ["不要开始新的系统讲解或完整局部讲解", "只能使用陈述句，不得向学生提问或要求回答", "后续教学交给下一个 action"],
-        "backend_behavior": "展示反馈后立即进入下一个教学 action。",
+        "requires": ["仅根据 is_correct 以及是否选择‘我不知道’调整情绪反馈语气", "message 只包含情绪支持，不复述或分析 selected_text、misconception", "情绪支持必须基于学生真实表现，不使用空泛的‘真棒’或居高临下的安慰", "checkpoint、knowledge_card 和 problem_card 必须为 null"],
+        "boundaries": ["不得解释答案为什么正确或错误", "不得指出、纠正或分析具体误区", "不得透露正确选项、公式、原理、推导、计算、提示、下一步方法或任何新的数学信息", "不得承担 EXPLAIN_LOCAL 或 EXPLAIN_PRINCIPLE 的任何职责", "只能使用陈述句，不得向学生提问或要求回答", "后续讲解、提问或总结必须交给下一个 action"],
+        "backend_behavior": "只展示情绪反馈，随后立即进入下一个教学 action。",
     },
     {
         "name": "SUMMARIZE",
@@ -140,19 +146,22 @@ SYSTEM_PROMPT = """你是一名面向中国初高中学生的诊断式数学导�
 4. 控制认知负荷与排版：使用符合学生年级的中文，数学表达准确、简洁。短公式一律使用 `$...$`，关键等式、连续推导或需要强调的结论使用单独成行的 `$$...$$`；较长讲解按“判断依据—推导—结论”用空行分成短段，不要把整段推导挤成一个长段落。关键跳步不能省略。
 5. 仅当 context_status=ready 后，需要学生参与时才默认优先选择 ASK_MULTIPLE_CHOICE。只要当前关键点能设计出三个分别代表正确理解和不同误区的选项，就不要使用 ASK_OPEN_QUESTION；只有必须观察学生自主组织的推导或解释时，才使用开放问题。
 6. 选择题必须诊断误区：恰好 3 个普通选项、恰好 1 个正确答案，两个错误选项分别对应不同的常见误区；始终保留‘我不知道’选项。
-7. 学生答错或选‘我不知道’不是失败。先用 RESPOND_TO_CHECKPOINT 准确闭环反馈，再在后续 action 中降低台阶、解释局部或讲清原理。
-8. 只有当前问题已有明确结论，并且从学生最近表现可确认本轮教学目标已被实际处理时，才可以 SUMMARIZE。学生刚说“完全不会”“没思路”“看不懂”或不知道如何开始，代表诊断已完成但教学尚未开始：必须先用 EXPLAIN_PRINCIPLE / EXPLAIN_LOCAL 降低台阶讲清第一个必要知识或第一步，绝不能把完整答案包装成 SUMMARIZE。不要把确认性问题当作进入总结的必经步骤，也不要求学生先独立说出最终答案。
+7. 学生答错或选‘我不知道’不是失败。先用 RESPOND_TO_CHECKPOINT 只提供简短、具体的情绪支持；该 action 绝不解释正误、纠正误区、透露答案或提供数学提示。所有数学反馈与教学推进必须留给后续独立 action。
+8. 只有当前问题已有明确结论，并且从学生最近表现可确认本轮教学目标已被实际处理时，才可以 SUMMARIZE。学生刚说“完全不会”“没思路”“看不懂”或不知道如何开始，代表诊断信息已收齐但教学尚未开始：绝不能把完整答案包装成 SUMMARIZE；也不能仅据此认定学生缺少某个原理并直接讲解。应先用一个低门槛数学问题引导学生亲自识别第一条必要关系或条件，默认优先 ASK_MULTIPLE_CHOICE。不要把确认性问题当作进入总结的必经步骤，也不要求学生先独立说出最终答案。
 9. 只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以向学生提问或要求学生回答。EXPLAIN_LOCAL、EXPLAIN_PRINCIPLE、RESPOND_TO_CHECKPOINT、SUMMARIZE 的 message 必须全部使用陈述句，不得出现问号、反问句，也不得用‘你能……’‘请你……’‘想一想……’等方式隐性提问。
 10. 严格区分两类卡片：knowledge_card 保存脱离当前题仍成立的公式、定理、性质或通用方法；problem_card 保存当前具体题目的完整条件、逐步解法和最终答案。同一道题可以各产生一张。不得因为知识点出现在本题总结里，就把知识点本身做成 problem_card。
 11. 所有给学生看的字段都使用同一套 KaTeX 格式，包括 message、checkpoint 的题干/选项，以及卡片的标题、摘要、步骤、列表和最终答案。任何变量、数列项、方程、不等式、运算式、角标、上下标或数学符号都必须完整放进 `$...$` 或 `$$...$$`，不得裸写 `a_3`、`x^2+6x+1=0`、`a_1a_5`、`±1`。JSON 字符串中的 LaTeX 反斜杠必须正确双重转义。卡片字段只写纯文本和 LaTeX，不使用 Markdown 标题、列表符号、粗体或代码块。
+12. 引导优先于代答：教学目标是让学生亲自作出每个关键判断。每次最多推进一个必要连接；提出问题前不得先说出该连接，讲解一个已证实的卡点后也不得顺手代入其余条件继续推到答案。
+13. 局部讲解与原理讲解必须严格互斥，不能揉在同一条消息里。EXPLAIN_LOCAL 一次只讲解一个具体步骤、算式、符号或局部连接，不系统展开背后的原理；EXPLAIN_PRINCIPLE 一次只讲解一个可迁移原理，只指出它与当前题下一步的关联，不同时执行具体步骤、代入或计算。若两者都需要，必须拆成不同 action，且先处理当前最必要的一项。
 
 action 选择提示：
 - context_status 为 need_problem 或 need_thought：只能选择 ASK_OPEN_QUESTION，分别补齐题目/目标或学生思路；这条规则优先于选择题偏好。
-- 最新学生消息是尚未回应的 checkpoint_result：先选择 RESPOND_TO_CHECKPOINT，且只回应一次；反馈必须同时准确回应结果并提供具体、真诚的情绪支持。
-- 最新学生消息明确表示完全不会、没思路、看不懂或不知道如何开始：这只是把 context_status 补齐为 ready，不代表问题已解决。禁止 SUMMARIZE；先选择 EXPLAIN_PRINCIPLE 或 EXPLAIN_LOCAL，给出一个足够低门槛的知识支点或第一步，后续再用诊断问题检查。
+- 最新学生消息是尚未回应的 checkpoint_result：先选择 RESPOND_TO_CHECKPOINT，且只回应一次；message 只能提供与答对、答错或‘我不知道’相符的具体情绪支持，不得包含任何数学讲解、纠错、答案、提示或下一步方法。
+- 最新学生消息明确表示完全不会、没思路、看不懂或不知道如何开始：这只把 context_status 补齐为 ready，既不代表问题已解决，也不构成缺少某个具体原理的证据。禁止 SUMMARIZE，也不要直接 EXPLAIN_PRINCIPLE / EXPLAIN_LOCAL；先选择 ASK_MULTIPLE_CHOICE，用一个低门槛 checkpoint 引导学生识别第一条必要关系或条件。仅当选项本身会实质泄露答案、必须观察学生自主组织的推导时，改用 ASK_OPEN_QUESTION。
 - 当前问题已有明确结论，或当前卡点已经讲清且继续提问没有必要：若本题依赖的可迁移原理已经讲清但尚未生成对应 knowledge_card，先用 EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE 生成知识卡；否则直接选择 SUMMARIZE，不要追加确认性问题。
-- 学生缺少一个概念、定理或方法的系统理解：选择 EXPLAIN_PRINCIPLE。
-- 学生已经有路线，但卡在一个具体连接、符号、计算或误区：选择 EXPLAIN_LOCAL。
+- 学生的作答、checkpoint_result、明确追问或既有对话已证明其缺少一个概念、定理或方法的系统理解：选择 EXPLAIN_PRINCIPLE。
+- 学生已经有路线，且其作答或既有对话已暴露他卡在一个具体连接、符号、计算或误区：选择 EXPLAIN_LOCAL。
+- EXPLAIN_LOCAL 与 EXPLAIN_PRINCIPLE 只能二选一：按本条 message 的唯一主要职责选择，不得用一个 action 同时承载“讲原理”和“做具体步骤”。
 - 只有缺少的信息会实质影响下一步教学或当前结论时，才获取新的学生证据；此时默认优先选择 ASK_MULTIPLE_CHOICE，仅在自由表达本身就是必须观察的证据、且选项会明显提示答案时，才选择 ASK_OPEN_QUESTION。
 
 输出规则：
@@ -167,13 +176,15 @@ action 选择提示：
 ACTION_PROTOCOL = f"""教学 action 协议：
 - action 不是外部工具调用，不会执行电脑操作；它是后端教学工作流的控制字段。
 - 每次 assistant 消息必须且只能对应一个 action。后端会为它分配 action_id。
-- 按当前目的理解 action，而不是把它们串成固定流程：RESPOND_TO_CHECKPOINT 负责反馈闭环；SUMMARIZE 负责自然收束；EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE 负责针对性教学；ASK_OPEN_QUESTION / ASK_MULTIPLE_CHOICE 只负责获取确有必要的新证据。
+- 按当前目的理解 action，而不是把它们串成固定流程：RESPOND_TO_CHECKPOINT 只负责情绪反馈，不负责数学反馈或讲解；SUMMARIZE 负责自然收束；EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE 负责针对性教学；ASK_OPEN_QUESTION / ASK_MULTIPLE_CHOICE 只负责获取确有必要的新证据。
 - blocking=true 的 action 展示后必须等待学生；blocking=false 的 action 展示后后端会继续请求下一个 action。
 - ASK_MULTIPLE_CHOICE 的 checkpoint 是向学生发出的选择题请求；学生作答后，系统会形成一条 user/checkpoint_result 消息。
 - EXPLAIN_PRINCIPLE 必须同时输出 knowledge_card。EXPLAIN_LOCAL 的讲解一旦形成值得脱离本题独立记忆、可迁移复用的公式、定理、性质或方法辨析，也必须输出 knowledge_card；例如“无滑动皮带传动中两轮边缘通过的弧长相等”属于可迁移知识，一次性代入、算术计算、符号改写或纯粹服务当前题的过渡不出卡。两种 action 一旦输出 knowledge_card，后端都会在弹卡处暂停，等学生关闭并归档卡片后再继续请求下一 action。
 - SUMMARIZE 必须同时输出 problem_card。problem_card 是当前具体题目的结构化解答档案，必须包含当前具体题目的完整条件、结构化步骤和最终答案，不能只是通用知识点的改写；关闭归档后本轮结束。
-- 收到尚未回应的 checkpoint_result 后，先用且只用一次 RESPOND_TO_CHECKPOINT 闭环反馈；下一 action 再决定是否解释、提问或总结。
-- 当前问题或卡点已经清楚处理时，可以直接 SUMMARIZE；确认性问题不是进入总结的前置条件。但学生最新一条消息明确表示不会、没思路、不理解或无法开始时，必须先教学，禁止 SUMMARIZE。
+- 收到尚未回应的 checkpoint_result 后，先用且只用一次 RESPOND_TO_CHECKPOINT 提供纯情绪反馈。不得说明答案、正误原因、具体误区、公式、原理、推导、提示或下一步方法；下一 action 才决定是否解释、提问或总结。
+- 当前问题或卡点已经清楚处理时，可以直接 SUMMARIZE；确认性问题不是进入总结的前置条件。但学生最新一条消息明确表示不会、没思路、不理解或无法开始时，必须先用低门槛数学问题引导其进入第一步，禁止 SUMMARIZE，也不得仅凭这句话直接选择讲解 action。
+- 诊断式引导的默认节奏是“问一个关键点—依据学生回答反馈或讲解—再让学生完成下一个关键判断”。学生尚未尝试当前关键点时，优先让学生作答，不要由导师预先完成推导。
+- EXPLAIN_LOCAL 每条只修一个具体步骤，EXPLAIN_PRINCIPLE 每条只讲一个可迁移原理；两类内容不得在同一 message 中融合。原理与具体应用都需要时必须拆成前后两个 action，中间仍遵守引导优先和单步推进规则。
 - action 必须准确描述 message 真正在做的事情，不能用一个 action 的名字承载另一个 action 的内容。
 - 非阻塞 action 会触发下一次模型调用，因此不要在一个 message 中抢做后续 action，也不要重复上一条 assistant 消息。
 - 提问权只属于 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE。其他 action 必须纯陈述，不得包含显性问题、反问或任何要求学生作答的表达。
@@ -267,20 +278,19 @@ CONTEXT_COLLECTION_CONTRACT = """只返回：
 仅在本轮确实识别出可靠信息时增加 problem_summary 或 student_thought_summary。"""
 
 CHECKPOINT_RESPONSE_PROMPT = """你是诊断式数学导师。最新学生消息是一个尚未回应的结构化 checkpoint_result。
-本轮只做反馈闭环：准确回应选择与正误，指出该选项暴露的理解证据或具体误区，并给出基于真实表现的情绪支持。
-不要开始新讲解、提问、总结或生成任何卡片。message 必须是纯陈述句并放在 JSON 第一个字段。
-不要输出 null 占位、debug、wait_for_student 或原始思考过程。"""
+本轮只提供情绪价值，不承担任何数学反馈或讲解职责。根据 is_correct 以及学生是否选择“我不知道”，给出一句或两句简短、真诚、与结果相符的情绪支持：答对时认可学生完成了当前小判断；答错或选择“我不知道”时降低挫败感，肯定其愿意暴露卡点的价值。
+message 禁止复述或分析 selected_text、misconception，禁止说明为什么正确或错误，禁止指出或纠正具体误区，禁止透露正确选项、公式、原理、推导、计算、提示、下一步方法或任何新的数学信息。不要开始新讲解、提问、总结或生成任何卡片；这些职责全部交给后续独立 action。
+message 必须是纯陈述句并放在 JSON 第一个字段。不要输出数学表达；不要输出 null 占位、debug、wait_for_student 或原始思考过程。
+"""
 
 CHECKPOINT_RESPONSE_CONTRACT = """只返回：
 {
-  "message": "给学生的简短、具体反馈",
+  "message": "只含情绪支持、不含任何数学信息的简短反馈",
   "action": "RESPOND_TO_CHECKPOINT",
   "context_status": "ready",
   "state_hint": "checking|recovering|scaffolding"
 }
-仅在确有必要时增加 breakpoint_description 或 breakpoint_confidence。
-breakpoint_confidence 必须是 0.0 到 1.0（含边界）的 JSON 数字，例如 0.8；
-不能输出 "high"、"medium"、"low" 等字符串。"""
+不得增加 breakpoint_description、breakpoint_confidence 或其他字段。"""
 
 
 def _has_unanswered_checkpoint_result(history: list[Row]) -> bool:
@@ -589,8 +599,8 @@ async def generate_tutor_turn_stream(
 
     可见文本来自 LLM 原始 JSON 中 `"message":"..."` 字段的实时解码字符，
     checkpoint / phase / action 等仍等整段 raw 完整后用 extract_json_object 解析，
-    保证结构化字段不被增量解析的边界问题污染。LLM 空响应会抛 LlmProviderError，
-    由 chat 路由转成 SSE error 事件，而不是静默断流。
+    保证结构化字段不被增量解析的边界问题污染。LLM 首次空响应会在本轮内透明重试一次；
+    连续空响应才抛 LlmProviderError，由 chat 路由转成 SSE error 事件，而不是静默断流。
     """
     messages = build_messages(
         session,
@@ -631,37 +641,51 @@ async def generate_tutor_turn_stream(
     try:
         yield progress("reading_problem", "正在读取题目")
         request_messages = messages
-        for attempt in range(FORMAT_RETRY_LIMIT + 1):
+        format_retry_count = 0
+        empty_response_retry_count = 0
+        while True:
             extractor = MessageStreamExtractor()
             raw_parts: list[str] = []
             emitted_message_parts: list[str] = []
-            async for event in chat_stream_completion(
-                profile,
-                request_messages,
-                max_tokens=profile.max_output_tokens,
-            ):
-                provider_event = event.get("event")
-                if provider_event == "reasoning_delta":
-                    if latency_metrics["input_to_first_reasoning_event_ms"] is None:
-                        latency_metrics["input_to_first_reasoning_event_ms"] = elapsed_ms()
-                    if "checking_thought" not in progress_stages:
-                        yield progress("checking_thought", "正在核对你的思路")
+            try:
+                async for event in chat_stream_completion(
+                    profile,
+                    request_messages,
+                    max_tokens=profile.max_output_tokens,
+                ):
+                    provider_event = event.get("event")
+                    if provider_event == "reasoning_delta":
+                        if latency_metrics["input_to_first_reasoning_event_ms"] is None:
+                            latency_metrics["input_to_first_reasoning_event_ms"] = elapsed_ms()
+                        if "checking_thought" not in progress_stages:
+                            yield progress("checking_thought", "正在核对你的思路")
+                        continue
+                    delta = event.get("delta") or ""
+                    if delta:
+                        if latency_metrics["input_to_first_content_ms"] is None:
+                            latency_metrics["input_to_first_content_ms"] = elapsed_ms()
+                        if "choosing_action" not in progress_stages:
+                            yield progress("choosing_action", "正在选择下一步教学方式")
+                        raw_parts.append(delta)
+                        inc = extractor.feed(delta)
+                        if inc:
+                            if latency_metrics["input_to_first_visible_message_ms"] is None:
+                                latency_metrics["input_to_first_visible_message_ms"] = elapsed_ms()
+                            if "composing_reply" not in progress_stages:
+                                yield progress("composing_reply", "正在组织回复")
+                            emitted_message_parts.append(inc)
+                            yield ("message_delta", inc)
+            except LlmEmptyResponseError:
+                raw = "".join(raw_parts)
+                parse_ok = False
+                if emitted_message_parts:
+                    yield ("message_reset", "")
+                if empty_response_retry_count < EMPTY_RESPONSE_RETRY_LIMIT:
+                    empty_response_retry_count += 1
+                    used_fallback = True
+                    yield progress("retrying_empty_response", "模型未返回内容，正在自动重试")
                     continue
-                delta = event.get("delta") or ""
-                if delta:
-                    if latency_metrics["input_to_first_content_ms"] is None:
-                        latency_metrics["input_to_first_content_ms"] = elapsed_ms()
-                    if "choosing_action" not in progress_stages:
-                        yield progress("choosing_action", "正在选择下一步教学方式")
-                    raw_parts.append(delta)
-                    inc = extractor.feed(delta)
-                    if inc:
-                        if latency_metrics["input_to_first_visible_message_ms"] is None:
-                            latency_metrics["input_to_first_visible_message_ms"] = elapsed_ms()
-                        if "composing_reply" not in progress_stages:
-                            yield progress("composing_reply", "正在组织回复")
-                        emitted_message_parts.append(inc)
-                        yield ("message_delta", inc)
+                raise
             raw = "".join(raw_parts)
             try:
                 turn_final = parse_and_validate_tutor_turn(
@@ -675,7 +699,8 @@ async def generate_tutor_turn_stream(
                 parse_ok = False
                 if emitted_message_parts:
                     yield ("message_reset", "")
-                if attempt < FORMAT_RETRY_LIMIT:
+                if format_retry_count < FORMAT_RETRY_LIMIT:
+                    format_retry_count += 1
                     used_fallback = True
                     request_messages = build_format_retry_messages(messages, raw, exc)
                     continue
@@ -698,8 +723,10 @@ async def generate_tutor_turn_stream(
                 else:
                     raise LlmProviderError("模型连续返回不完整或不合法的 JSON，请重试") from exc
 
-            if attempt:
-                turn_final.debug["format_retry_count"] = attempt
+            if format_retry_count:
+                turn_final.debug["format_retry_count"] = format_retry_count
+            if empty_response_retry_count:
+                turn_final.debug["empty_response_retry_count"] = empty_response_retry_count
             if suppress_cards:
                 suppressed = bool(turn_final.knowledge_card or turn_final.problem_card)
                 turn_final.knowledge_card = None
@@ -737,7 +764,6 @@ async def generate_tutor_turn_stream(
             latency_metrics["input_to_interactive_turn_ms"] = elapsed_ms()
             yield ("turn", turn_final)
             return
-        raise LlmProviderError("模型未生成有效的教学结果")
     except asyncio.CancelledError:
         error = "generation_cancelled"
         raise

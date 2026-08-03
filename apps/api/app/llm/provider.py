@@ -24,6 +24,7 @@ __all__ = [
     "IMAGE_ANALYSIS_PROMPT",
     "IMAGE_PROBLEM_DETECTION_PROMPT",
     "LlmProfile",
+    "LlmEmptyResponseError",
     "LlmProviderError",
     "TEXT_PROBLEM_SPLIT_PROMPT",
     "_anthropic_response_events",
@@ -60,6 +61,12 @@ class LlmProfile:
 
 
 class LlmProviderError(RuntimeError):
+    pass
+
+
+class LlmEmptyResponseError(LlmProviderError):
+    """Provider completed a request without emitting any visible model content."""
+
     pass
 
 
@@ -397,10 +404,10 @@ def _assert_nonempty(
     if not content:
         if finish_reason == "length":
             token_hint = f"={max_tokens}" if max_tokens is not None else ""
-            raise LlmProviderError(
+            raise LlmEmptyResponseError(
                 f"模型因 max_tokens{token_hint} 截断未输出任何可见内容，请调大 max_output_tokens 或精简历史"
             )
-        raise LlmProviderError("模型返回了空内容，请重试或换一道题")
+        raise LlmEmptyResponseError("模型返回了空内容，请重试或换一道题")
 
 
 async def chat_stream_completion(

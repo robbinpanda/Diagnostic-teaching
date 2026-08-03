@@ -59,13 +59,13 @@ Checkpoint answer 也进入 `session_inputs`，并由数据库唯一约束保证
 
 进入图片题目的答疑会话后，顶部“查看题目”按钮和消息中的题图都可打开全屏查看器。查看器默认适应屏幕，支持滚轮或按钮在 100%—500% 之间缩放、放大后拖动、重置视图，并可通过关闭按钮、Esc 或点击遮罩退出。
 
-每次 `POST /api/chat/stream` 现在都有持久化 `run_id` 和递增 `attempt`，状态依次为 `queued -> running -> completed`，异常或中断则进入 `failed / interrupted`。同一 session 的 run 按进入顺序串行，不同 session 可并行；`GET /api/sessions/{session_id}/run` 可查询活动或最新 run，`POST /api/sessions/{session_id}/interrupt` 会显式取消 provider 请求和后续 bounded loop，空闲或重复中断是幂等 no-op。浏览器仅停止读取不会伪装成显式中断，而会记录为结构化 `failed/client_disconnected`。
+每次 `POST /api/chat/stream` 现在都有持久化 `run_id` 和递增 `attempt`，状态依次为 `queued -> running -> completed`，异常或中断则进入 `failed / interrupted`。同一 session 的 run 按进入顺序串行，不同 session 可并行；`GET /api/sessions/{session_id}/run` 可查询活动或最新 run，`POST /api/sessions/{session_id}/interrupt` 会显式取消 provider 请求和后续 bounded loop，空闲或重复中断是幂等 no-op。浏览器仅停止读取不会伪装成显式中断，而会记录为结构化 `failed/client_disconnected`。provider 若完成推理却没有返回任何可见内容，本轮会用相同请求透明重试一次；连续两次空响应才把 run 标为可重试失败。
 
 run 中只有完整解析并通过 SQLite 事务提交的教学 action 才进入会话历史；流式显示到一半的 step 不会写成 assistant message。应用启动时会把上次进程遗留的 `queued/running` run 标为 `failed/process_restarted`，不会静默恢复可能重复的 provider 工作。
 
 知识卡片策略为：`EXPLAIN_PRINCIPLE` 必须输出；`EXPLAIN_LOCAL` 一旦讲清了值得脱离本题独立记忆、可迁移复用的公式、定理、性质或方法辨析，也必须输出。题目卡片只由 `SUMMARIZE` 产生，必须保存当前具体题目的完整条件、结构化步骤和最终答案，不能把通用知识点改写成题目卡片；同一道题可以先后各产生一张知识卡和题目卡。所有卡片字段中的变量、上下标、方程、不等式和数学符号都必须放在 `$...$` 或 `$$...$$` 中；后端发现裸写数学表达会要求模型重试，确保卡片库和 PDF 中可由 KaTeX 正确排版。任一 knowledge card 都会在消息结束后嵌入对话，学生可修改内容后选择保存文件夹归档，或连续点击两次“舍弃/确认舍弃”不入库。卡片出现时输入框仍可使用；学生先发新问题时，该卡片会原子标记为待处理并折叠保留，后续回答期间不会生成第二张卡片。稍后保存或舍弃待处理卡片不会额外触发一轮重复续讲。新库自动创建“默认知识卡片”和“默认题目卡片”两个系统文件夹；已归档知识卡片可再次编辑并通过 `PUT /api/cards/{id}` 保存修改，题目卡片保持只读。
 
-“完全没思路”仍是有效的学生思路状态，会让上下文进入 `ready` 并开始正式教学，但不代表教学目标已经完成。system prompt 明确要求：若最新学生消息表达完全不会、看不懂或不知道如何开始，必须先降低台阶讲解，不能把标准答案包装成 `SUMMARIZE` 直接结束。该判断保留给模型结合完整对话完成，后端不使用中文关键词正则猜测学生语义。
+“完全没思路”仍是有效的学生思路状态，会让上下文进入 `ready` 并开始正式教学，但不代表教学目标已经完成，也不构成学生缺少某个具体原理的证据。system prompt 明确要求：若最新学生消息表达完全不会、看不懂或不知道如何开始，先用只推进一个连接的低门槛数学问题引导学生识别第一条必要关系或条件，默认优先选择诊断式选择题；只有学生作答、选择“我不知道”、明确追问或既有对话已经暴露具体知识缺口后，才使用 `EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE`。两类讲解严格互斥：`EXPLAIN_LOCAL` 一次只修一个具体步骤，`EXPLAIN_PRINCIPLE` 一次只讲一个可迁移原理，不能在同一 message 中既讲原理又完成本题的具体推导、代入或计算。模型不得直接代入其余条件推到答案，也不得把标准答案包装成 `SUMMARIZE` 直接结束。该语义判断保留给模型结合完整对话完成，后端不使用中文关键词正则猜测或拒绝 action。
 
 右侧学习卡片库采用文件管理器形态：虚拟根目录下可创建主文件夹，任意文件夹内可继续创建子文件夹；卡片支持复制、剪切后粘贴、直接移动和删除。已归档知识卡片和题目卡片可以在“从卡片库导出”窗口中按目录树浏览、按文件夹批选或逐张选择后导出 PDF。窗口默认全选，并按 `saved_at` 从新到旧排列；选择编号就是打印顺序。排版预设包括 A4 竖版单列、A4 竖版双列和 A4 横版三列，默认双列；导出会打开系统打印面板，选择“另存为 PDF”即可保留 KaTeX 公式与彩色版式。
 
@@ -170,7 +170,7 @@ config     模型配置预设示例
 - `ASK_MULTIPLE_CHOICE`：用选择题检查关键理解。
 - `EXPLAIN_LOCAL`：只修复当前局部卡点。
 - `EXPLAIN_PRINCIPLE`：讲清可迁移的原理并生成知识卡片。
-- `RESPOND_TO_CHECKPOINT`：针对检查结果反馈。
+- `RESPOND_TO_CHECKPOINT`：只根据答对、答错或“我不知道”提供简短、具体的情绪支持，不解释正误、不纠正误区，也不提供公式、提示或下一步方法；数学反馈和讲解交给后续独立 action。
 - `SUMMARIZE`：收束方法、步骤与易错点并生成题目卡片。
 
 模型决定下一步教学动作，后端负责合同校验、等待规则、原子写入、幂等控制和失败兜底。`wait_for_student` 始终由后端按动作推导，不能交给模型自由决定。

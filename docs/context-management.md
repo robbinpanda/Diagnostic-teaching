@@ -250,7 +250,7 @@ assistant 教学动作类似：
 |---|---|---|
 | `EXPLAIN_LOCAL` | 非阻塞；可选卡片确认 | 修复学生当前具体卡点；可复用知识值得记忆时可产生 `knowledge_card`，关闭归档后继续，否则直接继续 |
 | `EXPLAIN_PRINCIPLE` | 非阻塞 + 卡片确认 | 系统讲解知识原理并产生 `knowledge_card`；关闭归档后继续请求模型 |
-| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 闭环当前待处理的检查点答案，给出针对性反馈与情绪支持，然后继续 |
+| `RESPOND_TO_CHECKPOINT` | 非阻塞 | 只对当前检查点结果给出情绪支持，不包含数学反馈、讲解、纠错、答案或提示，然后继续到下一 action |
 | `ASK_OPEN_QUESTION` | 阻塞 | 停止生成，等待学生自由回答 |
 | `ASK_MULTIPLE_CHOICE` | 阻塞 | 创建带诊断选项的 checkpoint，等待学生选择 |
 | `SUMMARIZE` | 终止 + 卡片确认 | 自然总结并产生 `problem_card`；关闭归档后结束，无需额外确认题 |
