@@ -57,6 +57,7 @@ export async function testModelProfile(input: {
   api_key?: string;
   model: string;
   timeout_ms?: number;
+  temperature: number;
   max_output_tokens: number;
   probe_multimodal?: boolean;
   require_multimodal?: boolean;

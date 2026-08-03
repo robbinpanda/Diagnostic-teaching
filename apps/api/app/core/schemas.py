@@ -80,6 +80,7 @@ class ModelProfileTestRequest(BaseModel):
     api_key: str | None = Field(default=None, min_length=1)
     model: str = Field(min_length=1)
     timeout_ms: int = Field(default=15000, ge=1000, le=60000)
+    temperature: float = Field(default=0.2, ge=0, le=2)
     max_output_tokens: int = Field(default=8000, ge=100, le=64000)
     probe_multimodal: bool = False
     require_multimodal: bool = False

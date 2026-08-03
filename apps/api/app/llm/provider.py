@@ -198,7 +198,7 @@ async def test_multimodal_connection(
         profile,
         messages,
         max_tokens=probe_max_tokens,
-        temperature=0,
+        temperature=profile.temperature,
     )
     try:
         async for event in stream:
@@ -243,7 +243,7 @@ async def _test_messages(
         profile,
         messages,
         max_tokens=max_tokens,
-        temperature=0,
+        temperature=profile.temperature,
     )
     try:
         async for event in stream:
@@ -314,7 +314,7 @@ async def analyze_problem_image(profile: LlmProfile, image_data_url: str) -> str
         profile,
         messages,
         max_tokens=min(max(profile.max_output_tokens, 4000), 16000),
-        temperature=0,
+        temperature=profile.temperature,
     )
 
 
@@ -349,7 +349,7 @@ async def detect_problem_regions(profile: LlmProfile, image_data_url: str) -> st
         profile,
         messages,
         max_tokens=min(max(profile.max_output_tokens, 2000), 8000),
-        temperature=0,
+        temperature=profile.temperature,
     )
 
 
@@ -387,7 +387,7 @@ async def analyze_problem_text(profile: LlmProfile, text: str) -> str:
             {"role": "user", "content": text},
         ],
         max_tokens=min(max(profile.max_output_tokens, 3000), 12000),
-        temperature=0,
+        temperature=profile.temperature,
     )
 
 

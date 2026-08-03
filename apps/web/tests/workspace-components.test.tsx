@@ -503,3 +503,9 @@ test("local demo configuration never asks users for real credentials", () => {
   assert.match(dialogSource, /disabled=\{isManaged \|\| isLocalDemo\}/);
   assert.match(dialogSource, /本地演示完全离线，不需要 Base URL 或 API key/);
 });
+
+test("model connection test sends the current temperature field", () => {
+  const dialogSource = readFileSync(resolve(__dirname, "../../../components/ModelConfigDialog.tsx"), "utf8");
+
+  assert.match(dialogSource, /testModelProfile\(\{[\s\S]*?temperature,[\s\S]*?max_output_tokens/);
+});

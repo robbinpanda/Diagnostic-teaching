@@ -168,7 +168,7 @@ def test_profile_factory_local_demo_works():
     assert p.model == "local-demo"
 
 
-def test_connection_probe_uses_nihao_and_profile_token_budget(monkeypatch):
+def test_connection_probe_uses_profile_temperature_and_token_budget(monkeypatch):
     captured = {}
     consumed_after_first_chunk = False
 
@@ -184,7 +184,9 @@ def test_connection_probe_uses_nihao_and_profile_token_budget(monkeypatch):
     monkeypatch.setattr(provider, "chat_stream_completion", fake_chat_stream_completion)
 
     async def run():
-        return await provider.test_connection(_profile("openai_compatible"))
+        return await provider.test_connection(
+            replace(_profile("openai_compatible"), temperature=0.6)
+        )
 
     ok, latency, message = asyncio.run(run())
 
@@ -193,7 +195,7 @@ def test_connection_probe_uses_nihao_and_profile_token_budget(monkeypatch):
     assert "连接成功" in message
     assert captured["messages"] == [{"role": "user", "content": "你好"}]
     assert captured["max_tokens"] == 1200
-    assert captured["temperature"] == 0
+    assert captured["temperature"] == 0.6
     assert consumed_after_first_chunk is False
 
 
@@ -212,7 +214,11 @@ def test_multimodal_probe_requires_correct_visual_answer_and_uses_profile_budget
 
     async def run():
         return await provider.test_multimodal_connection(
-            replace(_profile("openai_compatible"), max_output_tokens=8000),
+            replace(
+                _profile("openai_compatible"),
+                max_output_tokens=8000,
+                temperature=0.6,
+            ),
             "data:image/png;base64,dGVzdA==",
             "RED_CIRCLE|BLUE_SQUARE",
         )
@@ -223,7 +229,7 @@ def test_multimodal_probe_requires_correct_visual_answer_and_uses_profile_budget
     assert latency is not None
     assert message == "图片内容识别正确"
     assert captured["max_tokens"] == 8000
-    assert captured["temperature"] == 0
+    assert captured["temperature"] == 0.6
     content = captured["messages"][0]["content"]
     assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
 
@@ -272,31 +278,35 @@ def test_multimodal_probe_does_not_inject_prompt_level_effort_guidance(monkeypat
     assert captured["messages"][0]["content"][1]["type"] == "image_url"
 
 
-def test_image_json_calls_keep_their_original_task_prompts(monkeypatch):
+def test_structured_intake_calls_keep_task_prompts_and_profile_temperature(monkeypatch):
     captured = []
 
     async def fake_chat_completion(profile, messages, *, max_tokens=None, temperature=None):
-        captured.append(messages)
+        captured.append((messages, temperature))
         return "{}"
 
     monkeypatch.setattr(provider, "chat_completion", fake_chat_completion)
     profile = replace(
         _profile("openai_compatible"),
         reasoning_effort="high",
+        temperature=0.6,
     )
 
     async def run():
         await provider.analyze_problem_image(profile, "data:image/png;base64,dGVzdA==")
         await provider.detect_problem_regions(profile, "data:image/png;base64,dGVzdA==")
+        await provider.analyze_problem_text(profile, "计算 $1+1$。")
 
     asyncio.run(run())
 
-    assert len(captured) == 2
-    for messages in captured:
+    assert len(captured) == 3
+    assert [temperature for _, temperature in captured] == [0.6, 0.6, 0.6]
+    for messages, _ in captured[:2]:
         system_prompt = messages[0]["content"]
         assert "数学题图片录入助手" in system_prompt or "数学试题与学生作答区域检测助手" in system_prompt
         assert "TutorTurn" not in system_prompt
         assert "message 为第一个字段" not in system_prompt
+    assert "数学题目拆分助手" in captured[2][0][0]["content"]
 
 
 def test_anthropic_payload_moves_system_and_converts_image_data_url():
