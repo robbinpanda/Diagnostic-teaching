@@ -194,13 +194,6 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                         content=student_row["content"],
                     )
 
-            # Keep card suppression stable for the entire run. The student may
-            # archive the deferred card while this run is still producing a
-            # bounded sequence of actions; that must not let a later action in
-            # the same run create a replacement card.
-            suppress_cards_for_run = (
-                request.app.state.sessions.latest_pending_card(payload.session_id) is not None
-            )
             initial_history = request.app.state.sessions.list_messages(payload.session_id)
             nonblocking_streak = 0
             for row in reversed(initial_history):
@@ -222,7 +215,6 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                     logger=getattr(request.app.state, "session_logger", None),
                     nonblocking_streak=nonblocking_streak,
                     force_blocking=force_blocking,
-                    suppress_cards=suppress_cards_for_run,
                 )
                 turn = None
                 async for kind, value in coordinated_generation(coordinator, handle, generation):

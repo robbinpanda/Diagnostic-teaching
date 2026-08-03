@@ -350,6 +350,7 @@ class SessionRestoreResponse(BaseModel):
     messages: list[SessionRestoredMessage]
     pending_checkpoint: dict[str, Any] | None = None
     pending_card: dict[str, Any] | None = None
+    pending_cards: list[dict[str, Any]] = Field(default_factory=list)
 
 
 RunStatus = Literal["queued", "running", "completed", "failed", "interrupted"]

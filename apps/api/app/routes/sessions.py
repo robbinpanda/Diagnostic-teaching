@@ -270,7 +270,8 @@ def session_detail_response(request: Request, session) -> SessionRestoreResponse
     checkpoints = request.app.state.sessions.list_checkpoints(session["id"])
     pending = next((row for row in reversed(checkpoints) if row["answered_at"] is None), None)
     pending_payload = checkpoint_public_payload(pending) if pending else None
-    pending_card_row = request.app.state.sessions.latest_pending_card(session["id"])
+    pending_card_rows = request.app.state.sessions.list_pending_cards(session["id"])
+    pending_card_row = pending_card_rows[-1] if pending_card_rows else None
     pending_card_payload = (
         card_from_row(pending_card_row).model_dump(mode="json")
         if pending_card_row is not None
@@ -290,6 +291,7 @@ def session_detail_response(request: Request, session) -> SessionRestoreResponse
         messages=restored_messages(messages, checkpoints),
         pending_checkpoint=pending_payload,
         pending_card=pending_card_payload,
+        pending_cards=[card_from_row(row).model_dump(mode="json") for row in pending_card_rows],
     )
 
 
@@ -401,7 +403,8 @@ def restore_session(payload: SessionRestoreRequest, request: Request) -> Session
     checkpoints = request.app.state.sessions.list_checkpoints(session["id"])
     pending = next((row for row in reversed(checkpoints) if row["answered_at"] is None), None)
     pending_payload = checkpoint_public_payload(pending) if pending else None
-    pending_card_row = request.app.state.sessions.latest_pending_card(session["id"])
+    pending_card_rows = request.app.state.sessions.list_pending_cards(session["id"])
+    pending_card_row = pending_card_rows[-1] if pending_card_rows else None
     pending_card_payload = (
         card_from_row(pending_card_row).model_dump(mode="json")
         if pending_card_row is not None
@@ -443,4 +446,5 @@ def restore_session(payload: SessionRestoreRequest, request: Request) -> Session
         messages=restored_messages(messages, checkpoints),
         pending_checkpoint=pending_payload,
         pending_card=pending_card_payload,
+        pending_cards=[card_from_row(row).model_dump(mode="json") for row in pending_card_rows],
     )

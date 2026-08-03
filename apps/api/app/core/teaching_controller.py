@@ -59,10 +59,6 @@ __all__ = [
 FORMAT_RETRY_LIMIT = 1
 
 
-def _raw_contains_suppressed_card(raw: str) -> bool:
-    return '"knowledge_card"' in raw or '"problem_card"' in raw
-
-
 TEACHING_ACTION_DEFINITIONS = [
     {
         "name": "ASK_OPEN_QUESTION",
@@ -310,7 +306,6 @@ def build_messages(
     *,
     nonblocking_streak: int = 0,
     force_blocking: bool = False,
-    suppress_cards: bool = False,
 ) -> list[dict[str, Any]]:
     history = _without_legacy_initial_thought(session, history)
     loop_instruction = (
@@ -350,16 +345,10 @@ def build_messages(
             {"type": "image_url", "image_url": {"url": problem_image_data_url}},
         ]
 
-    card_instruction = (
-        "\n当前已有一张尚未处理的学习卡片。本轮绝对不得生成 knowledge_card 或 problem_card；"
-        "不得选择 EXPLAIN_PRINCIPLE 或 SUMMARIZE。可以继续局部讲解、提问或检查理解。"
-        if suppress_cards
-        else ""
-    )
     system_prompt, output_contract = _prompt_and_contract_for_request(session, history)
     system = (
         f"{system_prompt}\n{output_contract}\n\n当前工作流约束："
-        f"{loop_instruction}{card_instruction}"
+        f"{loop_instruction}"
     )
     messages = [
         {"role": "system", "content": system},
@@ -515,7 +504,6 @@ async def generate_tutor_turn_stream(
     logger: SessionLogger | None = None,
     nonblocking_streak: int = 0,
     force_blocking: bool = False,
-    suppress_cards: bool = False,
 ) -> AsyncIterator:
     """流式答疑生成器：边从 LLM 收增量边 yield message 可见字符，最后 yield 完整 TutorTurn。
 
@@ -533,7 +521,6 @@ async def generate_tutor_turn_stream(
         history,
         nonblocking_streak=nonblocking_streak,
         force_blocking=force_blocking,
-        suppress_cards=suppress_cards,
     )
     started = time.perf_counter()
     latency_metrics: dict[str, int | None] = {
@@ -615,37 +602,10 @@ async def generate_tutor_turn_stream(
                     used_fallback = True
                     request_messages = build_format_retry_messages(messages, raw, exc)
                     continue
-                if suppress_cards and _raw_contains_suppressed_card(raw):
-                    turn_final = recover_tutor_turn_from_raw(raw)
-                    apply_backend_action_policy(
-                        turn_final,
-                        force_blocking=force_blocking,
-                        current_context_status=_row_value(
-                            session, "context_status", "ready"
-                        ),
-                        current_problem_text=_row_value(session, "problem_text", ""),
-                        current_student_thought=_row_value(
-                            session, "student_initial_thought", ""
-                        ),
-                    )
-                    turn_final.debug["card_generation_suppressed"] = True
-                    used_fallback = True
-                    emitted_message_parts = []
-                else:
-                    raise LlmProviderError("模型连续返回不完整或不合法的 JSON，请重试") from exc
+                raise LlmProviderError("模型连续返回不完整或不合法的 JSON，请重试") from exc
 
             if attempt:
                 turn_final.debug["format_retry_count"] = attempt
-            if suppress_cards:
-                suppressed = bool(turn_final.knowledge_card or turn_final.problem_card)
-                turn_final.knowledge_card = None
-                turn_final.problem_card = None
-                if turn_final.action in {"EXPLAIN_PRINCIPLE", "SUMMARIZE"}:
-                    turn_final.action = "EXPLAIN_LOCAL"
-                    turn_final.wait_for_student = False
-                    suppressed = True
-                if suppressed:
-                    turn_final.debug["card_generation_suppressed"] = True
             parse_ok = True
             emitted_message = "".join(emitted_message_parts)
             if turn_final.message:

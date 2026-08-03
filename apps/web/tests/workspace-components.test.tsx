@@ -195,10 +195,13 @@ test("checkpoint and pending card interactions render inside the conversation wi
         { id: "message-2", role: "student", text: "后续插嘴" }
       ]}
       messageEndRef={{ current: null }}
-      anchoredInteraction={{
+      anchoredInteractions={[{
+        id: cardFixture.id,
         sourceActionId: cardFixture.source_action_id,
+        title: cardFixture.content.title,
+        cardType: cardFixture.card_type,
         render: (autoCollapsed) => <span>原位卡片 {String(autoCollapsed)}</span>
-      }}
+      }]}
     />
   );
   assert.match(anchoredTimeline, /卡片来源[\s\S]*原位卡片 false[\s\S]*后续插嘴/);
@@ -211,6 +214,7 @@ test("checkpoint and pending card interactions render inside the conversation wi
     />
   );
   assert.match(pinnedCard, /aria-label="回到卡片位置并展开"/);
+  assert.match(pinnedCard, /studyCardDialog knowledgeCard collapsed/);
   assert.equal(anchoredInteractionScrollTop(500, 100, 350), 730);
   assert.equal(anchoredInteractionScrollTop(5, 100, 50), 0);
   assert.equal(shouldCollapseAnchoredInteraction(110, 500), false);

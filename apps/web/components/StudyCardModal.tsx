@@ -29,6 +29,7 @@ type Props = {
   displayMode?: "inline" | "viewer";
   libraryView?: boolean;
   autoCollapsed?: boolean;
+  forceExpanded?: boolean;
   onExpandCollapsed?: () => void;
 };
 
@@ -240,6 +241,7 @@ export function StudyCardModal({
   displayMode = "inline",
   libraryView = false,
   autoCollapsed = false,
+  forceExpanded = false,
   onExpandCollapsed
 }: Props) {
   const [editing, setEditing] = useState(false);
@@ -264,6 +266,10 @@ export function StudyCardModal({
   useEffect(() => {
     if (autoCollapsed) setCollapsed(true);
   }, [autoCollapsed]);
+
+  useEffect(() => {
+    if (forceExpanded) setCollapsed(false);
+  }, [forceExpanded]);
 
   if (!card) return null;
   const currentCard = card;
@@ -305,7 +311,7 @@ export function StudyCardModal({
 
   return (
     <article
-      className={`${displayMode === "viewer" ? "cardViewerDialog" : "inlineInteraction"} studyCardDialog ${isKnowledge ? "knowledgeCard" : "problemCard"}`}
+      className={`${displayMode === "viewer" ? "cardViewerDialog" : "inlineInteraction"} studyCardDialog ${isKnowledge ? "knowledgeCard" : "problemCard"}${collapsed ? " collapsed" : ""}`}
       aria-label={title}
       role={displayMode === "viewer" ? "dialog" : undefined}
     >

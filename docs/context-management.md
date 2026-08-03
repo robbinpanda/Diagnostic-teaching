@@ -331,7 +331,7 @@ id / session_id / card_type / title / content_json / folder_id
 source_action_id / source_message_id / created_at / saved_at / deferred_at
 ```
 
-`saved_at=null` 表示卡片尚未归档，不进入右侧卡片库。卡片刚出现时 `deferred_at=null`；学生可以直接处理卡片，也可以继续在输入框提问。卡片按 `source_action_id` 锚定在来源 assistant 消息之后，不再作为时间线最末尾的全局交互；原位滚出视口后卡片自动折叠并以 sticky 形式显示在视口顶部，滚回时仍占据原消息后的原位。发送新问题会在普通消息接纳事务中写入 `deferred_at` 和 `card.deferred`。只要该 session 仍有未归档卡片，生成 prompt 与后端归一化会共同禁止产生第二张 knowledge/problem card；这个限制在 run 开始时固定，即使旧卡在多步骤回答中途被保存，本次 run 的后续步骤也不能立即出新卡。知识卡片支持在内嵌编辑器中删改内容；保存时带最终内容与 `folder_id` 的 `CARD_DISMISSED_CONTINUE` 会在同一事务写入 `title/content_json/saved_at/folder_id` 和 durable control input；二次确认舍弃会以 `save_to_library=false` 记录 control input 后删除待归档行；problem card 使用带 `folder_id` 的 `POST /api/cards/{id}/save` 只归档、不继续：
+`saved_at=null` 表示卡片尚未归档，不进入右侧卡片库。卡片刚出现时 `deferred_at=null`；学生可以直接处理卡片，也可以继续在输入框提问。卡片按 `source_action_id` 锚定在来源 assistant 消息之后，不再作为时间线最末尾的全局交互；原位滚出视口后卡片自动折叠，多张已滚过原位的卡片进入有高度上限的顶部紧凑列表，点击条目会滚回原位并展开。发送新问题会在普通消息接纳事务中写入 `deferred_at` 和 `card.deferred`。同一 session 可以保留多张未归档卡片；旧卡不会再向 prompt 注入禁卡指令，后端也不会删除新生成的 knowledge/problem card 或把 `SUMMARIZE` 降级为 `EXPLAIN_LOCAL`。`GET /api/sessions/{id}` 通过 `pending_cards` 按创建时间恢复全部待处理卡片，并继续保留 `pending_card` 作为最新一张的兼容字段。知识卡片支持在内嵌编辑器中删改内容；保存时带最终内容与 `folder_id` 的 `CARD_DISMISSED_CONTINUE` 会在同一事务写入 `title/content_json/saved_at/folder_id` 和 durable control input；二次确认舍弃会以 `save_to_library=false` 记录 control input 后删除待归档行；problem card 使用带 `folder_id` 的 `POST /api/cards/{id}/save` 只归档、不继续：
 
 - knowledge card：若学生尚未继续提问，保存或舍弃后立即以无新增 student message 的 `/api/chat/stream` 继续；若已标记为待处理，稍后保存或舍弃只处理卡片，不重复启动生成。
 - problem card：保存后结束，因为来源 action 是终止动作 `SUMMARIZE`。

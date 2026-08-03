@@ -385,7 +385,7 @@ def test_optional_explain_local_card_pauses_then_requests_continuation(tmp_path:
     assert [item["id"] for item in client.get("/api/cards").json()["cards"]] == [card["id"]]
 
 
-def test_card_suppression_stays_enabled_for_whole_run_if_card_is_saved_mid_run(
+def test_deferred_card_does_not_suppress_a_later_card(
     tmp_path: Path,
     monkeypatch,
 ):
@@ -422,34 +422,45 @@ def test_card_suppression_stays_enabled_for_whole_run_if_card_is_saved_mid_run(
     )
     assert accepted.status_code == 201
 
-    calls: list[bool] = []
+    calls = 0
 
     async def fake_generate_tutor_turn_stream(*args, **kwargs):
-        calls.append(kwargs["suppress_cards"])
-        if len(calls) == 1:
-            client.app.state.sessions.save_card(card["id"], session_id=session_id)
-            turn = TutorTurn(
-                state_hint="explaining",
-                action="EXPLAIN_LOCAL",
-                message="皮带不打滑，所以接触处通过的线长度一致。",
-            )
-        else:
-            turn = TutorTurn(
-                state_hint="checking",
-                action="ASK_OPEN_QUESTION",
-                message="你能用半径和转角写出这个等式吗？",
-                wait_for_student=True,
-            )
+        nonlocal calls
+        calls += 1
+        turn = TutorTurn.model_validate(
+            {
+                "state_hint": "summarizing",
+                "action": "SUMMARIZE",
+                "message": "这道题现在可以形成新的题目卡片。",
+                "problem_card": {
+                    "type": "problem_card",
+                    "title": "新的题目卡片",
+                    "problem_summary": "一道新的题目。",
+                    "solution_overview": "按条件完成推导。",
+                    "solution_steps": [
+                        {"step": 1, "title": "推导", "reasoning": "使用已知条件。", "result": "得到结论。"}
+                    ],
+                    "pitfalls": [],
+                    "how_to_think": ["识别条件"],
+                    "final_answer": "结论",
+                },
+            }
+        )
         yield "message_delta", turn.message
         yield "turn", turn
 
     monkeypatch.setattr(chat_routes, "generate_tutor_turn_stream", fake_generate_tutor_turn_stream)
 
     response = client.post("/api/chat/stream", json={"session_id": session_id})
+    events = _parse_sse_events(response.text)
+    new_card = next(data for event, data in events if event == "card_ready")
 
     assert response.status_code == 200
-    assert calls == [True, True]
-    assert client.app.state.sessions.latest_pending_card(session_id) is None
+    assert calls == 1
+    assert new_card["id"] != card["id"]
+    restored = client.get(f"/api/sessions/{session_id}").json()
+    assert [item["id"] for item in restored["pending_cards"]] == [card["id"], new_card["id"]]
+    assert restored["pending_card"]["id"] == new_card["id"]
 
 
 def test_checkpoint_answer_is_structured_student_result(tmp_path: Path):

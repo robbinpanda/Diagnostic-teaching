@@ -154,6 +154,7 @@ export type RestoredSession = {
   }>;
   pending_checkpoint?: Checkpoint | null;
   pending_card?: StudyCard | null;
+  pending_cards?: StudyCard[];
 };
 
 export type SessionStartResult = {

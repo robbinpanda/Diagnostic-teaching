@@ -52,7 +52,7 @@ function messageId() {
 export function useSessionRuntime(input: { onRunSettled?: (sessionId: string) => void } = {}) {
   const [context, setContext] = useState<SessionContext>(EMPTY_SESSION_CONTEXT);
   const [runningSessionIds, setRunningSessionIds] = useState<string[]>([]);
-  const [pendingCard, setPendingCard] = useState<StudyCard | null>(null);
+  const [pendingCards, setPendingCards] = useState<StudyCard[]>([]);
   const [cardSaveBusy, setCardSaveBusy] = useState(false);
   const [timeline, dispatchTimeline] = useReducer(timelineReducer, undefined, () => createTimelineState());
   const [workflow, dispatchWorkflow] = useReducer(
@@ -117,7 +117,7 @@ export function useSessionRuntime(input: { onRunSettled?: (sessionId: string) =>
 
   function prepareSessionChange() {
     dispatchWorkflow({ type: "session_reset" });
-    setPendingCard(null);
+    setPendingCards([]);
     setCardSaveBusy(false);
   }
 
@@ -172,7 +172,7 @@ export function useSessionRuntime(input: { onRunSettled?: (sessionId: string) =>
       pendingCard: opened.pending_card,
       now: Date.now()
     });
-    setPendingCard(opened.pending_card ?? null);
+    setPendingCards(opened.pending_cards ?? (opened.pending_card ? [opened.pending_card] : []));
     const activeRun = controllerRef.current?.currentFor(opened.session_id);
     if (activeRun) {
       dispatchTimeline({ type: "run_started", ...activeRun });
@@ -266,7 +266,11 @@ export function useSessionRuntime(input: { onRunSettled?: (sessionId: string) =>
           if (event.kind === "card_ready") {
             receivedCard = true;
             if (contextRef.current.sessionId === nextSessionId) {
-              setPendingCard(event.data as StudyCard);
+              const nextCard = event.data as StudyCard;
+              setPendingCards((cards) => [
+                ...cards.filter((card) => card.id !== nextCard.id),
+                nextCard
+              ]);
             }
           }
           if (event.kind === "message_done") {
@@ -374,8 +378,8 @@ export function useSessionRuntime(input: { onRunSettled?: (sessionId: string) =>
     setCardSaveBusy(true);
   }
 
-  function completeCardSave() {
-    setPendingCard(null);
+  function completeCardSave(cardId: string) {
+    setPendingCards((cards) => cards.filter((card) => card.id !== cardId));
     setCardSaveBusy(false);
   }
 
@@ -385,7 +389,9 @@ export function useSessionRuntime(input: { onRunSettled?: (sessionId: string) =>
   }
 
   function deferPendingCard(cardId: string, deferredAt: string) {
-    setPendingCard((card) => card?.id === cardId ? { ...card, deferred_at: deferredAt } : card);
+    setPendingCards((cards) => cards.map((card) => (
+      card.id === cardId ? { ...card, deferred_at: deferredAt } : card
+    )));
   }
 
   function setError(message: string) {
@@ -415,7 +421,8 @@ export function useSessionRuntime(input: { onRunSettled?: (sessionId: string) =>
     runningSessionIds,
     checkpoint: workflow.mode === "checkpoint" ? workflow.checkpoint : null,
     checkpointStartedAt: workflow.mode === "checkpoint" ? workflow.startedAt : null,
-    activeCard: pendingCard,
+    activeCard: pendingCards.at(-1) ?? null,
+    activeCards: pendingCards,
     cardSaveBusy,
     addMessage,
     bindStartedSession,

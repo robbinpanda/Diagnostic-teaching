@@ -78,7 +78,7 @@ sequenceDiagram
 - 后端不信任模型给出的等待判断；`wait_for_student` 由后端根据 action 强制推导。
 - `ASK_OPEN_QUESTION` 和 `ASK_MULTIPLE_CHOICE` 是阻塞动作，会停下等待学生。`ASK_MULTIPLE_CHOICE` 等待期间仍允许学生在输入框直接输入原文；文字提交会原子结束当前 checkpoint，并作为普通学生消息进入后续教学。
 - `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是教学语义上的非阻塞动作。`RESPOND_TO_CHECKPOINT` 直接继续；`EXPLAIN_PRINCIPLE` 必须内嵌展示 `knowledge_card`，`EXPLAIN_LOCAL` 仅在模型判断本次内容值得独立记忆和迁移复用时展示，确认归档后继续。
-- knowledge/problem card 出现后不锁住输入框。学生先发送问题时，后端原子暂存卡片并继续生成；卡片始终锚定在来源 assistant 消息之后，滚离原位时自动折叠并吸附在对话视口顶部，滚回时仍回到原位置。该卡片解决前禁止再生成新卡；稍后保存或舍弃不会重复启动续讲。
+- knowledge/problem card 出现后不锁住输入框。学生先发送问题时，后端原子暂存卡片并继续生成；待处理卡片不会禁止后续 action 再生成知识卡、题目卡或执行 `SUMMARIZE`。每张卡片始终锚定在来源 assistant 消息之后，滚离原位时自动折叠；多张已滚过原位的卡片收纳在有高度上限的顶部紧凑列表中，点击后回到原位并展开。稍后保存或舍弃 deferred 卡片不会重复启动续讲。
 - knowledge card 只保存脱离当前题仍成立的公式、定理、性质或通用方法；problem card 只保存当前具体题目的条件、完整步骤和最终答案。整题依赖的可迁移原理已讲清但尚未制卡时，先生成知识卡，再在后续 `SUMMARIZE` 生成题目卡；同一道题允许各有一张。
 - 连续 3 个非阻塞动作后，下一轮 prompt 会要求模型在“自然总结”和“获取必要的新证据”之间选择；若仍输出非阻塞动作，后端会转成 `ASK_OPEN_QUESTION`。
 - `SUMMARIZE` 是终止动作，不等待学生回答，但会内嵌展示 `problem_card`；确认归档后流程结束。
@@ -250,7 +250,7 @@ checkpoint 类似一次需要结果的调用，但结果来自学生，而不是
 
 `EXPLAIN_PRINCIPLE` 必须输出 knowledge card；`EXPLAIN_LOCAL` 由模型判断是否输出。局部讲解中易混且可迁移的辨析（例如韦达定理“和用 $-b/a$、积用 $c/a$”）适合出卡；一次性代入、算术计算、符号改写或纯本题过渡不出卡。可选卡仍必须结构化 message 中的同一个知识点，不得扩大讲解范围。
 
-生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null` 并预绑定默认文件夹。知识卡片随消息时间线内嵌展示，保存时带最终 `content/folder_id` 的 `CARD_DISMISSED_CONTINUE` 原子更新内容、位置与归档时间；二次确认舍弃会写控制命令后删除待归档卡片。Problem card 选择位置后只归档、不继续。未解决的待归档卡片存在时，`/api/chat/stream` 返回 409。
+生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null` 并预绑定默认文件夹。知识卡片随消息时间线内嵌展示，保存时带最终 `content/folder_id` 的 `CARD_DISMISSED_CONTINUE` 原子更新内容、位置与归档时间；二次确认舍弃会写控制命令后删除待归档卡片。Problem card 选择位置后只归档、不继续。刚生成且尚未 deferred 的当前卡片仍会阻止无新增学生输入的直接续跑；一旦学生发送新消息并原子写入 `deferred_at`，该卡片不再限制后续生成。
 
 全局卡片库中的查看不属于阻塞教学工作流；已归档 knowledge card 可在右侧浮层中编辑并通过 `PUT /api/cards/{id}` 更新。
 
@@ -267,7 +267,7 @@ DELETE /api/cards
 DELETE /api/cards/{card_id}
 ```
 
-`DELETE /api/cards` 会清空全部已归档和待归档卡片，但不删除 session、message、checkpoint 或日志。`session_id` 仍保存在卡片记录中作为来源审计字段，但全局卡片库的查询与删除不依赖当前会话。新建、恢复或删除 session 都不会清空已归档卡片；只有 `saved_at=null` 的待归档卡片仍属于原会话的阻塞工作流。
+`DELETE /api/cards` 会清空全部已归档和待归档卡片，但不删除 session、message、checkpoint 或日志。`session_id` 仍保存在卡片记录中作为来源审计字段，但全局卡片库的查询与删除不依赖当前会话。新建、恢复或删除 session 都不会清空已归档卡片；`saved_at=null` 的多张待归档卡片通过 `pending_cards` 恢复到各自的消息锚点，但不会形成生成锁。
 
 ## 9. SSE 事件顺序与 durable 边界
 

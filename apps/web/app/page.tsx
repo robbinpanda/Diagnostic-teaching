@@ -118,6 +118,7 @@ export default function Home() {
   const runtime = useSessionRuntime({ onRunSettled: handleRunSettled });
   const {
     activeCard,
+    activeCards,
     cardSaveBusy,
     checkpoint,
     checkpointStartedAt,
@@ -249,11 +250,11 @@ export default function Home() {
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: streamBusy ? "auto" : "smooth" });
-  }, [activeCard?.id, checkpoint?.id, messages, streamBusy]);
+  }, [activeCard?.id, activeCards.length, checkpoint?.id, messages, streamBusy]);
 
   useEffect(() => {
-    if (activeCard || checkpoint) setViewingCard(null);
-  }, [activeCard, checkpoint, setViewingCard]);
+    if (activeCards.length || checkpoint) setViewingCard(null);
+  }, [activeCards.length, checkpoint, setViewingCard]);
 
   useEffect(() => {
     if (!learningCardPrintJob) return;
@@ -288,7 +289,7 @@ export default function Home() {
   }
 
   function sessionNeedsResponse(opened: Awaited<ReturnType<typeof fetchSession>>) {
-    if (opened.pending_checkpoint || opened.pending_card) return false;
+    if (opened.pending_checkpoint) return false;
     const lastStudentIndex = opened.messages.findLastIndex((message) => message.role === "student");
     if (lastStudentIndex < 0) return false;
     return !opened.messages.slice(lastStudentIndex + 1).some((message) => message.role === "assistant");
@@ -310,7 +311,7 @@ export default function Home() {
       && (status.run?.last_committed_action_index ?? -1) < 0
     )
       || (!status.run && sessionNeedsResponse(opened));
-    if (!shouldResume || opened.pending_checkpoint || opened.pending_card) return;
+    if (!shouldResume || opened.pending_checkpoint) return;
 
     await runtime.runStream(targetSessionId);
     status = await fetchSessionRunStatus(targetSessionId);
@@ -937,8 +938,7 @@ export default function Home() {
 
   async function handleActiveCardSave(cardToSave: StudyCard, folderId?: string) {
     if (
-      !activeCard
-      || cardToSave.id !== activeCard.id
+      !activeCards.some((card) => card.id === cardToSave.id)
       || !sessionId
       || cardSaveBusy
     ) return;
@@ -964,7 +964,7 @@ export default function Home() {
         saved = await saveCard(cardToSave.id, targetSessionId, folderId);
       }
       upsertCard(saved);
-      if (runtime.isSessionActive(targetSessionId)) runtime.completeCardSave();
+      if (runtime.isSessionActive(targetSessionId)) runtime.completeCardSave(cardToSave.id);
       if (cardToSave.card_type === "knowledge_card" && !cardToSave.deferred_at) {
         await runtime.runStream(targetSessionId);
       }
@@ -977,8 +977,7 @@ export default function Home() {
 
   async function handleActiveCardDiscard(cardToDiscard: StudyCard) {
     if (
-      !activeCard
-      || cardToDiscard.id !== activeCard.id
+      !activeCards.some((card) => card.id === cardToDiscard.id)
       || cardToDiscard.card_type !== "knowledge_card"
       || !sessionId
       || cardSaveBusy
@@ -993,7 +992,7 @@ export default function Home() {
         card_id: cardToDiscard.id,
         save_to_library: false
       });
-      if (runtime.isSessionActive(targetSessionId)) runtime.completeCardSave();
+      if (runtime.isSessionActive(targetSessionId)) runtime.completeCardSave(cardToDiscard.id);
       if (!cardToDiscard.deferred_at) await runtime.runStream(targetSessionId);
     } catch (nextError) {
       if (runtime.isSessionActive(targetSessionId)) {
@@ -1068,24 +1067,28 @@ export default function Home() {
           messages={messages}
           messageEndRef={messageEndRef}
           onOpenImage={setViewerImageUrl}
-          anchoredInteraction={activeCard ? {
-            sourceActionId: activeCard.source_action_id,
-            render: (autoCollapsed, returnToAnchor) => (
+          anchoredInteractions={activeCards.map((card) => ({
+            id: card.id,
+            sourceActionId: card.source_action_id,
+            title: card.content.title,
+            cardType: card.card_type,
+            render: (autoCollapsed, returnToAnchor, forceExpanded) => (
               <StudyCardModal
-                key={activeCard.id}
-                card={activeCard}
+                key={card.id}
+                card={card}
                 folders={folders}
-                onSave={(card, folderId) => void handleActiveCardSave(card, folderId)}
-                onDiscard={activeCard.card_type === "knowledge_card"
-                  ? (card) => void handleActiveCardDiscard(card)
+                onSave={(cardToSave, folderId) => void handleActiveCardSave(cardToSave, folderId)}
+                onDiscard={card.card_type === "knowledge_card"
+                  ? (cardToDiscard) => void handleActiveCardDiscard(cardToDiscard)
                   : undefined}
                 busy={cardSaveBusy}
-                editable={activeCard.card_type === "knowledge_card"}
+                editable={card.card_type === "knowledge_card"}
                 autoCollapsed={autoCollapsed}
+                forceExpanded={forceExpanded}
                 onExpandCollapsed={returnToAnchor}
               />
             )
-          } : undefined}
+          }))}
           interaction={checkpoint ? (
             <CheckpointModal
               key={checkpoint.id}
