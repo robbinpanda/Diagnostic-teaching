@@ -60,6 +60,7 @@ function AnchoredInteraction({
 }) {
   const sentinelRef = useRef<HTMLSpanElement | null>(null);
   const cardEndRef = useRef<HTMLSpanElement | null>(null);
+  const scrolledPastRef = useRef(false);
   const [scrolledPast, setScrolledPast] = useState(false);
 
   useEffect(() => {
@@ -74,10 +75,10 @@ function AnchoredInteraction({
         viewportTop,
         cardEnd.getBoundingClientRect().top
       );
-      setScrolledPast((current) => {
-        if (current !== nextScrolledPast) onPastChange(id, nextScrolledPast);
-        return nextScrolledPast;
-      });
+      if (scrolledPastRef.current === nextScrolledPast) return;
+      scrolledPastRef.current = nextScrolledPast;
+      setScrolledPast(nextScrolledPast);
+      onPastChange(id, nextScrolledPast);
     };
     update();
     viewport.addEventListener("scroll", update, { passive: true });
@@ -103,6 +104,7 @@ function AnchoredInteraction({
     } else {
       sentinel?.scrollIntoView({ behavior: "auto", block: "start" });
     }
+    scrolledPastRef.current = false;
     setScrolledPast(false);
     onPastChange(id, false);
   }, [id, onPastChange]);
