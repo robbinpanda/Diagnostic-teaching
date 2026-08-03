@@ -32,22 +32,31 @@ export function anchoredInteractionScrollTop(
   return Math.max(0, currentScrollTop + anchorTop - viewportTop - 20);
 }
 
+export function shouldCollapseAnchoredInteraction(viewportTop: number, cardBottom: number) {
+  return cardBottom < viewportTop;
+}
+
 function AnchoredInteraction({
   render
 }: {
   render: (autoCollapsed: boolean, returnToAnchor: () => void) => ReactNode;
 }) {
   const sentinelRef = useRef<HTMLSpanElement | null>(null);
+  const cardEndRef = useRef<HTMLSpanElement | null>(null);
   const [scrolledPast, setScrolledPast] = useState(false);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
+    const cardEnd = cardEndRef.current;
     const viewport = sentinel?.closest(".messageViewport");
-    if (!sentinel || !(viewport instanceof HTMLElement)) return;
+    if (!sentinel || !cardEnd || !(viewport instanceof HTMLElement)) return;
 
     const update = () => {
       const viewportTop = viewport.getBoundingClientRect().top + 10;
-      setScrolledPast(sentinel.getBoundingClientRect().top < viewportTop);
+      setScrolledPast(shouldCollapseAnchoredInteraction(
+        viewportTop,
+        cardEnd.getBoundingClientRect().top
+      ));
     };
     update();
     viewport.addEventListener("scroll", update, { passive: true });
@@ -82,6 +91,7 @@ function AnchoredInteraction({
       <div className={`anchoredInteraction${scrolledPast ? " scrolledPast" : ""}`}>
         {render(scrolledPast, returnToAnchor)}
       </div>
+      <span className="anchoredInteractionSentinel" ref={cardEndRef} aria-hidden="true" />
     </>
   );
 }

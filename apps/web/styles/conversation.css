@@ -24,6 +24,10 @@
 }
 
 .anchoredInteraction {
+  position: relative;
+}
+
+.anchoredInteraction.scrolledPast {
   position: sticky;
   top: 10px;
   z-index: 6;

@@ -9,7 +9,8 @@ import { StudyCardModal } from "../components/StudyCardModal";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import {
   anchoredInteractionScrollTop,
-  MessageTimeline
+  MessageTimeline,
+  shouldCollapseAnchoredInteraction
 } from "../components/workspace/MessageTimeline";
 import { ModelProfilePicker } from "../components/workspace/ModelProfilePicker";
 import { TutorComposer } from "../components/workspace/TutorComposer";
@@ -212,6 +213,9 @@ test("checkpoint and pending card interactions render inside the conversation wi
   assert.match(pinnedCard, /aria-label="回到卡片位置并展开"/);
   assert.equal(anchoredInteractionScrollTop(500, 100, 350), 730);
   assert.equal(anchoredInteractionScrollTop(5, 100, 50), 0);
+  assert.equal(shouldCollapseAnchoredInteraction(110, 500), false);
+  assert.equal(shouldCollapseAnchoredInteraction(110, 110), false);
+  assert.equal(shouldCollapseAnchoredInteraction(110, 109), true);
 
   const answeredTimeline = renderToStaticMarkup(
     <MessageTimeline
