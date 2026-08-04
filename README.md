@@ -39,13 +39,13 @@ npm --prefix apps/web install
 
 打开 <http://127.0.0.1:3000>。当前功能和运行说明如下。
 
-当前已支持：文字单题/多题自动拆分、PNG/JPEG/WebP 题图的多题框检测与可编辑裁剪、按题目批量创建独立答疑 session、OpenAI-compatible / Anthropic 双协议加密模型配置、自动同步的 OpenCode 免费模型、可选选项或直接输入原文回应的检查点选择题、跨 session 的全局知识卡片/题目卡片库、层级卡片文件夹与复制/剪切/移动、基于目录树选择的学习卡片 PDF 多排版导出、SQLite 历史会话与删除、按 session 严格递增的 durable events 与断线重放 SSE，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
+当前已支持：文字单题/多题自动拆分、PNG/JPEG/WebP 题图的多题框检测与可编辑裁剪、按题目批量创建独立答疑 session、OpenAI Responses / OpenAI-compatible Chat Completions / Anthropic Messages 三协议加密模型配置、自动同步的 OpenCode 免费模型、可选选项或直接输入原文回应的检查点选择题、跨 session 的全局知识卡片/题目卡片库、层级卡片文件夹与复制/剪切/移动、基于目录树选择的学习卡片 PDF 多排版导出、SQLite 历史会话与删除、按 session 严格递增的 durable events 与断线重放 SSE，以及 JSONL/Markdown 双份诊断日志。页面采用左侧会话、中央对话、右侧卡片的三栏布局；建会话和会话内回复共用底部输入框，不再把“题目”和“你想到哪一步”拆成两个表单。
 
 SQLite schema 由 Alembic 统一管理。后端启动时自动升级到最新 revision；旧版无 Alembic 标记的数据库会在保留业务数据的前提下建立迁移基线。每条应用连接启用 foreign keys、WAL 与 5 秒 busy timeout，具体约束、备份和 Windows 本地运行行为见 `docs/database.md`。
 
 前端会话运行态由 timeline reducer、互斥 workflow 状态机和按 session 隔离的 stream controller 管理。切换会话或新建答疑只切换当前视图，不会关闭其他 session 的 HTTP 流；多个 session 可以同时生成，同一 session 的新 run 仍只会替换该 session 的旧 run。点击停止只中断当前打开的 session，页面卸载才统一收束所有本地流。每个 chat 事件同时绑定 session id 与本地 run id，后台流不能写入后来打开的 session；重新打开仍在生成的 session 时，页面从 SQLite 快照恢复已提交内容并重新接回该 session 的活动流。高频 `message_delta/message_reset` 没有 durable seq；稳定业务边界由独立的 session-events SSE 提供严格递增的 `seq` 和断线重放。
 
-模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name，并可选择 OpenAI-compatible chat completions 或 Anthropic Messages 协议。多个 model name 的连接测试最多四项并行执行，每个模型独立显示成功或失败并设置是否多模态；测试请求以及题图分析、题目框检测、文字拆题和正式答疑都会使用表单当前填写并保存的 temperature，不再用固定值覆盖供应商要求。连接测试同时使用当前 timeout 和 max output tokens。图片能力使用每次随机排列的颜色/图形挑战验证模型是否真正读懂图片，而不是只判断请求是否返回文字。模型选择器会根据名称长度自适应宽度，长名称自动省略，多模态项显示“支持上传图片”；管理模式可复选并原子批量删除自定义配置。用户配置显示为“供应商名称 · model name”；OpenCode 托管免费模型显示为 `opencodefree-<model-id>`，由 `models.dev` 目录同步协议与图片能力，且不能手动删除。
+模型设置支持在同一套供应商 Base URL/API key 下批量添加多个 model name，并按供应商类型固定协议：OpenAI 使用 Responses API，OpenAI-compatible 使用 Chat Completions，Anthropic 使用 Messages API。多个 model name 的连接测试最多四项并行执行，每个模型独立显示成功或失败并设置是否多模态；测试请求以及题图分析、题目框检测、文字拆题和正式答疑都会使用表单当前填写并保存的 temperature，不再用固定值覆盖供应商要求。连接测试同时使用当前 timeout 和 max output tokens。图片能力使用每次随机排列的颜色/图形挑战验证模型是否真正读懂图片，而不是只判断请求是否返回文字。模型选择器会根据名称长度自适应宽度，长名称自动省略，多模态项显示“支持上传图片”；管理模式可复选并原子批量删除自定义配置。用户配置显示为“供应商名称 · model name”；OpenCode 托管免费模型显示为 `opencodefree-<model-id>`，由 `models.dev` 目录同步协议与图片能力，且不能手动删除。
 
 教学上下文的前置 intake 已取消；新增的拆题阶段只决定“一段输入要创建几个 session”，不参与教学 action。文字首发先调用 `POST /api/problem-intake/analyze-text`，由当前选定模型返回严格 `problems[]` JSON；单题返回一项，多题返回多个自包含题目，再由 `POST /api/sessions/batch-start` 在同一 SQLite 事务中为每题创建正式 session、写入 `session_inputs` 并保存首条 `STUDENT_RESPONSE`。每个子会话都有稳定 session id 与 `client_message_id`，整批重试不会重复创建。进入正式 session 后，题目和学生思路仍由答疑模型按完整对话语义更新；`context_status=need_problem|need_thought` 时后端强制只允许 `ASK_OPEN_QUESTION`，两项明确后进入 `ready`。
 
@@ -135,7 +135,7 @@ apps/api   FastAPI 后端
   app/core/tutor_turn_parsing.py     TutorTurn 容错解析、清洗与合同校验
   app/core/tutor_turn_policy.py      action/context 后端策略与 wait_for_student 推导
   app/core/streaming.py              增量 JSON message 解析器（打字机）
-  app/llm/provider.py                OpenAI-compatible / Anthropic 双协议流式入口
+  app/llm/provider.py                Responses / Chat Completions / Messages 三协议流式入口
   app/llm/local_demo_provider.py     本地演示模型与教学状态模拟
   app/llm/opencode_free_models.py    OpenCode 免费模型目录、缓存与能力解析
   app/routes/chat.py                 chat SSE 的 HTTP 接入与 run 执行流程
@@ -180,7 +180,7 @@ config     模型配置预设示例
 ## 主要能力
 
 - 文字、图片和本地语音输入；文字/图片多题可拆成独立会话。
-- OpenAI-compatible 与 Anthropic Messages 双协议，API key 仅在后端加密保存。
+- OpenAI Responses、OpenAI-compatible Chat Completions 与 Anthropic Messages 三协议，API key 仅在后端加密保存。
 - `none / low / high` 推理强度逐模型探测，不按模型名称猜能力。
 - 检查点选择题、知识卡片、题目卡片、文件夹管理和 PDF 导出。
 - KaTeX 数学公式、初中/高中教学口径、多会话并行生成。
@@ -228,6 +228,7 @@ compose.speech.yml        CPU 语音扩展
 
 打开页面右上角模型设置，可添加：
 
+- OpenAI Responses：填写 OpenAI 风格 Base URL、API key 和 model name；文本与题图都请求 `<base_url>/responses`。
 - OpenAI-compatible：填写 Base URL、API key 和 model name。
 - Anthropic Messages：选择 Anthropic 协议后填写对应地址、密钥和模型。
 - 本地演示：无需 Base URL 与 API key，用于离线体验流程，不代表真实模型质量。

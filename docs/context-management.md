@@ -144,9 +144,9 @@ assistant 带 knowledge_card / problem_card 的教学 action
 
 历史中的每条 SQLite message 都单独映射成一条 `user` 或 `assistant` 消息，不再把整段历史拼进最后一个大 user prompt。
 
-`app/llm/provider.py` 再按 profile 分发协议：OpenAI-compatible 原样发送到 chat completions；Anthropic 会把 system 从 messages 中提到顶层、合并相邻同角色消息，并把统一 `image_url` data URL 转成 Anthropic base64 image source。协议转换不改变 SQLite 历史结构，也不会把 API key 写入消息或日志。
+`app/llm/provider.py` 再按 profile 分发协议：`openai` 把 system 转成 Responses 的 `instructions`、其余历史转成 `input`，并把统一题图转换为 `input_image`；`openai_compatible` 原样发送到 Chat Completions；`anthropic` 把 system 从 messages 中提到顶层、合并相邻同角色消息，并把统一 `image_url` data URL 转成 Anthropic base64 image source。协议转换不改变 SQLite 历史结构，也不会把 API key 写入消息或日志。
 
-profile 的统一 `reasoning_effort=none|low|high` 由 `app/llm/reasoning.py` 管理，默认值为 `low`。映射只取决于请求协议：OpenAI 与 OpenAI-compatible chat completions 发送顶层 `reasoning_effort`，Anthropic Messages 发送 `output_config.effort`；不再按供应商名称、Host 或模型名切换字段，也不再通过 system prompt 模拟档位。添加模型时，后端会对完整的 `protocol + Base URL + API key + model` 并发测试三个档位，并把成功项保存到 `reasoning_effort_options_json`；同一模型经不同 Base URL、账号或代理可得到不同选项。跳过测试的 profile 默认暴露三档。保存后的档位覆盖正式答疑、文字拆题、图片题目框检测、图片内容识别和多模态能力测试。
+profile 的统一 `reasoning_effort=none|low|high` 由 `app/llm/reasoning.py` 管理，默认值为 `low`。映射只取决于请求协议：OpenAI Responses 发送 `reasoning.effort`，OpenAI-compatible Chat Completions 发送顶层 `reasoning_effort`，Anthropic Messages 发送 `output_config.effort`；不再按 Host 或模型名切换字段，也不再通过 system prompt 模拟档位。添加模型时，后端会对完整的 `protocol + Base URL + API key + model` 并发测试三个档位，并把成功项保存到 `reasoning_effort_options_json`；同一模型经不同 Base URL、账号或代理可得到不同选项。跳过测试的 profile 默认暴露三档。保存后的档位覆盖正式答疑、文字拆题、图片题目框检测、图片内容识别和多模态能力测试。
 
 应用层不再设置“固定保留 20 条”之类的截断，也不做摘要或压缩。`SessionRepository.list_messages(session_id)` 默认读取该 session 的全部消息并按时间正序发送。
 

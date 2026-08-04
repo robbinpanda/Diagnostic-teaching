@@ -42,6 +42,8 @@ __all__ = [
     "local_demo_response",
     "local_demo_stream",
     "message_text",
+    "openai_responses_request_payload",
+    "responses_url",
     "test_connection",
     "test_multimodal_connection",
 ]
@@ -152,6 +154,13 @@ def chat_completions_url(base_url: str) -> str:
     if clean.endswith("/chat/completions"):
         return clean
     return f"{clean}/chat/completions"
+
+
+def responses_url(base_url: str) -> str:
+    clean = base_url.rstrip("/")
+    if clean.endswith("/responses"):
+        return clean
+    return f"{clean}/responses"
 
 
 def anthropic_messages_url(base_url: str) -> str:
@@ -419,7 +428,8 @@ async def chat_stream_completion(
 ):
     """按 profile 协议流式调用模型，逐 chunk yield {delta, finish_reason}。
 
-    OpenAI-compatible 使用 chat completions，Anthropic 使用 Messages API。
+    OpenAI 使用 Responses API，OpenAI-compatible 使用 Chat Completions，
+    Anthropic 使用 Messages API。
     httpx 的 read 超时按两次 chunk 之间计算，避免长思考被静默截断成空响应。
     """
     if profile.provider == "local_demo":
@@ -429,6 +439,16 @@ async def chat_stream_completion(
 
     if profile.provider == "anthropic":
         async for event in _anthropic_stream_completion(
+            profile,
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        ):
+            yield event
+        return
+
+    if profile.provider == "openai":
+        async for event in _openai_responses_stream_completion(
             profile,
             messages,
             max_tokens=max_tokens,
@@ -549,6 +569,198 @@ async def _openai_chat_stream_completion(
         ) from exc
     except httpx.HTTPError as exc:
         raise LlmProviderError(f"模型请求异常：{str(exc) or exc.__class__.__name__}") from exc
+
+
+def openai_responses_request_payload(
+    profile: LlmProfile,
+    messages: list[dict[str, Any]],
+    *,
+    max_output_tokens: int,
+    temperature: float,
+) -> dict[str, Any]:
+    instructions: list[str] = []
+    input_messages: list[dict[str, Any]] = []
+    for message in messages:
+        role = str(message.get("role") or "user")
+        content = message.get("content")
+        if role == "system":
+            text = message_text(content)
+            if text:
+                instructions.append(text)
+            continue
+        if role == "assistant":
+            input_messages.append(
+                {"role": "assistant", "content": message_text(content)}
+            )
+            continue
+        input_messages.append(
+            {
+                "role": "developer" if role == "developer" else "user",
+                "content": _openai_responses_content(content),
+            }
+        )
+
+    payload: dict[str, Any] = {
+        "model": profile.model,
+        "input": input_messages,
+        "temperature": temperature,
+        "max_output_tokens": max_output_tokens,
+        "stream": True,
+    }
+    if instructions:
+        payload["instructions"] = "\n\n".join(instructions)
+    reasoning_options, _ = reasoning_request_options(
+        profile.provider,
+        profile.base_url,
+        profile.model,
+        profile.reasoning_effort,
+    )
+    payload.update(reasoning_options)
+    return payload
+
+
+def _openai_responses_content(content: Any) -> str | list[dict[str, Any]]:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content or "")
+
+    blocks: list[dict[str, Any]] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "text":
+            blocks.append({"type": "input_text", "text": str(item.get("text") or "")})
+            continue
+        if item.get("type") != "image_url":
+            continue
+        image_url = item.get("image_url")
+        url = image_url.get("url") if isinstance(image_url, dict) else image_url
+        if isinstance(url, str) and url:
+            block: dict[str, Any] = {"type": "input_image", "image_url": url}
+            detail = image_url.get("detail") if isinstance(image_url, dict) else None
+            if detail in {"low", "high", "auto", "original"}:
+                block["detail"] = detail
+            blocks.append(block)
+    return blocks
+
+
+async def _openai_responses_stream_completion(
+    profile: LlmProfile,
+    messages: list[dict[str, Any]],
+    *,
+    max_tokens: int | None,
+    temperature: float | None,
+):
+    headers = {
+        "Authorization": f"Bearer {profile.api_key}",
+        "Content-Type": "application/json",
+    }
+    requested_max_tokens = max_tokens or profile.max_output_tokens
+    payload = openai_responses_request_payload(
+        profile,
+        messages,
+        max_output_tokens=requested_max_tokens,
+        temperature=profile.temperature if temperature is None else temperature,
+    )
+    connect_timeout = min(profile.timeout_ms / 1000, 10.0)
+    read_timeout = max(profile.timeout_ms / 1000, 60.0)
+    timeout = httpx.Timeout(connect_timeout, read=read_timeout, write=10.0, pool=10.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST", responses_url(profile.base_url), headers=headers, json=payload
+            ) as response:
+                if response.status_code >= 400:
+                    body = await response.aread()
+                    raise LlmProviderError(
+                        f"OpenAI Responses 请求失败 {response.status_code}: "
+                        f"{body.decode('utf-8', 'ignore')[:300]}"
+                    )
+                yield {"event": "response_headers", "delta": "", "finish_reason": None}
+                async for event in _openai_responses_events(response, requested_max_tokens):
+                    yield event
+    except httpx.TimeoutException as exc:
+        raise LlmProviderError(
+            "OpenAI Responses 流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置"
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise LlmProviderError(
+            f"OpenAI Responses 请求异常：{str(exc) or exc.__class__.__name__}"
+        ) from exc
+
+
+async def _openai_responses_events(response: Any, requested_max_tokens: int):
+    saw_any_data = False
+    saw_content = False
+    finish_reason: str | None = None
+    async for raw_line in response.aiter_lines():
+        line = raw_line.strip()
+        if not line or not line.startswith("data:"):
+            continue
+        saw_any_data = True
+        data_str = line[len("data:") :].strip()
+        if data_str == "[DONE]":
+            break
+        try:
+            event = json.loads(data_str)
+        except json.JSONDecodeError:
+            continue
+        event_type = str(event.get("type") or "")
+        if event_type == "response.output_text.delta":
+            delta = event.get("delta")
+            if isinstance(delta, str) and delta:
+                saw_content = True
+                yield {"event": "content_delta", "delta": delta, "finish_reason": None}
+            continue
+        if event_type == "response.refusal.delta":
+            delta = event.get("delta")
+            if isinstance(delta, str) and delta:
+                saw_content = True
+                yield {"event": "content_delta", "delta": delta, "finish_reason": None}
+            continue
+        if event_type.startswith("response.reasoning") or (
+            event_type == "response.output_item.added"
+            and isinstance(event.get("item"), dict)
+            and event["item"].get("type") == "reasoning"
+        ):
+            yield {"event": "reasoning_delta", "delta": "", "finish_reason": None}
+            continue
+        if event_type in {"response.completed", "response.incomplete"}:
+            response_payload = event.get("response")
+            response_payload = response_payload if isinstance(response_payload, dict) else {}
+            status = response_payload.get("status")
+            incomplete_details = response_payload.get("incomplete_details")
+            incomplete_details = (
+                incomplete_details if isinstance(incomplete_details, dict) else {}
+            )
+            incomplete_reason = incomplete_details.get("reason")
+            if status == "completed":
+                finish_reason = "stop"
+            elif incomplete_reason == "max_output_tokens":
+                finish_reason = "length"
+            else:
+                finish_reason = str(incomplete_reason or status or "incomplete")
+            continue
+        if event_type in {"error", "response.failed"}:
+            error = event.get("error")
+            if event_type == "response.failed" and not error:
+                response_payload = event.get("response")
+                if isinstance(response_payload, dict):
+                    error = response_payload.get("error")
+            if isinstance(error, dict):
+                message = error.get("message") or error.get("code") or json.dumps(error)
+            else:
+                message = str(error or "未知错误")
+            raise LlmProviderError(f"OpenAI Responses 流式响应错误：{message}")
+
+    if not saw_any_data:
+        raise LlmProviderError(
+            "OpenAI Responses 流式响应中没有任何 data 事件，请确认 base_url/模型配置"
+        )
+    if not saw_content:
+        _assert_nonempty("", finish_reason, requested_max_tokens)
+    yield {"delta": "", "finish_reason": finish_reason or "stop"}
 
 
 async def _anthropic_stream_completion(

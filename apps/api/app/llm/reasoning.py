@@ -29,7 +29,13 @@ def reasoning_capability(
 
     del base_url, model
     provider_name = provider.lower()
-    if provider_name in {"openai", "openai_compatible"}:
+    if provider_name == "openai":
+        return ReasoningCapability(
+            "openai_responses_reasoning",
+            REASONING_EFFORTS,
+            "按 OpenAI Responses 协议发送 reasoning.effort；具体可用档位以该配置的实测结果为准。",
+        )
+    if provider_name == "openai_compatible":
         return ReasoningCapability(
             "openai_compatible_reasoning_effort",
             REASONING_EFFORTS,
@@ -56,6 +62,8 @@ def reasoning_request_options(
 ) -> tuple[dict[str, Any], ReasoningCapability]:
     capability = reasoning_capability(provider, base_url, model)
     normalized = normalize_reasoning_effort(effort)
+    if capability.control == "openai_responses_reasoning":
+        return {"reasoning": {"effort": normalized}}, capability
     if capability.control == "openai_compatible_reasoning_effort":
         return {"reasoning_effort": normalized}, capability
     if capability.control == "anthropic_output_effort":

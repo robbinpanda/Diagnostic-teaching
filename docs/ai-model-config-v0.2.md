@@ -77,11 +77,12 @@ SESSION_LOG_DIR=./logs/sessions
 
 OpenCode 托管免费模型可从同一个设置入口查看，但供应商、Base URL、model name、公共凭据、运行参数和多模态复选框均为只读。多模态复选框读取目录中的 `modalities.input`；存在 `image` 才勾选，并在模型选择器显示“支持上传图片”。
 
-### 4.1 双协议调用
+### 4.1 三协议调用
 
-- `openai_compatible` / `openai`：请求 `<base_url>/chat/completions`，使用 Bearer API key，解析 OpenAI chat completions SSE。
+- `openai`：请求 `<base_url>/responses`，使用 Bearer API key；system 消息转换为 `instructions`，其余消息放入 `input`，图片转换为 `input_image`，并解析 `response.output_text.delta / response.completed / error` 等 Responses SSE 事件。
+- `openai_compatible`：请求 `<base_url>/chat/completions`，使用 Bearer API key，发送 `messages / max_tokens` 并解析 Chat Completions SSE。
 - `anthropic`：请求 `<base_url>/messages`，使用 `x-api-key` 和 `anthropic-version: 2023-06-01`，把 system message 移到顶层 `system`，并解析 Anthropic Messages SSE。
-- 图片在应用内部仍使用统一的 OpenAI 风格 `image_url`；Anthropic 请求前会把 data URL 转成 `type=image + source.type=base64`，因此图片分析和含原图答疑共用同一业务链路。
+- 图片在应用内部仍使用统一的 Chat Completions 风格 `image_url`；OpenAI Responses 请求前转换为 `input_image + image_url` 字符串，Anthropic 请求前转换为 `type=image + source.type=base64`，因此图片分析和含原图答疑共用同一业务链路。
 
 ### 4.2 OpenCode 免费模型同步
 
@@ -298,7 +299,7 @@ PATCH /api/model-profiles/{profile_id}/reasoning
 {"reasoning_effort": "low"}
 ```
 
-该接口对 OpenCode 托管 profile 也开放，因为它只保存本地用户偏好，不修改目录同步的 provider、URL、model 或多模态能力。列表响应额外返回该 profile 已保存的 `reasoning_effort_options`、协议级 `reasoning_control` 和说明。OpenAI / OpenAI-compatible 发送顶层 `reasoning_effort`，Anthropic Messages 发送 `output_config.effort`；不再按供应商或模型名猜测，也不再用提示词模拟。保存的档位作用于正式答疑、文字拆题、图片题目框检测、兼容图片内容识别和多模态能力测试。
+该接口对 OpenCode 托管 profile 也开放，因为它只保存本地用户偏好，不修改目录同步的 provider、URL、model 或多模态能力。列表响应额外返回该 profile 已保存的 `reasoning_effort_options`、协议级 `reasoning_control` 和说明。OpenAI Responses 发送 `reasoning.effort`，OpenAI-compatible Chat Completions 发送顶层 `reasoning_effort`，Anthropic Messages 发送 `output_config.effort`；不再按 Host 或模型名猜测，也不再用提示词模拟。保存的档位作用于正式答疑、文字拆题、图片题目框检测、兼容图片内容识别和多模态能力测试。
 
 ### 5.6 批量删除模型配置
 

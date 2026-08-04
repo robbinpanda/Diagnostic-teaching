@@ -274,7 +274,7 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
             disabled={isManaged}
           >
             <option value="openai_compatible">OpenAI-compatible</option>
-            <option value="openai">OpenAI</option>
+            <option value="openai">OpenAI Responses</option>
             <option value="anthropic">Anthropic Messages</option>
             <option value="local_demo">Local demo</option>
           </select>

@@ -4,6 +4,13 @@
 
 ## 未发布
 
+### OpenAI 供应商切换到 Responses API
+
+- 供应商类型现在固定绑定协议：`openai` 请求 `<base_url>/responses`，`openai_compatible` 请求 `<base_url>/chat/completions`，`anthropic` 请求 `<base_url>/messages`；不再让 OpenAI 类型误走 Chat Completions 兼容层。
+- 新增 Responses 请求转换：system 历史进入 `instructions`，真实多轮进入 `input`，题图从内部统一的 `image_url` 转成 `input_image`，`max_tokens` 映射为 `max_output_tokens`，推理档位映射为 `reasoning.effort`。
+- 新增 Responses SSE 解析，覆盖 reasoning、`response.output_text.delta`、拒绝文本、完成、输出上限截断和错误事件；连接测试、图片能力探测、题图检测、文字拆题和正式答疑共享同一路由。
+- 模型设置中的 OpenAI 选项明确显示为“OpenAI Responses”，并补充三协议路由、字段映射和回归测试。
+
 ### 陈旧活动会话自动恢复
 
 - 修复浏览器 `localStorage` 仍保存旧活动 session id、但对应记录已从当前 SQLite 删除时，页面每次打开都会原样显示 `{"detail":"SQLite 中不存在该历史会话"}` 的问题。

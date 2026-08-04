@@ -1,14 +1,20 @@
 import asyncio
 from dataclasses import replace
 
+import pytest
+
 from app.core.streaming import MessageStreamExtractor
 from app.llm import provider
 from app.llm.provider import (
+    LlmEmptyResponseError,
     LlmProfile,
     _anthropic_response_events,
+    _openai_responses_events,
     anthropic_messages_url,
     anthropic_request_payload,
     chat_stream_completion,
+    openai_responses_request_payload,
+    responses_url,
 )
 
 
@@ -237,6 +243,134 @@ def test_structured_intake_calls_keep_task_prompts_and_profile_temperature(monke
         assert "TutorTurn" not in system_prompt
         assert "message 为第一个字段" not in system_prompt
     assert "数学题目拆分助手" in captured[2][0][0]["content"]
+
+
+def test_provider_types_route_to_their_bound_protocols(monkeypatch):
+    called = []
+
+    async def fake_responses(*args, **kwargs):
+        called.append("responses")
+        yield {"delta": "R", "finish_reason": "stop"}
+
+    async def fake_chat_completions(*args, **kwargs):
+        called.append("chat_completions")
+        yield {"delta": "C", "finish_reason": "stop"}
+
+    async def fake_anthropic(*args, **kwargs):
+        called.append("anthropic_messages")
+        yield {"delta": "A", "finish_reason": "end_turn"}
+
+    monkeypatch.setattr(provider, "_openai_responses_stream_completion", fake_responses)
+    monkeypatch.setattr(provider, "_openai_chat_stream_completion", fake_chat_completions)
+    monkeypatch.setattr(provider, "_anthropic_stream_completion", fake_anthropic)
+
+    async def run():
+        for provider_name in ("openai", "openai_compatible", "anthropic"):
+            async for _ in chat_stream_completion(
+                _profile(provider_name), [{"role": "user", "content": "你好"}]
+            ):
+                pass
+
+    asyncio.run(run())
+
+    assert called == ["responses", "chat_completions", "anthropic_messages"]
+
+
+def test_openai_responses_payload_maps_system_image_and_reasoning_fields():
+    profile = replace(_profile("openai"), reasoning_effort="high")
+    payload = openai_responses_request_payload(
+        profile,
+        [
+            {"role": "system", "content": "系统规则"},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "看图"},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "data:image/png;base64,aW1hZ2U=",
+                            "detail": "original",
+                        },
+                    },
+                ],
+            },
+            {"role": "assistant", "content": "收到"},
+        ],
+        max_output_tokens=8000,
+        temperature=0.2,
+    )
+
+    assert responses_url("https://api.openai.com/v1") == "https://api.openai.com/v1/responses"
+    assert payload == {
+        "model": "local-demo",
+        "instructions": "系统规则",
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "看图"},
+                    {
+                        "type": "input_image",
+                        "image_url": "data:image/png;base64,aW1hZ2U=",
+                        "detail": "original",
+                    },
+                ],
+            },
+            {"role": "assistant", "content": "收到"},
+        ],
+        "temperature": 0.2,
+        "max_output_tokens": 8000,
+        "stream": True,
+        "reasoning": {"effort": "high"},
+    }
+    assert "messages" not in payload
+    assert "max_tokens" not in payload
+    assert "reasoning_effort" not in payload
+
+
+def test_openai_responses_sse_yields_reasoning_text_and_stop_reason():
+    class FakeResponse:
+        async def aiter_lines(self):
+            for line in [
+                "event: response.created",
+                'data: {"type":"response.created","response":{"status":"in_progress"}}',
+                "event: response.output_item.added",
+                'data: {"type":"response.output_item.added","item":{"type":"reasoning"}}',
+                "event: response.output_text.delta",
+                'data: {"type":"response.output_text.delta","delta":"你"}',
+                'data: {"type":"response.output_text.delta","delta":"好"}',
+                "event: response.completed",
+                'data: {"type":"response.completed","response":{"status":"completed"}}',
+            ]:
+                yield line
+
+    async def run():
+        return [event async for event in _openai_responses_events(FakeResponse(), 8000)]
+
+    events = asyncio.run(run())
+
+    assert events == [
+        {"event": "reasoning_delta", "delta": "", "finish_reason": None},
+        {"event": "content_delta", "delta": "你", "finish_reason": None},
+        {"event": "content_delta", "delta": "好", "finish_reason": None},
+        {"delta": "", "finish_reason": "stop"},
+    ]
+
+
+def test_openai_responses_incomplete_without_text_reports_token_limit():
+    class FakeResponse:
+        async def aiter_lines(self):
+            yield (
+                'data: {"type":"response.incomplete","response":{"status":"incomplete",'
+                '"incomplete_details":{"reason":"max_output_tokens"}}}'
+            )
+
+    async def run():
+        return [event async for event in _openai_responses_events(FakeResponse(), 1200)]
+
+    with pytest.raises(LlmEmptyResponseError, match="max_tokens=1200"):
+        asyncio.run(run())
 
 
 def test_anthropic_payload_moves_system_and_converts_image_data_url():
