@@ -4,6 +4,20 @@
 
 ## 未发布
 
+### 教学提示词分层与讲解止步线
+
+- 将正式答疑 system prompt 重组为五层优先级：上下文门禁、原子动作与止步线、action 决策顺序、可见内容与格式、输出合同；`ACTION_PROTOCOL` 只保留运行语义和字段要求，不再重复一套选择策略。
+- 强化 `EXPLAIN_PRINCIPLE`：只允许用一般字母讲一个可迁移原理，当前题具体新结果必须为 0，禁止代入题目数据、调用第二个原理、继续判号或给出答案；`EXPLAIN_LOCAL` 至多完成一个局部步骤的直接结果。
+- knowledge card 的 `derivation_steps` 与 `connection_to_problem` 同样受 action 止步线约束。移除原 schema 示例中把韦达定理、等比中项和 `$a_3=-1$` 串在一起的冲突示例，避免格式示例反向诱导完整代答。
+- 非阻塞续轮明确要求：上一讲解尚未由学生应用时，优先用 `ASK_MULTIPLE_CHOICE` 获取下一个关键判断，禁止用另一个讲解 action 自动接力解完整题。
+
+### 会话内随时追加图片
+
+- 保留新建答疑首张图片的题目检测与框选流程；正式 session 中后续上传或粘贴的图片改为普通学生消息附件，不再触发框选，并支持同时附带文字说明。
+- `STUDENT_MESSAGE` 接纳合同新增可选 `image_data_url`。后续图片与幂等输入、student message 在同一 SQLite 事务中保存，历史恢复与显式分支恢复按消息原位返回；同一客户端幂等键复用不同图片会返回冲突。
+- `build_messages()` 按历史顺序把每条 student 图片转换为对应消息的 `image_url` block，OpenAI Responses、Chat Completions 和 Anthropic Messages 继续通过统一 provider 层转换；session 绑定文本模型时拒绝图片输入。
+- composer 在正式 session 中开放回形针和图片粘贴，待发送缩略图可与文字共存；生成期间的图片插嘴沿用可恢复 outbox，当前回复完成后统一接纳并启动下一轮。
+
 ### OpenAI 供应商切换到 Responses API
 
 - 供应商类型现在固定绑定协议：`openai` 请求 `<base_url>/responses`，`openai_compatible` 请求 `<base_url>/chat/completions`，`anthropic` 请求 `<base_url>/messages`；不再让 OpenAI 类型误走 Chat Completions 兼容层。

@@ -8,6 +8,7 @@ from app.core.schemas import (
     SessionInputAcceptResponse,
     StudentMessageInputRequest,
 )
+from app.routes.problem_images import decode_problem_image
 from app.services.input_acceptance import (
     IdempotencyConflictError,
     InputAcceptanceService,
@@ -49,10 +50,18 @@ def accept_session_input(
     service = InputAcceptanceService(request.app.state.sessions)
     try:
         if isinstance(payload, StudentMessageInputRequest):
+            image_data_url = None
+            if payload.image_data_url:
+                session = request.app.state.sessions.get(session_id)
+                profile = request.app.state.model_profiles.get(session["model_profile_id"])
+                if not profile["is_multimodal"]:
+                    raise InputValidationError("当前会话使用的模型不支持图片输入")
+                _, _, image_data_url = decode_problem_image(payload.image_data_url)
             result = service.accept_student_message(
                 session_id,
                 client_message_id=payload.client_message_id,
                 message=payload.message,
+                image_data_url=image_data_url,
             )
         elif isinstance(payload, CardDismissedContinueInputRequest):
             result = service.accept_card_dismissed_continue(

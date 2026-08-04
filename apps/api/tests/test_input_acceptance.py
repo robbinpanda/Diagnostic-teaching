@@ -85,6 +85,72 @@ def test_student_message_first_accept_retry_and_id_conflict(tmp_path: Path):
     assert len(client.app.state.sessions.list_messages(session_id)) == 1
 
 
+def test_student_image_message_is_durable_restorable_and_idempotent(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    session = client.app.state.sessions.get(session_id)
+    with client.app.state.db.connect() as conn:
+        conn.execute(
+            "UPDATE model_profiles SET is_multimodal = 1 WHERE id = ?",
+            (session["model_profile_id"],),
+        )
+    image_data_url = "data:image/png;base64,aW1hZ2U="
+    body = {
+        "kind": "STUDENT_MESSAGE",
+        "client_message_id": "client-image-1",
+        "message": "请看我补充画出的辅助线。",
+        "image_data_url": image_data_url,
+    }
+
+    first = client.post(f"/api/sessions/{session_id}/inputs", json=body)
+    retry = client.post(f"/api/sessions/{session_id}/inputs", json=body)
+    changed_image = client.post(
+        f"/api/sessions/{session_id}/inputs",
+        json={**body, "image_data_url": "data:image/png;base64,b3RoZXI="},
+    )
+
+    assert first.status_code == 201
+    assert retry.status_code == 200
+    assert retry.json()["input_id"] == first.json()["input_id"]
+    assert changed_image.status_code == 409
+    assert changed_image.json()["detail"]["code"] == "IDEMPOTENCY_KEY_CONFLICT"
+    input_payload = json.loads(client.app.state.sessions.list_inputs(session_id)[0]["payload_json"])
+    assert input_payload == {
+        "message": body["message"],
+        "image_data_url": image_data_url,
+    }
+    stored_message = client.app.state.sessions.list_messages(session_id)[0]
+    assert json.loads(stored_message["metadata_json"])["image_data_url"] == image_data_url
+    restored = client.get(f"/api/sessions/{session_id}").json()
+    assert restored["messages"][0]["image_data_url"] == image_data_url
+    branch = client.post(
+        "/api/sessions/restore",
+        json={
+            "session_id": session_id,
+            "model_profile_id": session["model_profile_id"],
+        },
+    )
+    assert branch.status_code == 200
+    assert branch.json()["messages"][0]["image_data_url"] == image_data_url
+
+
+def test_student_image_message_requires_session_multimodal_model(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+
+    response = client.post(
+        f"/api/sessions/{session_id}/inputs",
+        json={
+            "kind": "STUDENT_MESSAGE",
+            "client_message_id": "client-image-text-model",
+            "message": "请看图片。",
+            "image_data_url": "data:image/png;base64,aW1hZ2U=",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "当前会话使用的模型不支持图片输入"
+    assert client.app.state.sessions.list_inputs(session_id) == []
+
+
 def test_double_click_with_same_client_message_id_accepts_once(tmp_path: Path):
     client, session_id = _bootstrap_app(tmp_path)
 

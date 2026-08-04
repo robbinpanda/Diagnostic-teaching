@@ -87,6 +87,8 @@ export function TutorComposer({
   onToggleSpeech
 }: Props) {
   const speechBusy = speechPhase !== "idle";
+  const hasSendContent = Boolean(input.trim() || pendingImageUrl);
+  const stopMode = streamBusy && !hasSendContent;
   const speechTitle = speechPhase === "requesting"
     ? "正在启动本地实时语音服务"
     : speechPhase === "recording"
@@ -97,10 +99,13 @@ export function TutorComposer({
   return (
     <div className="composerDock">
       {error && <div className="inlineError"><span>{error}</span><button type="button" onClick={onClearError}><X size={15} /></button></div>}
-      {!sessionId && pendingImageUrl && (
+      {pendingImageUrl && (
         <div className="attachmentContext">
-          <img src={pendingImageUrl} alt="待发送的题目图片" />
-          <div><strong>题目图片待发送</strong><span>点击发送后识别并确认题目范围</span></div>
+          <img src={pendingImageUrl} alt={sessionId ? "待发送的会话图片" : "待发送的题目图片"} />
+          <div>
+            <strong>{sessionId ? "图片待发送" : "题目图片待发送"}</strong>
+            <span>{sessionId ? "可补充文字说明；发送后作为本轮会话内容" : "点击发送后识别并确认题目范围"}</span>
+          </div>
           <button type="button" onClick={onRemoveImage} aria-label="移除图片"><X size={15} /></button>
         </div>
       )}
@@ -120,8 +125,8 @@ export function TutorComposer({
               if (!speechBusy) onSend();
             }
           }}
-          disabled={composerBlocked || speechBusy || Boolean(pendingImageUrl)}
-          placeholder={sessionId ? "继续说说你的想法…" : "输入一道或多道题目，或粘贴/上传题目图片…"}
+          disabled={composerBlocked || speechBusy || (Boolean(pendingImageUrl) && !sessionId)}
+          placeholder={sessionId ? "继续说说你的想法，或粘贴/上传补充图片…" : "输入一道或多道题目，或粘贴/上传题目图片…"}
           rows={3}
         />
         <div className="composerToolbar">
@@ -137,8 +142,8 @@ export function TutorComposer({
               className="toolButton"
               type="button"
               onClick={() => imageInputRef.current?.click()}
-              disabled={composerBlocked || speechBusy || Boolean(sessionId) || Boolean(pendingImageUrl)}
-              title="上传题目图片"
+              disabled={composerBlocked || speechBusy || Boolean(pendingImageUrl)}
+              title={sessionId ? "上传会话图片" : "上传题目图片"}
             >
               {imageBusy ? <Loader2 size={17} className="spin" /> : <Paperclip size={17} />}
             </button>
@@ -198,14 +203,14 @@ export function TutorComposer({
           <button
             className="sendButton"
             type="button"
-            onClick={streamBusy && !input.trim() ? onStop : onSend}
-            disabled={streamBusy && !input.trim()
+            onClick={stopMode ? onStop : onSend}
+            disabled={stopMode
               ? stopBusy
-              : composerBlocked || speechBusy || (!input.trim() && !pendingImageUrl)}
-            aria-label={streamBusy && !input.trim() ? "停止生成" : streamBusy ? "插嘴（当前回复结束后发送）" : "发送"}
-            title={streamBusy && !input.trim() ? "停止生成" : streamBusy ? "插嘴（当前回复结束后发送）" : "发送"}
+              : composerBlocked || speechBusy || !hasSendContent}
+            aria-label={stopMode ? "停止生成" : streamBusy ? "插嘴（当前回复结束后发送）" : "发送"}
+            title={stopMode ? "停止生成" : streamBusy ? "插嘴（当前回复结束后发送）" : "发送"}
           >
-            {streamBusy && !input.trim()
+            {stopMode
               ? (stopBusy ? <Loader2 size={18} className="spin" /> : <Square size={14} />)
               : startBusy
                 ? <Loader2 size={18} className="spin" />
@@ -220,7 +225,9 @@ export function TutorComposer({
             ? `实时转写中 ${speechElapsedSeconds.toFixed(1)} 秒 · 不限时 · 思考停顿 2.5 秒后确认 · 再点一次停止`
             : speechPhase === "transcribing"
               ? "SenseVoiceSmall 正在确认最后一段语音…"
-              : "Enter 发送 · 麦克风本地准实时转写 · 支持粘贴或上传图片 · 图片确认框选后按题目数创建答疑"}
+              : sessionId
+                ? "Enter 发送 · 麦克风本地准实时转写 · 可随时粘贴或上传补充图片"
+                : "Enter 发送 · 麦克风本地准实时转写 · 首张图片确认框选后按题目数创建答疑"}
       </p>
     </div>
   );

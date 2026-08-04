@@ -44,6 +44,18 @@ def _pending_card_blocks(row) -> bool:
     return row is not None and row["deferred_at"] is None
 
 
+def _history_has_image(message_rows) -> bool:
+    for row in message_rows:
+        try:
+            metadata = json.loads(row["metadata_json"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            continue
+        image_data_url = metadata.get("image_data_url")
+        if isinstance(image_data_url, str) and image_data_url.startswith("data:image/"):
+            return True
+    return False
+
+
 def run_error(
     code: str,
     message: str,
@@ -113,8 +125,10 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
         profile_row = request.app.state.model_profiles.get(session["model_profile_id"])
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="会话或模型不存在") from exc
-    if session["problem_image_data_url"] and not profile_row["is_multimodal"]:
-        raise HTTPException(status_code=400, detail="该会话包含题图，必须使用支持图片识别的多模态模型")
+    if not profile_row["is_multimodal"]:
+        history = request.app.state.sessions.list_messages(payload.session_id)
+        if session["problem_image_data_url"] or _history_has_image(history):
+            raise HTTPException(status_code=400, detail="该会话包含图片，必须使用支持图片识别的多模态模型")
     pending_card = request.app.state.sessions.latest_pending_card(payload.session_id)
     has_legacy_student_message = bool(payload.message and payload.message.strip())
     if _pending_card_blocks(pending_card) and not has_legacy_student_message:

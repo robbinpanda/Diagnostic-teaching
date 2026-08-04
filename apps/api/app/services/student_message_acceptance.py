@@ -21,15 +21,29 @@ class StudentMessageAcceptanceMixin:
         *,
         client_message_id: str,
         message: str,
+        image_data_url: str | None = None,
         run_id: str | None = None,
     ) -> AcceptedSessionInput:
         text = message.strip()
-        if not text:
-            raise InputValidationError("学生消息不能为空")
+        normalized_image = (image_data_url or "").strip() or None
+        if not text and not normalized_image:
+            raise InputValidationError("学生消息必须包含文字或图片")
+        if normalized_image and not normalized_image.startswith("data:image/"):
+            raise InputValidationError("消息图片格式无效")
+        display_text = text or "我上传了一张补充图片，请结合图片内容回答。"
         key = client_message_id.strip()
         if not key:
             raise InputValidationError("client_message_id 不能为空")
-        payload_json = _canonical_json({"message": text})
+        payload_json = _canonical_json(
+            {
+                "message": text,
+                **(
+                    {"image_data_url": normalized_image}
+                    if normalized_image
+                    else {}
+                ),
+            }
+        )
 
         with self.db.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -75,7 +89,7 @@ class StudentMessageAcceptanceMixin:
             if pending_checkpoint is not None:
                 checkpoint_free_text_response = {
                     "checkpoint_id": pending_checkpoint["id"],
-                    "response_text": text,
+                    "response_text": display_text,
                     "response_mode": "free_text",
                 }
             result = {
@@ -114,13 +128,22 @@ class StudentMessageAcceptanceMixin:
                 (
                     message_id,
                     session_id,
-                    text,
+                    display_text,
                     action_id,
                     in_reply_to_action_id,
                     _canonical_json(
-                        {"checkpoint_free_text_response": checkpoint_free_text_response}
-                        if checkpoint_free_text_response
-                        else {}
+                        {
+                            **(
+                                {"checkpoint_free_text_response": checkpoint_free_text_response}
+                                if checkpoint_free_text_response
+                                else {}
+                            ),
+                            **(
+                                {"image_data_url": normalized_image}
+                                if normalized_image
+                                else {}
+                            ),
+                        }
                     ),
                     ts,
                 ),
@@ -132,7 +155,7 @@ class StudentMessageAcceptanceMixin:
                     SET free_text_response = ?, answered_at = ?
                     WHERE id = ? AND answered_at IS NULL
                     """,
-                    (text, ts, pending_checkpoint["id"]),
+                    (display_text, ts, pending_checkpoint["id"]),
                 )
             if pending_card is not None:
                 conn.execute(
@@ -179,7 +202,8 @@ class StudentMessageAcceptanceMixin:
                             "client_message_id": key,
                             "message_id": message_id,
                             "role": "student",
-                            "content": text,
+                            "content": display_text,
+                            "has_image": bool(normalized_image),
                             "action_id": action_id,
                             "action": "STUDENT_RESPONSE",
                             "in_reply_to_action_id": in_reply_to_action_id,

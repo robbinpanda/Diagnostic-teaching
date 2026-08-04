@@ -182,11 +182,11 @@ def test_action_protocol_keeps_teaching_responsibilities_distinct():
     assert "不得指出、纠正或分析具体误区" in checkpoint_boundaries
     assert "不得承担 EXPLAIN_LOCAL 或 EXPLAIN_PRINCIPLE" in checkpoint_boundaries
     assert "后续讲解、提问或总结必须交给下一个 action" in checkpoint_boundaries
-    assert "只负责情绪反馈，不负责数学反馈或讲解" in teaching.ACTION_PROTOCOL
+    assert "RESPOND_TO_CHECKPOINT 不输出 checkpoint" in teaching.ACTION_PROTOCOL
     assert "不要先给出整题的上帝视角路线图" in teaching.SYSTEM_PROMPT
     assert "确认性问题当作进入总结的必经步骤" in teaching.SYSTEM_PROMPT
     assert "不要求学生先答出最终答案" in definitions["SUMMARIZE"]["use_when"]
-    assert "而不是把它们串成固定流程" in teaching.ACTION_PROTOCOL
+    assert "动作选择顺序、讲解止步线和提问权以 SYSTEM_PROMPT 为准" in teaching.ACTION_PROTOCOL
     assert "三个分别代表正确理解和不同误区的选项" in teaching.SYSTEM_PROMPT
     assert "默认优先选择 ASK_MULTIPLE_CHOICE" in teaching.SYSTEM_PROMPT
     assert "不得根据消息是“第一条”还是“第二条”" in teaching.SYSTEM_PROMPT
@@ -211,7 +211,19 @@ def test_action_protocol_keeps_teaching_responsibilities_distinct():
     )
     assert "仅有‘完全不会’不是选择本 action 的充分证据" in definitions["EXPLAIN_LOCAL"]["use_when"]
     assert "不得仅凭‘完全不会’推断这个知识缺口" in definitions["EXPLAIN_PRINCIPLE"]["use_when"]
-    assert "不得继续代入本题条件、完成局部推导或计算" in "".join(
+    assert "不得产生当前题此前尚未出现的中间结果" in "".join(
+        definitions["EXPLAIN_PRINCIPLE"]["boundaries"]
+    )
+    assert "当前题具体新结果”必须为 0" in teaching.SYSTEM_PROMPT
+    assert "讲原理 → 代入本题 → 调用第二个原理或性质 → 判号或计算 → 得到答案" in teaching.SYSTEM_PROMPT
+    assert "绝不能只把完整解答改名为 EXPLAIN_PRINCIPLE / EXPLAIN_LOCAL" in teaching.SYSTEM_PROMPT
+    assert "不得把当前题中的具体系数、数值、数列项或几何量代入" in "".join(
+        definitions["EXPLAIN_PRINCIPLE"]["boundaries"]
+    )
+    assert "不得在得到当前局部结果后继续调用第二个公式" in "".join(
+        definitions["EXPLAIN_LOCAL"]["boundaries"]
+    )
+    assert "connection_to_problem 只能描述应用方向" in "".join(
         definitions["EXPLAIN_PRINCIPLE"]["boundaries"]
     )
     assert "只有 ASK_OPEN_QUESTION 和 ASK_MULTIPLE_CHOICE 可以向学生提问" in teaching.SYSTEM_PROMPT
@@ -220,8 +232,8 @@ def test_action_protocol_keeps_teaching_responsibilities_distinct():
     assert "卡片字段只写纯文本和 LaTeX" in teaching.SYSTEM_PROMPT
     assert "其余 action 的 message 必须为纯陈述句" in teaching.JSON_CONTRACT
     assert "所有可见字符串中的数学表达必须使用" in teaching.JSON_CONTRACT
-    assert "EXPLAIN_LOCAL 的讲解一旦形成" in teaching.ACTION_PROTOCOL
-    assert "也必须输出 knowledge_card" in teaching.ACTION_PROTOCOL
+    assert "EXPLAIN_LOCAL 仅在当前局部讲解形成可迁移知识时输出 knowledge_card" in teaching.ACTION_PROTOCOL
+    assert "附属卡片不是绕过 action 内容边界的空间" in teaching.JSON_CONTRACT
     assert "EXPLAIN_LOCAL：仅当讲解含可迁移知识时增加" in teaching.JSON_CONTRACT
     assert "即使值为 null 也不要输出" in teaching.JSON_CONTRACT
     assert "必须是 0.0 到 1.0（含边界）的 JSON 数字" in teaching.JSON_CONTRACT
@@ -270,6 +282,34 @@ def test_build_messages_attaches_original_problem_image_to_tutoring_request():
     assert user_content[1] == {"type": "image_url", "image_url": {"url": image_data_url}}
 
 
+def test_build_messages_keeps_later_student_image_in_history_position():
+    image_data_url = "data:image/webp;base64,bGF0ZXItaW1hZ2U="
+    session = {
+        "grade_band": "junior",
+        "subject": "math",
+        "problem_text": "求三角形中的未知角。",
+        "student_initial_thought": "我先用了内角和。",
+        "phase": "diagnosing",
+        "problem_image_data_url": None,
+    }
+    history = [{
+        "role": "student",
+        "content": "我补画了一条辅助线。",
+        "action": "STUDENT_RESPONSE",
+        "action_id": "act-image",
+        "in_reply_to_action_id": "act-question",
+        "metadata_json": json.dumps({"image_data_url": image_data_url}),
+    }]
+
+    messages = build_messages(session, history)
+
+    attached = messages[-1]["content"]
+    assert isinstance(attached, list)
+    assert attached[0]["type"] == "text"
+    assert "我补画了一条辅助线" in attached[0]["text"]
+    assert attached[1] == {"type": "image_url", "image_url": {"url": image_data_url}}
+
+
 def test_prompt_separates_reusable_knowledge_from_complete_problem_solution():
     session = {
         "grade_band": "junior",
@@ -283,10 +323,12 @@ def test_prompt_separates_reusable_knowledge_from_complete_problem_solution():
     messages = build_messages(session, [])
     system = messages[0]["content"]
 
-    assert "同一道题可以各产生一张" in system
-    assert "无滑动皮带传动中两轮边缘通过的弧长相等" in system
-    assert "不能只是通用知识点的改写" in system
+    assert "knowledge_card 只保存脱离当前题仍成立的一个" in system
+    assert "知识卡不得混入第二个知识点" in system
+    assert "不得写本题代入式、新结果、后续推导或答案" in system
     assert "当前具体题目的完整条件、结构化步骤和最终答案" in system
+    assert "$a_1a_5=a_3^2$" not in system
+    assert "$a_3=-1$" not in system
 
 
 def test_legacy_interruption_metadata_does_not_create_a_detour_prompt():
@@ -509,6 +551,7 @@ def test_build_messages_ends_nonblocking_continuation_with_user_control_message(
     assert control["nonblocking_streak"] == 1
     assert "上一 action 已经展示" in control["instruction"]
     assert "不要复述、改写或回显" in control["instruction"]
+    assert "禁止再用另一个讲解 action 自动接力解题" in control["instruction"]
 
 
 def test_explain_principle_requires_structured_knowledge_card():
@@ -568,7 +611,7 @@ def test_explain_local_may_optionally_output_structured_knowledge_card():
         ],
         "when_to_use": ["已知一元二次方程系数，需要求两根和或积"],
         "common_mistakes": ["把和的分子 $b$ 与积的分子 $c$ 混淆"],
-        "connection_to_problem": "本题用积的公式得到 $a_1a_5=1$。",
+        "connection_to_problem": "下一步需要识别题目所需的是根之和还是根之积。",
     }
     with_card = teaching.parse_and_validate_tutor_turn(json.dumps(payload, ensure_ascii=False))
 

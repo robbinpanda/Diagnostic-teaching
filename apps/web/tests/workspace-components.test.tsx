@@ -504,6 +504,8 @@ test("workspace keeps text and image multi-problem intake wired", () => {
   assert.match(pageSource, /batchStartImageSessions/);
   assert.match(pageSource, /pendingComposerImage/);
   assert.match(pageSource, /handlePastedImages/);
+  assert.match(pageSource, /image_data_url: pending\.imageDataUrl/);
+  assert.doesNotMatch(pageSource, /当前答疑暂不支持追加图片/);
 });
 
 test("composer paste handling extracts images without consuming ordinary text", () => {

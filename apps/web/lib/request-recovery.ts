@@ -19,6 +19,7 @@ export type PendingStudentRequest = {
   operationId: string;
   sessionId: string;
   text: string;
+  imageDataUrl?: string | null;
   clientMessageId: string;
   createdAt: string;
 };
@@ -56,6 +57,11 @@ function isPendingStudentRequest(value: unknown): value is PendingStudentRequest
   return isString(candidate.operationId)
     && isString(candidate.sessionId)
     && isString(candidate.text)
+    && (
+      candidate.imageDataUrl === undefined
+      || candidate.imageDataUrl === null
+      || isString(candidate.imageDataUrl)
+    )
     && isString(candidate.clientMessageId)
     && isString(candidate.createdAt);
 }
@@ -79,11 +85,17 @@ function readEnvelope(storage: StorageLike): RecoveryEnvelope {
 }
 
 function writeEnvelope(storage: StorageLike, envelope: RecoveryEnvelope) {
-  if (!envelope.sessionBatch && envelope.studentRequests.length === 0) {
-    storage.removeItem(REQUEST_RECOVERY_KEY);
-    return;
+  try {
+    if (!envelope.sessionBatch && envelope.studentRequests.length === 0) {
+      storage.removeItem(REQUEST_RECOVERY_KEY);
+      return;
+    }
+    storage.setItem(REQUEST_RECOVERY_KEY, JSON.stringify(envelope));
+  } catch {
+    // Large image data URLs can exceed a browser's localStorage quota. The
+    // in-memory outbox still preserves this page's send attempt; SQLite takes
+    // over durability as soon as the input endpoint accepts it.
   }
-  storage.setItem(REQUEST_RECOVERY_KEY, JSON.stringify(envelope));
 }
 
 export function loadPendingSessionBatch(storage: StorageLike) {

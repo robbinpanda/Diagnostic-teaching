@@ -335,16 +335,18 @@ export default function Home() {
     await acceptStudentMessage({
       session_id: pending.sessionId,
       client_message_id: pending.clientMessageId,
-      message: pending.text
+      message: pending.text,
+      image_data_url: pending.imageDataUrl
     });
     clearPendingStudentRequest(window.localStorage, pending.operationId);
   }
 
-  function queueInterjection(targetSessionId: string, text: string) {
+  function queueInterjection(targetSessionId: string, text: string, imageDataUrl?: string | null) {
     const pending: PendingStudentRequest = {
       operationId: crypto.randomUUID(),
       sessionId: targetSessionId,
       text,
+      imageDataUrl,
       clientMessageId: crypto.randomUUID(),
       createdAt: new Date().toISOString()
     };
@@ -353,9 +355,9 @@ export default function Home() {
     savePendingStudentRequest(window.localStorage, pending);
     runtime.addMessage(
       "student",
-      text,
+      text || "我上传了一张补充图片，请结合图片内容回答。",
       "STUDENT_RESPONSE",
-      undefined,
+      imageDataUrl,
       `client:${pending.clientMessageId}`
     );
     clearComposerInput(draftScope(targetSessionId));
@@ -656,12 +658,17 @@ export default function Home() {
       runtime.setError("请先在输入框下方选择一个模型；如果还没有模型，请打开设置添加。");
       return;
     }
-    if (pendingComposerImage) {
+    if (pendingComposerImage && !sessionId) {
       if (text) {
         runtime.setError("图片题目暂不支持同时附带文字，请先清空文字或移除图片。");
         return;
       }
       await handlePendingImageSend(pendingComposerImage);
+      return;
+    }
+    const sessionImage = sessionId ? pendingComposerImage : null;
+    if (sessionImage && !selectedProfile?.is_multimodal) {
+      runtime.setError("当前会话使用的模型不支持图片输入，请新建答疑并选择多模态模型。");
       return;
     }
     if (originalProblemImage && !selectedProfile?.is_multimodal) {
@@ -679,34 +686,43 @@ export default function Home() {
         || flushingInterjectionsRef.current.has(targetSessionId)
         || Boolean(queuedInterjectionsRef.current.get(targetSessionId)?.length)
       ) {
-        queueInterjection(targetSessionId, text);
+        queueInterjection(targetSessionId, text, sessionImage?.dataUrl);
+        setPendingComposerImage(null);
         sendInFlightKeysRef.current.delete(operationKey);
         return;
       }
       const respondsToCheckpoint = workflow.mode === "checkpoint" && workflow.phase === "ready";
       const previous = pendingStudentMessagesRef.current.get(targetSessionId)
         ?? listPendingStudentRequests(window.localStorage).find(
-          (candidate) => candidate.sessionId === targetSessionId && candidate.text === text
+          (candidate) => (
+            candidate.sessionId === targetSessionId
+            && candidate.text === text
+            && (candidate.imageDataUrl ?? null) === (sessionImage?.dataUrl ?? null)
+          )
         );
-      const isRetry = previous?.sessionId === sessionId && previous.text === text;
+      const isRetry = previous?.sessionId === sessionId
+        && previous.text === text
+        && (previous.imageDataUrl ?? null) === (sessionImage?.dataUrl ?? null);
       const pending = isRetry
         ? previous
         : {
             operationId: crypto.randomUUID(),
             sessionId: targetSessionId,
             text,
+            imageDataUrl: sessionImage?.dataUrl,
             clientMessageId: crypto.randomUUID(),
             createdAt: new Date().toISOString()
           };
       pendingStudentMessagesRef.current.set(targetSessionId, pending);
       savePendingStudentRequest(window.localStorage, pending);
       clearComposerInput(draftScope(targetSessionId));
+      setPendingComposerImage(null);
       if (!isRetry) {
         runtime.addMessage(
           "student",
-          text,
+          text || "我上传了一张补充图片，请结合图片内容回答。",
           "STUDENT_RESPONSE",
-          undefined,
+          sessionImage?.dataUrl,
           `client:${pending.clientMessageId}`
         );
       }
@@ -715,7 +731,8 @@ export default function Home() {
         const accepted = await acceptStudentMessage({
           session_id: targetSessionId,
           client_message_id: pending.clientMessageId,
-          message: text
+          message: text,
+          image_data_url: pending.imageDataUrl
         });
         if (accepted.deferred_card_id && accepted.card_deferred_at) {
           runtime.deferPendingCard(accepted.deferred_card_id, accepted.card_deferred_at);
@@ -727,6 +744,7 @@ export default function Home() {
       } catch (nextError) {
         if (runtime.isSessionActive(targetSessionId)) {
           restoreComposerInput(text, draftScope(targetSessionId));
+          if (sessionImage) setPendingComposerImage(sessionImage);
           if (respondsToCheckpoint) {
             runtime.failCheckpointSubmission(
               nextError instanceof Error ? nextError.message : "提交文字回应失败"
@@ -786,18 +804,18 @@ export default function Home() {
 
   async function handleImageFile(file?: File) {
     if (!file) return;
-    if (sessionId) {
-      runtime.setError("当前答疑暂不支持追加图片，请新建答疑后再粘贴或上传。");
+    if (sessionId && !selectedProfile?.is_multimodal) {
+      runtime.setError("当前会话使用的模型不支持图片输入，请新建答疑并选择多模态模型。");
       if (imageInputRef.current) imageInputRef.current.value = "";
       return;
     }
-    if (input.trim()) {
+    if (!sessionId && input.trim()) {
       runtime.setError("请先清空输入框中的文字，再添加题目图片。");
       if (imageInputRef.current) imageInputRef.current.value = "";
       return;
     }
     if (pendingComposerImage) {
-      runtime.setError("一次只能添加一张题目图片，请先移除当前图片。");
+      runtime.setError("一次只能添加一张图片，请先移除当前图片。");
       if (imageInputRef.current) imageInputRef.current.value = "";
       return;
     }

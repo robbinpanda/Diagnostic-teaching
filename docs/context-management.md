@@ -53,7 +53,7 @@ message_id / checkpoint_id / card_id / created_at
 
 允许的 `kind`：
 
-- `STUDENT_MESSAGE`：普通开放消息；`idempotency_key` 来自前端 `client_message_id`。
+- `STUDENT_MESSAGE`：普通开放消息，可含文字、图片或两者；`idempotency_key` 来自前端 `client_message_id`。
 - `CHECKPOINT_ANSWER`：checkpoint answer；每个 `checkpoint_id` 在数据库唯一。
 - `CARD_DISMISSED_CONTINUE`：知识卡片解决后的继续命令；每个 `card_id` 只允许一次。保存时与 `study_cards.saved_at/content_json` 同事务写入，舍弃时与待归档卡片删除及 `card.discarded` 事件同事务写入。
 
@@ -66,9 +66,12 @@ Content-Type: application/json
 {
   "kind": "STUDENT_MESSAGE",
   "client_message_id": "浏览器生成且重试时复用的 UUID",
-  "message": "学生输入"
+  "message": "可选的图片说明",
+  "image_data_url": "data:image/png;base64,..."
 }
 ```
+
+`message` 与 `image_data_url` 至少提供一项。后续图片只允许 PNG/JPEG/WebP，沿用 12 MiB 图片上限，并要求 session 绑定的 profile 为多模态。图片 data URL 同时进入 `session_inputs.payload_json` 和对应 student message 的 `metadata_json`；它不会覆盖 session 级 `problem_image_data_url`。因此首张题图仍固定属于 `SESSION_START`，后续图片则保留各自的消息顺序，历史恢复和显式分支恢复都会原位带回。
 
 稳定结果：
 
@@ -223,7 +226,7 @@ system 消息由四部分组成：
 }
 ```
 
-`client_message_id` 不进入模型 prompt；它只保存在 `session_inputs.idempotency_key`，并通过 session 详情 API 的 message 字段回传，供客户端对账。模型仍只看到结构化教学语义与学生正文。
+`client_message_id` 不进入模型 prompt；它只保存在 `session_inputs.idempotency_key`，并通过 session 详情 API 的 message 字段回传，供客户端对账。模型仍只看到结构化教学语义与学生正文。若该 student message 带有 `image_data_url`，`build_messages()` 会把结构化信封作为 text block、把图片作为紧随其后的 `image_url` block，保持它在对话中的原始位置；各 provider 再转换为自己的多模态协议。
 
 assistant 教学动作类似：
 

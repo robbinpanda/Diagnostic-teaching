@@ -160,7 +160,8 @@ export function useSessionRuntime(input: { onRunSettled?: (sessionId: string) =>
           actionId: message.action_id,
           checkpointResult: message.checkpoint_result ?? undefined,
           imageUrl:
-            index === firstStudentIndex ? opened.problem_image_data_url : undefined
+            message.image_data_url
+            ?? (index === firstStudentIndex ? opened.problem_image_data_url : undefined)
         }))
       ],
       pendingCheckpoint: opened.pending_checkpoint,

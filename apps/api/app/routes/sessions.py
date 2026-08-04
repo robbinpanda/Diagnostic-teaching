@@ -41,6 +41,18 @@ def checkpoint_public_payload(row) -> dict:
     return payload
 
 
+def messages_have_images(message_rows) -> bool:
+    for row in message_rows:
+        try:
+            metadata = json.loads(row["metadata_json"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            continue
+        image_data_url = metadata.get("image_data_url")
+        if isinstance(image_data_url, str) and image_data_url.startswith("data:image/"):
+            return True
+    return False
+
+
 def restored_messages(message_rows, checkpoint_rows) -> list[SessionRestoredMessage]:
     checkpoints = {row["id"]: row for row in checkpoint_rows}
     restored: list[SessionRestoredMessage] = []
@@ -48,8 +60,11 @@ def restored_messages(message_rows, checkpoint_rows) -> list[SessionRestoredMess
         if row["role"] not in {"student", "assistant"}:
             continue
         checkpoint_result = None
-        if row["action"] == "CHECKPOINT_RESPONSE":
+        try:
             metadata = json.loads(row["metadata_json"] or "{}")
+        except json.JSONDecodeError:
+            metadata = {}
+        if row["action"] == "CHECKPOINT_RESPONSE":
             result = metadata.get("checkpoint_result") or metadata.get("checkpoint_answer")
             checkpoint = checkpoints.get(result.get("checkpoint_id")) if isinstance(result, dict) else None
             if checkpoint is not None and checkpoint["selected_option_id"] is not None:
@@ -66,6 +81,7 @@ def restored_messages(message_rows, checkpoint_rows) -> list[SessionRestoredMess
                 action_id=row["action_id"],
                 action=row["action"],
                 client_message_id=row["client_message_id"],
+                image_data_url=metadata.get("image_data_url"),
                 checkpoint_result=checkpoint_result,
             )
         )
@@ -395,8 +411,11 @@ def restore_session(payload: SessionRestoreRequest, request: Request) -> Session
         source = request.app.state.sessions.get(payload.session_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
-    if source["problem_image_data_url"] and not profile["is_multimodal"]:
-        raise HTTPException(status_code=400, detail="该历史题目包含原图，必须选择支持图片识别的模型")
+    source_messages = request.app.state.sessions.list_messages(payload.session_id)
+    if not profile["is_multimodal"] and (
+        source["problem_image_data_url"] or messages_have_images(source_messages)
+    ):
+        raise HTTPException(status_code=400, detail="该历史会话包含图片，必须选择支持图片识别的模型")
 
     session = request.app.state.sessions.restore(payload.session_id, payload.model_profile_id)
     messages = request.app.state.sessions.list_messages(session["id"])

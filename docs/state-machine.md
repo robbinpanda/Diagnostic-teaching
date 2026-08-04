@@ -77,7 +77,7 @@ sequenceDiagram
 - LLM 每轮决定 `state_hint`、`action`、`message`、`breakpoint_description`、`checkpoint`、`knowledge_card`、`problem_card`。
 - 后端不信任模型给出的等待判断；`wait_for_student` 由后端根据 action 强制推导。
 - `ASK_OPEN_QUESTION` 和 `ASK_MULTIPLE_CHOICE` 是阻塞动作，会停下等待学生。`ASK_MULTIPLE_CHOICE` 等待期间仍允许学生在输入框直接输入原文；文字提交会原子结束当前 checkpoint，并作为普通学生消息进入后续教学。
-- `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是教学语义上的非阻塞动作。`RESPOND_TO_CHECKPOINT` 直接继续；`EXPLAIN_PRINCIPLE` 必须内嵌展示 `knowledge_card`，`EXPLAIN_LOCAL` 仅在模型判断本次内容值得独立记忆和迁移复用时展示，确认归档后继续。两类讲解的内容职责严格互斥：`EXPLAIN_LOCAL` 每条只修一个具体步骤或局部连接，`EXPLAIN_PRINCIPLE` 每条只讲一个可迁移原理并仅指出其与下一步的关联；不得在同一 message 中混合原理讲解与具体应用，需要两者时拆成不同 action。
+- `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是教学语义上的非阻塞动作。`RESPOND_TO_CHECKPOINT` 直接继续；`EXPLAIN_PRINCIPLE` 必须内嵌展示 `knowledge_card`，`EXPLAIN_LOCAL` 仅在模型判断本次内容值得独立记忆和迁移复用时展示，确认归档后继续。两类讲解都有明确止步线：`EXPLAIN_PRINCIPLE` 只用一般字母讲一个原理，不得代入当前题数据、产生当前题新结果或切换到第二个原理；`EXPLAIN_LOCAL` 至多得到一个局部步骤的直接结果，不得继续下一公式、判号或答案。message 和 knowledge card 同受此边界约束。讲解后学生尚未亲自应用时，下一 action 优先用诊断式问题获取其关键判断，禁止连续讲解自动接力完成整题。
 - knowledge/problem card 出现后不锁住输入框。学生先发送问题时，后端原子暂存卡片并继续生成；待处理卡片不会禁止后续 action 再生成知识卡、题目卡或执行 `SUMMARIZE`。每张卡片始终锚定在来源 assistant 消息之后，滚离原位时自动折叠；多张已滚过原位的卡片收纳在有高度上限的顶部紧凑列表中，点击后回到原位并展开。稍后保存或舍弃 deferred 卡片不会重复启动续讲。
 - knowledge card 只保存脱离当前题仍成立的公式、定理、性质或通用方法；problem card 只保存当前具体题目的条件、完整步骤和最终答案。整题依赖的可迁移原理已讲清但尚未制卡时，先生成知识卡，再在后续 `SUMMARIZE` 生成题目卡；同一道题允许各有一张。
 - message、checkpoint 和两类卡片的所有可见字段统一使用纯文本 + KaTeX：短公式用 `$...$`，关键推导可用 `$$...$$` 独立成行，不使用界面不会解释的 Markdown 标题或列表。卡片合同额外拒绝定界符外明显的下标、上标、方程和数学符号，并触发一次带具体格式说明的模型重试。

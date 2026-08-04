@@ -92,6 +92,22 @@ test("student outbox preserves repeated interjections in one session", () => {
   assert.deepEqual(listPendingStudentRequests(storage), [first, second]);
 });
 
+test("student outbox preserves a later conversation image with its idempotency key", () => {
+  const storage = new MemoryStorage();
+  const pending = {
+    operationId: "operation-image",
+    sessionId: "session-image",
+    text: "这是我补画的辅助线",
+    imageDataUrl: "data:image/png;base64,AAAA",
+    clientMessageId: "message-image",
+    createdAt: "2026-08-02T00:00:02Z"
+  };
+
+  savePendingStudentRequest(storage, pending);
+
+  assert.deepEqual(listPendingStudentRequests(storage), [pending]);
+});
+
 test("active session and composer drafts survive refresh without crossing session scopes", () => {
   const storage = new MemoryStorage();
   saveActiveSessionId(storage, "session-a");

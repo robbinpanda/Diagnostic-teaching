@@ -112,6 +112,7 @@ export async function acceptStudentMessage(input: {
   session_id: string;
   client_message_id: string;
   message: string;
+  image_data_url?: string | null;
 }): Promise<SessionInputAcceptance> {
   const response = await fetch(`${API_BASE}/api/sessions/${input.session_id}/inputs`, {
     method: "POST",
@@ -119,7 +120,8 @@ export async function acceptStudentMessage(input: {
     body: JSON.stringify({
       kind: "STUDENT_MESSAGE",
       client_message_id: input.client_message_id,
-      message: input.message
+      message: input.message,
+      ...(input.image_data_url ? { image_data_url: input.image_data_url } : {})
     })
   });
   if (!response.ok) throw await responseError(response);

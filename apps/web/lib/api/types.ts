@@ -150,6 +150,7 @@ export type RestoredSession = {
     action_id?: string | null;
     action: string;
     client_message_id?: string | null;
+    image_data_url?: string | null;
     checkpoint_result?: AnsweredCheckpoint | null;
   }>;
   pending_checkpoint?: Checkpoint | null;

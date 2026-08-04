@@ -158,7 +158,7 @@ def test_problem_image_is_logged_once_then_replaced_with_placeholder(tmp_path: P
     first_url = events[0]["prompt_messages"][0]["content"][1]["image_url"]["url"]
     second_url = events[1]["prompt_messages"][0]["content"][1]["image_url"]["url"]
     assert first_url == image_data_url
-    assert second_url.startswith("[题目原图已在本会话首次")
+    assert second_url.startswith("[会话图片已在本会话首次")
     assert messages[0]["content"][1]["image_url"]["url"] == image_data_url
 
 

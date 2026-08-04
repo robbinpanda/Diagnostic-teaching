@@ -69,7 +69,7 @@ class SessionLogger:
         first_url_to_keep = 0 if not image_already_logged else -1
         for index, image_url in enumerate(image_urls):
             if index != first_url_to_keep:
-                image_url["url"] = "[题目原图已在本会话首次 tutor_turn 日志中保存，此处省略]"
+                image_url["url"] = "[会话图片已在本会话首次含图 tutor_turn 日志中保存，此处省略]"
         return prepared
 
     def _append(self, session_id: str, record: dict[str, Any]) -> None:
@@ -202,7 +202,7 @@ class SessionLogger:
                     continue
                 image = item.get("image_url")
                 if isinstance(image, dict) and str(image.get("url", "")).startswith("data:image/"):
-                    image["url"] = "[题目原图 base64 已省略；原图保存在 SQLite session 中]"
+                    image["url"] = "[会话图片 base64 已省略；图片保存在 SQLite 会话记录中]"
         return json.dumps(prepared, ensure_ascii=False, indent=2)
 
     def log_session_started(

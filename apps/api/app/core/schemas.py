@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 Provider = Literal["openai", "openai_compatible", "anthropic", "local_demo"]
 ContextStatus = Literal["need_problem", "need_thought", "ready"]
@@ -334,6 +334,7 @@ class SessionRestoredMessage(BaseModel):
     action_id: str | None = None
     action: str
     client_message_id: str | None = None
+    image_data_url: str | None = None
     checkpoint_result: SessionRestoredCheckpointResult | None = None
 
 
@@ -395,7 +396,14 @@ class StudentMessageInputRequest(BaseModel):
 
     kind: Literal["STUDENT_MESSAGE"]
     client_message_id: str = Field(min_length=1, max_length=128)
-    message: str = Field(min_length=1, max_length=20_000)
+    message: str = Field(default="", max_length=20_000)
+    image_data_url: str | None = Field(default=None, max_length=17_000_000)
+
+    @model_validator(mode="after")
+    def require_content(self):
+        if not self.message.strip() and not self.image_data_url:
+            raise ValueError("学生消息必须包含文字或图片")
+        return self
 
 
 class CardDismissedContinueInputRequest(BaseModel):
