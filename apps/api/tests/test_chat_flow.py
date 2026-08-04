@@ -74,6 +74,32 @@ def test_local_demo_chat_stream_emits_checkpoint(tmp_path: Path):
     assert decision["wait_for_student"] is True
 
 
+def test_tutor_action_persists_provider_response_with_assistant_message(tmp_path: Path):
+    client, session_id = _bootstrap_app(tmp_path)
+    turn = TutorTurn.model_validate(
+        {
+            "state_hint": "scaffolding",
+            "action": "EXPLAIN_LOCAL",
+            "message": "先看这一小步。",
+        }
+    )
+    provider_response = {
+        "provider": "openai",
+        "model_profile_id": "prof_openai",
+        "model": "gpt-5.6-luna",
+        "id": "resp_atomic",
+    }
+
+    assistant, _, _ = client.app.state.sessions.record_tutor_action(
+        session_id,
+        turn,
+        action_index=0,
+        provider_response=provider_response,
+    )
+
+    assert json.loads(assistant["metadata_json"])["provider_response"] == provider_response
+
+
 def test_tutor_action_rolls_back_if_checkpoint_insert_fails(tmp_path: Path):
     client, session_id = _bootstrap_app(tmp_path)
     turn = TutorTurn.model_validate(

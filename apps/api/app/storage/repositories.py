@@ -133,6 +133,7 @@ class SessionRepository(
         *,
         action_index: int,
         run_id: str | None = None,
+        provider_response: dict | None = None,
     ) -> tuple[sqlite3.Row, sqlite3.Row | None, sqlite3.Row | None]:
         return persist_tutor_action(
             self.db,
@@ -141,4 +142,5 @@ class SessionRepository(
             turn,
             action_index=action_index,
             run_id=run_id,
+            provider_response=provider_response,
         )

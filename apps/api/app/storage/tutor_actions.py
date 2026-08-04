@@ -19,6 +19,7 @@ def record_tutor_action(
     *,
     action_index: int,
     run_id: str | None = None,
+    provider_response: dict | None = None,
 ) -> tuple[sqlite3.Row, sqlite3.Row | None, sqlite3.Row | None]:
     """Atomically save one complete assistant action and its side effects."""
     message_id = new_id("msg")
@@ -42,6 +43,8 @@ def record_tutor_action(
         "knowledge_card": turn.knowledge_card.model_dump() if turn.knowledge_card else None,
         "problem_card": turn.problem_card.model_dump() if turn.problem_card else None,
     }
+    if provider_response is not None:
+        metadata["provider_response"] = provider_response
 
     with db.connect() as conn:
         # Serialize explicit interruption against the complete action commit.

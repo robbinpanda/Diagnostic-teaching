@@ -217,6 +217,7 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                     force_blocking=force_blocking,
                 )
                 turn = None
+                provider_response = None
                 async for kind, value in coordinated_generation(coordinator, handle, generation):
                     if kind == "progress":
                         yield sse(
@@ -227,6 +228,13 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                         yield sse("message_delta", {"text": value, "action_index": action_index})
                     elif kind == "message_reset":
                         yield sse("message_reset", {"action_index": action_index})
+                    elif kind == "provider_response":
+                        provider_response = {
+                            "provider": profile_row["provider"],
+                            "model_profile_id": profile_row["id"],
+                            "model": profile_row["model"],
+                            "id": value,
+                        }
                     elif kind == "turn":
                         turn = value
                 if handle.interrupt_requested:
@@ -241,6 +249,7 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                             turn,
                             action_index=action_index,
                             run_id=handle.run_id,
+                            provider_response=provider_response,
                         )
                     )
                 except RunStateConflict as exc:

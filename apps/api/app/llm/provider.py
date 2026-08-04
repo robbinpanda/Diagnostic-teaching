@@ -479,9 +479,13 @@ async def _openai_chat_stream_completion(
         "Content-Type": "application/json",
     }
     requested_max_tokens = max_tokens or profile.max_output_tokens
+    wire_messages = [
+        {key: value for key, value in message.items() if not key.startswith("_")}
+        for message in messages
+    ]
     payload: dict[str, Any] = {
         "model": profile.model,
-        "messages": messages,
+        "messages": wire_messages,
         "temperature": profile.temperature if temperature is None else temperature,
         "max_tokens": requested_max_tokens,
         "stream": True,
@@ -577,16 +581,36 @@ def openai_responses_request_payload(
     *,
     max_output_tokens: int,
     temperature: float,
+    use_previous_response_id: bool = True,
 ) -> dict[str, Any]:
     instructions: list[str] = []
     input_messages: list[dict[str, Any]] = []
-    for message in messages:
+    previous_response_id: str | None = None
+    previous_response_index: int | None = None
+    if use_previous_response_id:
+        for index, message in enumerate(messages):
+            marker = message.get("_provider_response")
+            if not isinstance(marker, dict):
+                continue
+            if (
+                marker.get("provider") == "openai"
+                and marker.get("model_profile_id") == profile.id
+                and marker.get("model") == profile.model
+                and isinstance(marker.get("id"), str)
+                and marker["id"]
+            ):
+                previous_response_id = marker["id"]
+                previous_response_index = index
+
+    for index, message in enumerate(messages):
         role = str(message.get("role") or "user")
         content = message.get("content")
         if role == "system":
             text = message_text(content)
             if text:
                 instructions.append(text)
+            continue
+        if previous_response_index is not None and index <= previous_response_index:
             continue
         if role == "assistant":
             input_messages.append(
@@ -609,6 +633,8 @@ def openai_responses_request_payload(
     }
     if instructions:
         payload["instructions"] = "\n\n".join(instructions)
+    if previous_response_id:
+        payload["previous_response_id"] = previous_response_id
     reasoning_options, _ = reasoning_request_options(
         profile.provider,
         profile.base_url,
@@ -668,18 +694,43 @@ async def _openai_responses_stream_completion(
     timeout = httpx.Timeout(connect_timeout, read=read_timeout, write=10.0, pool=10.0)
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream(
-                "POST", responses_url(profile.base_url), headers=headers, json=payload
-            ) as response:
-                if response.status_code >= 400:
-                    body = await response.aread()
-                    raise LlmProviderError(
-                        f"OpenAI Responses 请求失败 {response.status_code}: "
-                        f"{body.decode('utf-8', 'ignore')[:300]}"
+            attempts = [payload]
+            if payload.get("previous_response_id"):
+                attempts.append(
+                    openai_responses_request_payload(
+                        profile,
+                        messages,
+                        max_output_tokens=requested_max_tokens,
+                        temperature=profile.temperature if temperature is None else temperature,
+                        use_previous_response_id=False,
                     )
-                yield {"event": "response_headers", "delta": "", "finish_reason": None}
-                async for event in _openai_responses_events(response, requested_max_tokens):
-                    yield event
+                )
+            for attempt_index, attempt_payload in enumerate(attempts):
+                async with client.stream(
+                    "POST",
+                    responses_url(profile.base_url),
+                    headers=headers,
+                    json=attempt_payload,
+                ) as response:
+                    if response.status_code >= 400:
+                        body = await response.aread()
+                        can_replay_full_history = (
+                            attempt_index == 0
+                            and len(attempts) > 1
+                            and response.status_code in {400, 404}
+                        )
+                        if can_replay_full_history:
+                            continue
+                        raise LlmProviderError(
+                            f"OpenAI Responses 请求失败 {response.status_code}: "
+                            f"{body.decode('utf-8', 'ignore')[:300]}"
+                        )
+                    yield {"event": "response_headers", "delta": "", "finish_reason": None}
+                    async for event in _openai_responses_events(
+                        response, requested_max_tokens
+                    ):
+                        yield event
+                    return
     except httpx.TimeoutException as exc:
         raise LlmProviderError(
             "OpenAI Responses 流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置"
@@ -735,6 +786,18 @@ async def _openai_responses_events(response: Any, requested_max_tokens: int):
                 incomplete_details if isinstance(incomplete_details, dict) else {}
             )
             incomplete_reason = incomplete_details.get("reason")
+            response_id = response_payload.get("id")
+            if (
+                event_type == "response.completed"
+                and isinstance(response_id, str)
+                and response_id
+            ):
+                yield {
+                    "event": "provider_response",
+                    "response_id": response_id,
+                    "delta": "",
+                    "finish_reason": None,
+                }
             if status == "completed":
                 finish_reason = "stop"
             elif incomplete_reason == "max_output_tokens":

@@ -433,7 +433,7 @@ def _message_metadata(row: Row | dict) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def render_history_message(row: Row | dict) -> dict[str, str]:
+def render_history_message(row: Row | dict) -> dict[str, Any]:
     stored_role = _row_value(row, "role", "student")
     role = "assistant" if stored_role == "assistant" else "user"
     content = row["content"]
@@ -487,7 +487,14 @@ def render_history_message(row: Row | dict) -> dict[str, str]:
             turn_payload["problem_card"] = metadata["problem_card"]
         if debug:
             turn_payload["debug"] = debug
-        return {"role": role, "content": json.dumps(turn_payload, ensure_ascii=False)}
+        rendered: dict[str, Any] = {
+            "role": role,
+            "content": json.dumps(turn_payload, ensure_ascii=False),
+        }
+        provider_response = metadata.get("provider_response")
+        if isinstance(provider_response, dict):
+            rendered["_provider_response"] = provider_response
+        return rendered
 
     envelope: dict[str, Any] = {
         "kind": "student_message",
@@ -574,6 +581,7 @@ async def generate_tutor_turn_stream(
             extractor = MessageStreamExtractor()
             raw_parts: list[str] = []
             emitted_message_parts: list[str] = []
+            provider_response_id: str | None = None
             try:
                 async for event in chat_stream_completion(
                     profile,
@@ -581,6 +589,11 @@ async def generate_tutor_turn_stream(
                     max_tokens=profile.max_output_tokens,
                 ):
                     provider_event = event.get("event")
+                    if provider_event == "provider_response":
+                        response_id = event.get("response_id")
+                        if isinstance(response_id, str) and response_id:
+                            provider_response_id = response_id
+                        continue
                     if provider_event == "reasoning_delta":
                         if latency_metrics["input_to_first_reasoning_event_ms"] is None:
                             latency_metrics["input_to_first_reasoning_event_ms"] = elapsed_ms()
@@ -657,6 +670,8 @@ async def generate_tutor_turn_stream(
                     yield ("message_reset", "")
                     yield ("message_delta", turn_final.message)
             latency_metrics["input_to_interactive_turn_ms"] = elapsed_ms()
+            if provider_response_id:
+                yield ("provider_response", provider_response_id)
             yield ("turn", turn_final)
             return
     except asyncio.CancelledError:

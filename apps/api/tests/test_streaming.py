@@ -329,6 +329,63 @@ def test_openai_responses_payload_maps_system_image_and_reasoning_fields():
     assert "reasoning_effort" not in payload
 
 
+def test_openai_responses_payload_continues_from_last_persisted_response():
+    profile = _profile("openai")
+    payload = openai_responses_request_payload(
+        profile,
+        [
+            {"role": "system", "content": "系统规则"},
+            {"role": "user", "content": "第一问"},
+            {
+                "role": "assistant",
+                "content": "第一答",
+                "_provider_response": {
+                    "provider": "openai",
+                    "model_profile_id": profile.id,
+                    "model": profile.model,
+                    "id": "resp_previous",
+                },
+            },
+            {"role": "user", "content": "第二问"},
+        ],
+        max_output_tokens=8000,
+        temperature=0.2,
+    )
+
+    assert payload["previous_response_id"] == "resp_previous"
+    assert payload["instructions"] == "系统规则"
+    assert payload["input"] == [{"role": "user", "content": "第二问"}]
+
+    replay_payload = openai_responses_request_payload(
+        profile,
+        [
+            {"role": "system", "content": "系统规则"},
+            {"role": "user", "content": "第一问"},
+            {
+                "role": "assistant",
+                "content": "第一答",
+                "_provider_response": {
+                    "provider": "openai",
+                    "model_profile_id": profile.id,
+                    "model": profile.model,
+                    "id": "resp_previous",
+                },
+            },
+            {"role": "user", "content": "第二问"},
+        ],
+        max_output_tokens=8000,
+        temperature=0.2,
+        use_previous_response_id=False,
+    )
+
+    assert "previous_response_id" not in replay_payload
+    assert [item["role"] for item in replay_payload["input"]] == [
+        "user",
+        "assistant",
+        "user",
+    ]
+
+
 def test_openai_responses_sse_yields_reasoning_text_and_stop_reason():
     class FakeResponse:
         async def aiter_lines(self):
@@ -341,7 +398,7 @@ def test_openai_responses_sse_yields_reasoning_text_and_stop_reason():
                 'data: {"type":"response.output_text.delta","delta":"你"}',
                 'data: {"type":"response.output_text.delta","delta":"好"}',
                 "event: response.completed",
-                'data: {"type":"response.completed","response":{"status":"completed"}}',
+                'data: {"type":"response.completed","response":{"id":"resp_123","status":"completed"}}',
             ]:
                 yield line
 
@@ -354,6 +411,12 @@ def test_openai_responses_sse_yields_reasoning_text_and_stop_reason():
         {"event": "reasoning_delta", "delta": "", "finish_reason": None},
         {"event": "content_delta", "delta": "你", "finish_reason": None},
         {"event": "content_delta", "delta": "好", "finish_reason": None},
+        {
+            "event": "provider_response",
+            "response_id": "resp_123",
+            "delta": "",
+            "finish_reason": None,
+        },
         {"delta": "", "finish_reason": "stop"},
     ]
 

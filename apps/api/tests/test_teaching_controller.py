@@ -377,6 +377,39 @@ def test_build_messages_uses_structured_roles_and_keeps_full_history():
     assert "checkpoint_result" in messages[0]["content"]
 
 
+def test_build_messages_preserves_openai_response_marker_on_assistant_history():
+    session = {
+        "grade_band": "junior",
+        "subject": "math",
+        "problem_text": "求 x。",
+        "student_initial_thought": "先移项。",
+        "phase": "scaffolding",
+        "problem_image_data_url": None,
+    }
+    marker = {
+        "provider": "openai",
+        "model_profile_id": "prof_openai",
+        "model": "gpt-5.6-luna",
+        "id": "resp_saved",
+    }
+    history = [
+        {
+            "role": "assistant",
+            "content": "继续移项。",
+            "action_id": "act_1",
+            "action": "EXPLAIN_LOCAL",
+            "in_reply_to_action_id": None,
+            "metadata_json": json.dumps(
+                {"state_hint": "scaffolding", "provider_response": marker}
+            ),
+        }
+    ]
+
+    messages = build_messages(session, history)
+
+    assert messages[2]["_provider_response"] == marker
+
+
 def test_context_collection_uses_small_contract_without_card_schemas():
     session = {
         "grade_band": "junior",
