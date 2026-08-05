@@ -4,6 +4,11 @@
 
 ## 未发布
 
+### 题图识别条件重试与模型正文直出
+
+- 初始题图轮次第一次有效 TutorTurn 仍返回 `need_problem` 时，正式生成链路携带同一裁图和定向识别提示自动重试一次；清除第一次瞬时流文本，最多执行两次识别，并在最终 turn debug 中记录重试次数。
+- 上下文守门和 bounded-loop 强制阻塞仍可规范 action、清除不允许的 checkpoint/card，并由后端推导 `wait_for_student`，但不再按 action 或消息末尾标点替换、拼接模型的 `message`。模型对图片歧义的具体解释和 `need_thought` 提问将原样展示、保存。
+
 ### 教学提示词分层与讲解止步线
 
 - 将正式答疑 system prompt 重组为五层优先级：上下文门禁、原子动作与止步线、action 决策顺序、可见内容与格式、输出合同；`ACTION_PROTOCOL` 只保留运行语义和字段要求，不再重复一套选择策略。

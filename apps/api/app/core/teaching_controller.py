@@ -63,6 +63,7 @@ __all__ = [
 
 FORMAT_RETRY_LIMIT = 1
 EMPTY_RESPONSE_RETRY_LIMIT = 1
+IMAGE_NEED_PROBLEM_RETRY_LIMIT = 1
 
 
 TEACHING_ACTION_DEFINITIONS = [
@@ -396,6 +397,36 @@ def _row_value(row: Row | dict, key: str, default=None):
         return default
 
 
+def _is_initial_image_problem_turn(session: Row | dict, history: list[Row]) -> bool:
+    return bool(
+        _row_value(session, "problem_image_data_url")
+        and _row_value(session, "context_status", "ready") == "need_problem"
+        and not any(_row_value(row, "role") == "assistant" for row in history)
+    )
+
+
+def build_image_need_problem_retry_messages(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    retry_instruction = {
+        "kind": "image_problem_recognition_retry",
+        "instruction": (
+            "这是对同一张已附带题图的第二次且最后一次识别尝试。请重新仔细读取题干，"
+            "不要让用户再次上传已经存在的图片。能够确认题目时，请填写可靠、完整的 "
+            "problem_summary，并根据已有学生思路选择 need_thought 或 ready；只有图片确实模糊、"
+            "裁切不完整或条件存在无法消解的歧义时才保持 need_problem，并在 message 中明确指出"
+            "无法确认的具体符号或条件。输出仍必须严格遵守 TutorTurn JSON 合同。"
+        ),
+    }
+    return [
+        *messages,
+        {
+            "role": "user",
+            "content": json.dumps(retry_instruction, ensure_ascii=False),
+        },
+    ]
+
+
 def _without_legacy_initial_thought(session: Row | dict, history: list[Row]) -> list[Row]:
     """Avoid sending old sessions' duplicated initial thought twice.
 
@@ -540,7 +571,8 @@ async def generate_tutor_turn_stream(
     可见文本来自 LLM 原始 JSON 中 `"message":"..."` 字段的实时解码字符，
     checkpoint / phase / action 等仍等整段 raw 完整后用 extract_json_object 解析，
     保证结构化字段不被增量解析的边界问题污染。LLM 首次空响应会在本轮内透明重试一次；
-    连续空响应才抛 LlmProviderError，由 chat 路由转成 SSE error 事件，而不是静默断流。
+    初始题图轮次若首次仍返回 need_problem，也会带原图条件重试一次。连续空响应才抛
+    LlmProviderError，由 chat 路由转成 SSE error 事件，而不是静默断流。
     """
     messages = build_messages(
         session,
@@ -582,6 +614,8 @@ async def generate_tutor_turn_stream(
         request_messages = messages
         format_retry_count = 0
         empty_response_retry_count = 0
+        image_need_problem_retry_count = 0
+        image_problem_retry_eligible = _is_initial_image_problem_turn(session, history)
         while True:
             extractor = MessageStreamExtractor()
             raw_parts: list[str] = []
@@ -655,6 +689,22 @@ async def generate_tutor_turn_stream(
                 turn_final.debug["format_retry_count"] = format_retry_count
             if empty_response_retry_count:
                 turn_final.debug["empty_response_retry_count"] = empty_response_retry_count
+            if (
+                image_problem_retry_eligible
+                and turn_final.context_status == "need_problem"
+                and image_need_problem_retry_count < IMAGE_NEED_PROBLEM_RETRY_LIMIT
+            ):
+                if emitted_message_parts:
+                    yield ("message_reset", "")
+                image_need_problem_retry_count += 1
+                used_fallback = True
+                request_messages = build_image_need_problem_retry_messages(messages)
+                yield progress("retrying_problem_image", "正在重新识别题目图片")
+                continue
+            if image_need_problem_retry_count:
+                turn_final.debug["image_need_problem_retry_count"] = (
+                    image_need_problem_retry_count
+                )
             parse_ok = True
             emitted_message = "".join(emitted_message_parts)
             if turn_final.message:
@@ -669,9 +719,8 @@ async def generate_tutor_turn_stream(
                     if missing_suffix:
                         yield ("message_delta", missing_suffix)
                 elif turn_final.message != emitted_message:
-                    # Backend context/action guards may replace a model message
-                    # after the raw stream was shown. Reset the transient text so
-                    # the user never keeps a message that violates final policy.
+                    # Parsing sanitization may normalize control characters or
+                    # malformed escape sequences after the raw stream was shown.
                     yield ("message_reset", "")
                     yield ("message_delta", turn_final.message)
             latency_metrics["input_to_interactive_turn_ms"] = elapsed_ms()

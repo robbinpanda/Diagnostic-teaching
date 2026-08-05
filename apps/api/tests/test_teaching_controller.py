@@ -83,7 +83,7 @@ def test_backend_policy_forces_blocking_after_nonblocking_streak():
 
     assert turn.action == "ASK_OPEN_QUESTION"
     assert turn.wait_for_student is True
-    assert "你先说说" in turn.message
+    assert turn.message == "先看这一小步"
 
 
 def test_backend_policy_allows_summary_after_nonblocking_streak():
@@ -120,7 +120,25 @@ def test_context_guard_allows_only_open_question_before_problem_and_thought():
     assert turn.checkpoint is None
     assert turn.knowledge_card is None
     assert turn.problem_card is None
-    assert "完整题目" in turn.message
+    assert turn.message == "先选一个答案。"
+
+
+def test_context_guard_preserves_model_question_that_ends_with_period():
+    turn = teaching.TutorTurn(
+        state_hint="diagnosing",
+        context_status="need_thought",
+        action="ASK_OPEN_QUESTION",
+        message="我已经读到题目了。请告诉我你目前想到哪一步。",
+    )
+
+    apply_backend_action_policy(
+        turn,
+        current_context_status="need_thought",
+        current_problem_text="已知 $x+1=2$，求 $x$。",
+    )
+
+    assert turn.action == "ASK_OPEN_QUESTION"
+    assert turn.message == "我已经读到题目了。请告诉我你目前想到哪一步。"
 
 
 def test_explicit_no_idea_completes_thought_collection():
@@ -1051,7 +1069,7 @@ def test_stream_retries_once_when_provider_returns_no_content(monkeypatch):
     assert turn.debug["empty_response_retry_count"] == 1
 
 
-def test_stream_resets_model_text_when_context_guard_replaces_it(monkeypatch):
+def test_stream_preserves_model_text_when_context_guard_corrects_action(monkeypatch):
     raw = json.dumps(
         {
             "state_hint": "explaining",
@@ -1098,15 +1116,77 @@ def test_stream_resets_model_text_when_context_guard_replaces_it(monkeypatch):
         return [event async for event in teaching.generate_tutor_turn_stream(profile, session, [])]
 
     events = asyncio.run(collect_events())
-    reset_index = next(index for index, event in enumerate(events) if event[0] == "message_reset")
-    guarded_text = "".join(
-        value for kind, value in events[reset_index + 1 :] if kind == "message_delta"
-    )
+    visible_text = "".join(value for kind, value in events if kind == "message_delta")
     turn = next(value for kind, value in events if kind == "turn")
 
     assert turn.action == "ASK_OPEN_QUESTION"
-    assert guarded_text == turn.message
-    assert "完整题目" in guarded_text
+    assert not any(kind == "message_reset" for kind, _ in events)
+    assert visible_text == turn.message == "我直接开始讲这道题。"
+
+
+def test_stream_retries_initial_image_once_when_first_turn_still_needs_problem(monkeypatch):
+    responses = [
+        {
+            "message": "我还没有看清题目，请再上传图片。",
+            "action": "ASK_OPEN_QUESTION",
+            "context_status": "need_problem",
+            "state_hint": "diagnosing",
+        },
+        {
+            "message": "我看清题目了。你目前尝试到了哪一步。",
+            "action": "ASK_OPEN_QUESTION",
+            "context_status": "need_thought",
+            "problem_summary": "已知 $x+1=2$，求 $x$。",
+            "state_hint": "diagnosing",
+        },
+    ]
+    requests = []
+
+    async def fake_chat_stream_completion(profile, messages, **kwargs):
+        requests.append(messages)
+        raw = json.dumps(responses[len(requests) - 1], ensure_ascii=False)
+        yield {"delta": raw, "finish_reason": None}
+        yield {"delta": "", "finish_reason": "stop"}
+
+    monkeypatch.setattr(teaching, "chat_stream_completion", fake_chat_stream_completion)
+    profile = LlmProfile(
+        id="prof_test",
+        provider="openai_compatible",
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="test-model",
+        timeout_ms=30000,
+        temperature=0.2,
+        max_output_tokens=1200,
+    )
+    session = {
+        "id": "sess_test",
+        "grade_band": "junior",
+        "subject": "math",
+        "problem_text": "",
+        "student_initial_thought": "",
+        "context_status": "need_problem",
+        "phase": "diagnosing",
+        "problem_image_data_url": "data:image/png;base64,AAAA",
+    }
+
+    async def collect_events():
+        return [event async for event in teaching.generate_tutor_turn_stream(profile, session, [])]
+
+    events = asyncio.run(collect_events())
+    turn = next(value for kind, value in events if kind == "turn")
+
+    assert len(requests) == 2
+    assert any(kind == "message_reset" for kind, _ in events)
+    assert any(
+        kind == "progress" and value["stage"] == "retrying_problem_image"
+        for kind, value in events
+    )
+    assert "第二次且最后一次识别尝试" in requests[1][-1]["content"]
+    assert turn.context_status == "need_thought"
+    assert turn.problem_summary == "已知 $x+1=2$，求 $x$。"
+    assert turn.message == "我看清题目了。你目前尝试到了哪一步。"
+    assert turn.debug["image_need_problem_retry_count"] == 1
 
 
 def test_stream_retries_missing_action_with_action_specific_instruction(monkeypatch):
