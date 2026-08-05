@@ -16,6 +16,13 @@ import { useMemo, useState } from "react";
 import type { SessionHistoryItem } from "../../lib/api";
 import { MathText } from "../MathText";
 
+const historyDateFormatter = new Intl.DateTimeFormat("zh-CN", {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  timeZone: "Asia/Shanghai"
+});
+
 export type WorkspaceNavigation = "start" | "history" | "knowledge" | "mistakes";
 
 type Props = {
@@ -160,10 +167,10 @@ export function SessionSidebar({
                               <strong><MathText text={item.title || "未命名题目"} className="titleMathText" /></strong>
                               <span>
                                 {isRunning ? <><Loader2 size={11} className="spin" /> 正在思考 · </> : null}
-                                {item.message_count} 条消息 · {new Date(item.updated_at).toLocaleDateString("zh-CN")}
+                                {item.message_count} 条消息 · {historyDateFormatter.format(new Date(item.updated_at))}
                               </span>
                             </button>
-                            <button className="sessionDeleteButton" type="button" onClick={() => onDeleteSession(item)} disabled={Boolean(deleteSessionBusyId) || Boolean(openSessionBusyId) || isRunning} aria-label={`删除会话：${item.title}`}>
+                            <button className="sessionDeleteButton" type="button" onClick={() => onDeleteSession(item)} disabled={Boolean(deleteSessionBusyId) || Boolean(openSessionBusyId) || isRunning || activeSessionId === item.session_id} aria-label={`删除会话：${item.title}`}>
                               {deleteSessionBusyId === item.session_id || openSessionBusyId === item.session_id
                                 ? <Loader2 size={14} className="spin" />
                                 : <Trash2 size={14} />}

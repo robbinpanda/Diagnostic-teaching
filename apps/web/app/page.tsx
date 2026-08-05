@@ -16,6 +16,7 @@ import { LearningCardPrintView } from "../components/LearningCardPrintView";
 import { AppTopbar } from "../components/workspace/AppTopbar";
 import { CardShelfTabs } from "../components/workspace/CardShelfTabs";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
+import { HistoryWorkspace } from "../components/workspace/HistoryWorkspace";
 import { MessageTimeline } from "../components/workspace/MessageTimeline";
 import { SessionSidebar, type WorkspaceNavigation } from "../components/workspace/SessionSidebar";
 import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
@@ -48,6 +49,7 @@ import {
   StudyCard,
   updateKnowledgeCard
 } from "../lib/api";
+import type { HistoryPaperGroup, HistorySortMode, HistoryView } from "../lib/history-view";
 import {
   clearAllRequestRecovery,
   clearComposerDraft,
@@ -108,7 +110,12 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [historyItems, setHistoryItems] = useState<SessionHistoryItem[]>([]);
   const [examPapers, setExamPapers] = useState<ExamPaper[]>([]);
-  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyView, setHistoryView] = useState<HistoryView>(null);
+  const [historyOverviewQuery, setHistoryOverviewQuery] = useState("");
+  const [historySortMode, setHistorySortMode] = useState<HistorySortMode>("recent");
+  const [historySelectedPaperName, setHistorySelectedPaperName] = useState("");
+  const [historyLoadError, setHistoryLoadError] = useState("");
+  const [historyBusy, setHistoryBusy] = useState(true);
   const [openSessionBusyId, setOpenSessionBusyId] = useState("");
   const [deleteSessionBusyId, setDeleteSessionBusyId] = useState("");
   const [deleteAllSessionsBusy, setDeleteAllSessionsBusy] = useState(false);
@@ -136,6 +143,7 @@ export default function Home() {
   const queuedInterjectionsRef = useRef(new Map<string, PendingStudentRequest[]>());
   const flushingInterjectionsRef = useRef(new Set<string>());
   const pendingSessionBatchesRef = useRef(new Map<number, PendingSessionBatch>());
+  const bootstrapNavigationRef = useRef(0);
   const openSessionRequestRef = useRef(0);
   const historyRequestRef = useRef(0);
   const examPapersRequestRef = useRef(0);
@@ -175,6 +183,10 @@ export default function Home() {
 
   function closeNavigationOnMobile() {
     if (window.matchMedia("(max-width: 760px)").matches) setLeftOpen(false);
+  }
+
+  function invalidateBootstrapNavigation() {
+    bootstrapNavigationRef.current += 1;
   }
 
   function handleRunSettled(targetSessionId: string) {
@@ -382,10 +394,11 @@ export default function Home() {
   }, [viewedShelfCard]);
 
   useEffect(() => {
+    const bootstrapNavigationToken = bootstrapNavigationRef.current;
     refreshProfiles();
     refreshCards();
     void refreshExamPapers();
-    void restoreWorkspaceAfterRefresh();
+    void restoreWorkspaceAfterRefresh(bootstrapNavigationToken);
     if (window.innerWidth <= 1120) setRightOpen(false);
     if (window.innerWidth <= 760) setLeftOpen(false);
     // Initial bootstrap only; later refreshes are triggered by explicit mutations.
@@ -464,9 +477,12 @@ export default function Home() {
     }
   }
 
-  async function restoreSessionAfterRefresh(targetSessionId: string) {
+  async function restoreSessionAfterRefresh(targetSessionId: string, bootstrapNavigationToken: number) {
     const opened = await fetchSession(targetSessionId);
+    if (bootstrapNavigationRef.current !== bootstrapNavigationToken) return;
     runtime.loadSession(opened);
+    setHistoryView(null);
+    setActiveNavigation("history");
     setSelectedProfileId(opened.model_profile_id);
     setGradeBand(opened.grade_band);
     saveActiveSessionId(window.localStorage, opened.session_id);
@@ -577,7 +593,7 @@ export default function Home() {
     await finishSessionBatchStart(result.sessions, originatingViewToken);
   }
 
-  async function restoreWorkspaceAfterRefresh() {
+  async function restoreWorkspaceAfterRefresh(bootstrapNavigationToken: number) {
     const recoveredSessionIds: string[] = [];
     const pendingBatch = loadPendingSessionBatch(window.localStorage);
     if (pendingBatch) {
@@ -627,16 +643,18 @@ export default function Home() {
         || "";
       if (activeSessionId) {
         try {
-          await restoreSessionAfterRefresh(activeSessionId);
+          await restoreSessionAfterRefresh(activeSessionId, bootstrapNavigationToken);
         } catch (nextError) {
-          saveActiveSessionId(window.localStorage, "");
-          setInput(loadComposerDraft(window.localStorage, DRAFT_SCOPE));
-          if (isApiResponseError(nextError, 404)) {
-            clearPendingStudentRequestsForSession(window.localStorage, activeSessionId);
-            runtime.clearSession();
-            runtime.clearError();
-          } else {
-            runtime.setError(nextError instanceof Error ? nextError.message : "恢复当前会话失败");
+          if (bootstrapNavigationRef.current === bootstrapNavigationToken) {
+            saveActiveSessionId(window.localStorage, "");
+            setInput(loadComposerDraft(window.localStorage, DRAFT_SCOPE));
+            if (isApiResponseError(nextError, 404)) {
+              clearPendingStudentRequestsForSession(window.localStorage, activeSessionId);
+              runtime.clearSession();
+              runtime.clearError();
+            } else {
+              runtime.setError(nextError instanceof Error ? nextError.message : "恢复当前会话失败");
+            }
           }
         }
       } else {
@@ -656,12 +674,13 @@ export default function Home() {
     const requestId = historyRequestRef.current + 1;
     historyRequestRef.current = requestId;
     setHistoryBusy(true);
+    setHistoryLoadError("");
     try {
       const nextItems = await fetchSessionHistory();
       if (historyRequestRef.current === requestId) setHistoryItems(nextItems);
     } catch (nextError) {
       if (historyRequestRef.current === requestId) {
-        runtime.setError(nextError instanceof Error ? nextError.message : "历史会话加载失败");
+        setHistoryLoadError(nextError instanceof Error ? nextError.message : "历史会话加载失败");
       }
     } finally {
       if (historyRequestRef.current === requestId) setHistoryBusy(false);
@@ -738,7 +757,34 @@ export default function Home() {
     }
   }
 
+  function handleOpenHistoryPaper(group: HistoryPaperGroup) {
+    setHistorySelectedPaperName(group.name);
+    setHistoryView({ mode: "paper", paperId: group.id });
+  }
+
+  function handleOpenHistorySession(targetSessionId: string) {
+    invalidateBootstrapNavigation();
+    setHistoryView(null);
+    setActiveNavigation("history");
+    setRightOpen(false);
+    void handleOpenSession(targetSessionId);
+  }
+
+  function handleStartNewChat() {
+    invalidateBootstrapNavigation();
+    setHistoryView(null);
+    setActiveNavigation("start");
+    clearCurrentSessionState();
+    closeNavigationOnMobile();
+  }
+
   async function handleDeleteSession(item: SessionHistoryItem) {
+    if (
+      item.session_id === sessionId
+      || runningSessionIds.includes(item.session_id)
+      || Boolean(openSessionBusyId)
+      || Boolean(deleteSessionBusyId)
+    ) return;
     if (!window.confirm(`删除会话“${item.title || "未命名题目"}”？已归档卡片会保留。`)) return;
     setDeleteSessionBusyId(item.session_id);
     runtime.clearError();
@@ -1262,30 +1308,59 @@ export default function Home() {
         runningSessionIds={runningSessionIds}
         activeNavigation={activeNavigation}
         onCollapse={() => setLeftOpen(false)}
-        onNewChat={() => {
-          setActiveNavigation("start");
-          clearCurrentSessionState();
-          closeNavigationOnMobile();
-        }}
+        onNewChat={handleStartNewChat}
         onNavigate={(navigation) => {
+          invalidateBootstrapNavigation();
           setActiveNavigation(navigation);
-          if (navigation === "knowledge" || navigation === "mistakes") {
+          if (navigation === "history") {
+            setHistoryView({ mode: "overview" });
+            setRightOpen(false);
+            closeNavigationOnMobile();
+          } else if (navigation === "knowledge" || navigation === "mistakes") {
+            setHistoryView(null);
             setCardLibraryMode(navigation === "knowledge" ? "knowledge" : "problem");
             setRightOpen(true);
             closeNavigationOnMobile();
           } else {
+            setHistoryView(null);
             setRightOpen(false);
           }
         }}
-        onOpenSession={(targetSessionId) => {
-          setActiveNavigation("history");
-          void handleOpenSession(targetSessionId);
-        }}
+        onOpenSession={handleOpenHistorySession}
         onDeleteSession={handleDeleteSession}
         onDeleteAllSessions={handleDeleteAllSessions}
       />
 
       <section className="conversationPanel">
+        {historyView ? (
+          <HistoryWorkspace
+            key={historyView.mode === "paper" ? historyView.paperId : "overview"}
+            view={historyView}
+            items={historyItems}
+            overviewQuery={historyOverviewQuery}
+            sortMode={historySortMode}
+            selectedPaperName={historySelectedPaperName}
+            historyBusy={historyBusy}
+            historyLoadError={historyLoadError}
+            actionError={error ?? ""}
+            leftOpen={leftOpen}
+            activeSessionId={sessionId}
+            runningSessionIds={runningSessionIds}
+            openSessionBusyId={openSessionBusyId}
+            deleteSessionBusyId={deleteSessionBusyId}
+            onExpandLeft={() => setLeftOpen(true)}
+            onOverviewQueryChange={setHistoryOverviewQuery}
+            onSortModeChange={setHistorySortMode}
+            onOpenPaper={handleOpenHistoryPaper}
+            onBackToOverview={() => setHistoryView({ mode: "overview" })}
+            onOpenSession={handleOpenHistorySession}
+            onDeleteSession={(item) => void handleDeleteSession(item)}
+            onStartNewChat={handleStartNewChat}
+            onRetry={() => void refreshHistory()}
+            onClearActionError={runtime.clearError}
+          />
+        ) : (
+          <>
         <ConversationHeader
           leftOpen={leftOpen}
           title={activeHistory?.title || "新答疑"}
@@ -1443,6 +1518,8 @@ export default function Home() {
             onToggleSpeech={speechInput.toggle}
           />
         </div>
+          </>
+        )}
       </section>
 
       <StudyCardSidebar

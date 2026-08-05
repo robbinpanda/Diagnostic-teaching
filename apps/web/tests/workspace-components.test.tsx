@@ -124,6 +124,152 @@ function historyDeleteButton(markup: string, title: string) {
   return match[0];
 }
 
+test("history navigation owns a three-state central view and separate load errors", () => {
+  const pageSource = readFileSync(resolve(__dirname, "../../../app/page.tsx"), "utf8");
+
+  assert.match(pageSource, /useState<HistoryView>\(null\)/);
+  assert.match(pageSource, /useState<HistorySortMode>\("recent"\)/);
+  assert.match(pageSource, /const \[historyLoadError, setHistoryLoadError\]/);
+  assert.match(pageSource, /<HistoryWorkspace/);
+
+  const refreshStart = pageSource.indexOf("async function refreshHistory()");
+  const refreshEnd = pageSource.indexOf("async function refreshExamPapers()", refreshStart);
+  assert.ok(refreshStart >= 0);
+  assert.ok(refreshEnd > refreshStart);
+  const refreshSource = pageSource.slice(refreshStart, refreshEnd);
+  assert.match(refreshSource, /setHistoryLoadError\(""\)/);
+  const refreshCatchStart = refreshSource.indexOf("catch (nextError)");
+  const refreshFinallyStart = refreshSource.indexOf("finally", refreshCatchStart);
+  assert.ok(refreshCatchStart >= 0);
+  assert.ok(refreshFinallyStart > refreshCatchStart);
+  assert.match(
+    refreshSource.slice(refreshCatchStart, refreshFinallyStart),
+    /setHistoryLoadError/
+  );
+  assert.doesNotMatch(refreshSource, /runtime\.setError/);
+
+  const openHistorySessionStart = pageSource.indexOf("function handleOpenHistorySession(");
+  const startNewChatStart = pageSource.indexOf("function handleStartNewChat()", openHistorySessionStart);
+  assert.ok(openHistorySessionStart >= 0);
+  assert.ok(startNewChatStart > openHistorySessionStart);
+  const openHistorySessionSource = pageSource.slice(openHistorySessionStart, startNewChatStart);
+  const clearHistoryViewIndex = openHistorySessionSource.indexOf("setHistoryView(null)");
+  const openSessionIndex = openHistorySessionSource.indexOf("handleOpenSession(targetSessionId)");
+  assert.ok(clearHistoryViewIndex >= 0);
+  assert.ok(openSessionIndex > clearHistoryViewIndex);
+  assert.doesNotMatch(openHistorySessionSource, /closeNavigationOnMobile/);
+  assert.equal(
+    (pageSource.match(/onOpenSession=\{handleOpenHistorySession\}/g) ?? []).length,
+    2
+  );
+});
+
+test("history bootstrap restoration yields to explicit navigation", () => {
+  const pageSource = readFileSync(resolve(__dirname, "../../../app/page.tsx"), "utf8");
+
+  assert.match(pageSource, /const bootstrapNavigationRef = useRef\(0\)/);
+
+  const bootstrapCallIndex = pageSource.indexOf("void restoreWorkspaceAfterRefresh(");
+  const bootstrapEffectStart = pageSource.lastIndexOf("useEffect(() => {", bootstrapCallIndex);
+  const bootstrapEffectEnd = pageSource.indexOf("}, []);", bootstrapCallIndex);
+  assert.ok(bootstrapEffectStart >= 0);
+  assert.ok(bootstrapEffectEnd > bootstrapCallIndex);
+  const bootstrapEffectSource = pageSource.slice(bootstrapEffectStart, bootstrapEffectEnd);
+  const captureIndex = bootstrapEffectSource.indexOf(
+    "const bootstrapNavigationToken = bootstrapNavigationRef.current;"
+  );
+  const restoreWorkspaceCallIndex = bootstrapEffectSource.indexOf(
+    "restoreWorkspaceAfterRefresh(bootstrapNavigationToken)"
+  );
+  assert.ok(captureIndex >= 0);
+  assert.ok(restoreWorkspaceCallIndex > captureIndex);
+
+  const restoreWorkspaceStart = pageSource.indexOf(
+    "async function restoreWorkspaceAfterRefresh(bootstrapNavigationToken: number)"
+  );
+  const restoreWorkspaceEnd = pageSource.indexOf(
+    "async function refreshHistory()",
+    restoreWorkspaceStart
+  );
+  assert.ok(restoreWorkspaceStart >= 0);
+  assert.ok(restoreWorkspaceEnd > restoreWorkspaceStart);
+  const restoreWorkspaceSource = pageSource.slice(restoreWorkspaceStart, restoreWorkspaceEnd);
+  assert.match(
+    restoreWorkspaceSource,
+    /restoreSessionAfterRefresh\(activeSessionId, bootstrapNavigationToken\)/
+  );
+
+  const restoreSessionStart = pageSource.indexOf(
+    "async function restoreSessionAfterRefresh(targetSessionId: string, bootstrapNavigationToken: number)"
+  );
+  const restoreSessionEnd = pageSource.indexOf(
+    "async function resumePendingStudentRequest",
+    restoreSessionStart
+  );
+  assert.ok(restoreSessionStart >= 0);
+  assert.ok(restoreSessionEnd > restoreSessionStart);
+  const restoreSessionSource = pageSource.slice(restoreSessionStart, restoreSessionEnd);
+  const fetchSessionIndex = restoreSessionSource.indexOf(
+    "const opened = await fetchSession(targetSessionId);"
+  );
+  const staleReturnIndex = restoreSessionSource.indexOf(
+    "if (bootstrapNavigationRef.current !== bootstrapNavigationToken) return;"
+  );
+  const loadSessionIndex = restoreSessionSource.indexOf("runtime.loadSession(opened);");
+  assert.ok(fetchSessionIndex >= 0);
+  assert.ok(staleReturnIndex > fetchSessionIndex);
+  assert.ok(loadSessionIndex > staleReturnIndex);
+  assert.ok(restoreSessionSource.indexOf("setHistoryView(null)") > staleReturnIndex);
+  assert.ok(restoreSessionSource.indexOf('setActiveNavigation("history")') > staleReturnIndex);
+
+  const activeRestoreCallIndex = restoreWorkspaceSource.indexOf(
+    "restoreSessionAfterRefresh(activeSessionId, bootstrapNavigationToken)"
+  );
+  const activeRestoreCatchIndex = restoreWorkspaceSource.indexOf(
+    "catch (nextError)",
+    activeRestoreCallIndex
+  );
+  const inactiveSessionBranchIndex = restoreWorkspaceSource.lastIndexOf(
+    "setInput(loadComposerDraft(window.localStorage, DRAFT_SCOPE));"
+  );
+  assert.ok(activeRestoreCallIndex >= 0);
+  assert.ok(activeRestoreCatchIndex > activeRestoreCallIndex);
+  assert.ok(inactiveSessionBranchIndex > activeRestoreCatchIndex);
+  const activeRestoreCatchSource = restoreWorkspaceSource.slice(
+    activeRestoreCatchIndex,
+    inactiveSessionBranchIndex
+  );
+  const currentTokenGuardIndex = activeRestoreCatchSource.indexOf(
+    "if (bootstrapNavigationRef.current === bootstrapNavigationToken)"
+  );
+  assert.ok(currentTokenGuardIndex >= 0);
+  assert.ok(activeRestoreCatchSource.indexOf('saveActiveSessionId(window.localStorage, "")') > currentTokenGuardIndex);
+  assert.ok(activeRestoreCatchSource.indexOf("runtime.setError") > currentTokenGuardIndex);
+
+  assert.equal(
+    (pageSource.match(/invalidateBootstrapNavigation\(\);/g) ?? []).length,
+    3
+  );
+  const openHistoryStart = pageSource.indexOf("function handleOpenHistorySession(");
+  const startNewChatStart = pageSource.indexOf("function handleStartNewChat()", openHistoryStart);
+  const deleteSessionStart = pageSource.indexOf("async function handleDeleteSession", startNewChatStart);
+  const onNavigateStart = pageSource.indexOf("onNavigate={(navigation) => {");
+  const onNavigateEnd = pageSource.indexOf("onOpenSession={handleOpenHistorySession}", onNavigateStart);
+  const openHistorySource = pageSource.slice(openHistoryStart, startNewChatStart);
+  const startNewChatSource = pageSource.slice(startNewChatStart, deleteSessionStart);
+  const onNavigateSource = pageSource.slice(onNavigateStart, onNavigateEnd);
+  assert.ok(openHistorySource.indexOf("invalidateBootstrapNavigation();") < openHistorySource.indexOf("setHistoryView(null)"));
+  assert.ok(startNewChatSource.indexOf("invalidateBootstrapNavigation();") < startNewChatSource.indexOf("setHistoryView(null)"));
+  assert.ok(onNavigateSource.indexOf("invalidateBootstrapNavigation();") < onNavigateSource.indexOf("setActiveNavigation(navigation)"));
+
+  const refreshHistoryStart = pageSource.indexOf("async function refreshHistory()");
+  const refreshHistoryEnd = pageSource.indexOf("async function refreshExamPapers()", refreshHistoryStart);
+  assert.doesNotMatch(
+    pageSource.slice(refreshHistoryStart, refreshHistoryEnd),
+    /bootstrapNavigation/
+  );
+});
+
 test("history workspace renders overview and paper detail from real session metadata", () => {
   const overview = renderToStaticMarkup(
     <HistoryWorkspace {...historyWorkspaceProps} view={{ mode: "overview" }} />
@@ -190,6 +336,55 @@ test("history workspace formats SSR dates in Asia Shanghai", () => {
       onStartNewChat: noop,
       onRetry: noop,
       onClearActionError: noop
+    }));
+    process.stdout.write(markup);
+  `], {
+    cwd: resolve(__dirname, "../../.."),
+    encoding: "utf8",
+    env: { ...process.env, TZ: "UTC" }
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /2026年8月6日/);
+  assert.doesNotMatch(result.stdout, /2026年8月5日/);
+});
+
+test("workspace sidebar formats SSR dates in Asia Shanghai", () => {
+  const componentPath = resolve(__dirname, "../components/workspace/SessionSidebar.js");
+  const result = spawnSync(process.execPath, ["-e", `
+    const React = require("react");
+    const { renderToStaticMarkup } = require("react-dom/server");
+    const { SessionSidebar } = require(${JSON.stringify(componentPath)});
+    const noop = () => {};
+    const markup = renderToStaticMarkup(React.createElement(SessionSidebar, {
+      historyItems: [{
+        session_id: "session-midnight",
+        paper_id: "paper-midnight",
+        paper_name: "午夜试卷",
+        title: "跨日题目",
+        grade_band: "junior",
+        model_profile_id: "profile-1",
+        model_display_name: "本地演示",
+        message_count: 1,
+        checkpoint_count: 0,
+        state_hint: "diagnosing",
+        context_status: "ready",
+        created_at: "2026-08-05T16:00:00Z",
+        updated_at: "2026-08-05T16:30:00Z"
+      }],
+      activeSessionId: "session-midnight",
+      historyBusy: false,
+      openSessionBusyId: "",
+      deleteSessionBusyId: "",
+      deleteAllSessionsBusy: false,
+      runningSessionIds: [],
+      activeNavigation: "history",
+      onCollapse: noop,
+      onNewChat: noop,
+      onNavigate: noop,
+      onOpenSession: noop,
+      onDeleteSession: noop,
+      onDeleteAllSessions: noop
     }));
     process.stdout.write(markup);
   `], {
@@ -479,6 +674,31 @@ test("checkpoint and pending card interactions render inside the conversation wi
   assert.doesNotMatch(answeredTimeline, /我在检查点里选了 B/);
 });
 
+test("workspace sidebars disable deletion for the active session independently", () => {
+  const activeSession = renderToStaticMarkup(
+    <SessionSidebar
+      historyItems={[historyWorkspaceItems[0]]}
+      activeSessionId="session-current"
+      historyBusy={false}
+      openSessionBusyId=""
+      deleteSessionBusyId=""
+      deleteAllSessionsBusy={false}
+      runningSessionIds={[]}
+      onCollapse={() => {}}
+      onNewChat={() => {}}
+      onOpenSession={() => {}}
+      onDeleteSession={() => {}}
+      onDeleteAllSessions={() => {}}
+    />
+  );
+  const deleteButtons = activeSession.match(
+    /<button[^>]*class="sessionDeleteButton"[^>]*>/g
+  ) ?? [];
+
+  assert.equal(deleteButtons.length, 1);
+  assert.match(deleteButtons[0], /disabled=""/);
+});
+
 test("workspace sidebars render active sessions and filtered cards", () => {
   const history: SessionHistoryItem[] = [{
     session_id: "session-a",
@@ -568,15 +788,12 @@ test("workspace sidebars render active sessions and filtered cards", () => {
   );
 
   const pageSource = readFileSync(resolve(__dirname, "../../../app/page.tsx"), "utf8");
-  const onOpenSessionStart = pageSource.indexOf("onOpenSession={(targetSessionId) => {");
-  const onDeleteSessionStart = pageSource.indexOf(
-    "onDeleteSession={handleDeleteSession}",
-    onOpenSessionStart
-  );
+  const onOpenSessionStart = pageSource.indexOf("function handleOpenHistorySession(");
+  const onOpenSessionEnd = pageSource.indexOf("function handleStartNewChat()", onOpenSessionStart);
   assert.ok(onOpenSessionStart >= 0);
-  assert.ok(onDeleteSessionStart > onOpenSessionStart);
+  assert.ok(onOpenSessionEnd > onOpenSessionStart);
   assert.doesNotMatch(
-    pageSource.slice(onOpenSessionStart, onDeleteSessionStart),
+    pageSource.slice(onOpenSessionStart, onOpenSessionEnd),
     /closeNavigationOnMobile/
   );
 
