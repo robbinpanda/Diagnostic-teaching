@@ -191,6 +191,7 @@
 
 .historyWorkspaceBodyInner {
   padding-top: var(--space-4);
+  animation: historyWorkspaceEnter 180ms var(--ease-standard) both;
 }
 
 .historyPaperGrid,
@@ -566,6 +567,18 @@
     ),
     color-mix(in srgb, var(--stage-sage-soft) 18%, var(--stage-canvas));
   background-size: 200% 100%, auto;
+}
+
+@keyframes historyWorkspaceEnter {
+  from {
+    opacity: 0.78;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 @keyframes historySkeletonBreath {

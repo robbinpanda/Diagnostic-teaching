@@ -540,6 +540,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .historyWorkspaceBodyInner {
+    animation: none !important;
+    transform: none !important;
+  }
+
   .historyPaperCard {
     transform: none !important;
   }

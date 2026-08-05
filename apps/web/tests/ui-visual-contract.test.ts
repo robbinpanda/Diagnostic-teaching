@@ -218,6 +218,14 @@ test("history workspace reuses C4 tokens and responsive paper grids", () => {
     history,
     /\.historyWorkspaceSearch input:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--primary-700\);[\s\S]*?outline-offset:\s*-?\d+px;/
   );
+  assert.match(
+    history,
+    /\.historyWorkspaceBodyInner\s*\{[\s\S]*?animation:\s*historyWorkspaceEnter 180ms var\(--ease-standard\) both;/
+  );
+  assert.match(
+    history,
+    /@keyframes historyWorkspaceEnter\s*\{[\s\S]*?from\s*\{[\s\S]*?opacity:\s*0\.78;[\s\S]*?transform:\s*translateY\(6px\);[\s\S]*?to\s*\{[\s\S]*?opacity:\s*1;[\s\S]*?transform:\s*none;/
+  );
 
   for (const token of [
     "--stage-canvas",
@@ -251,6 +259,10 @@ test("history workspace reuses C4 tokens and responsive paper grids", () => {
   assert.match(
     responsive,
     /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.historyPaperCard\s*\{[\s\S]*?transform:\s*none[\s\S]*?\.historySkeletonGrid\s*\{[\s\S]*?animation:\s*none/
+  );
+  assert.match(
+    responsive,
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.historyWorkspaceBodyInner\s*\{[\s\S]*?animation:\s*none[\s\S]*?transform:\s*none/
   );
 
   for (const [path, expected] of frozenFiles) {
