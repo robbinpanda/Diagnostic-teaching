@@ -194,3 +194,66 @@ test("production build keeps the direction contract injector wired", () => {
   assert.match(packageJson, /next build && node scripts\/inject-design-contract\.mjs/);
   assert.match(injector, /directionContract/);
 });
+
+test("history workspace reuses C4 tokens and responsive paper grids", () => {
+  const globals = text("app/globals.css");
+  const history = text("styles/history.css");
+  const responsive = text("styles/responsive.css");
+
+  assert.match(
+    globals,
+    /@import "\.\.\/styles\/conversation\.css";[\s\S]*?@import "\.\.\/styles\/history\.css";[\s\S]*?@import "\.\.\/styles\/cards\.css";/
+  );
+  assert.match(
+    globals,
+    /@import "\.\.\/styles\/history\.css";[\s\S]*?@import "\.\.\/styles\/responsive\.css";/
+  );
+  assert.doesNotMatch(history, /#[0-9a-f]{3,8}\b/i);
+  assert.doesNotMatch(history, /var\(--warning/);
+  assert.doesNotMatch(history, /\.titleMathText\b/);
+  assert.doesNotMatch(history, /@font-face|@import|url\(/i);
+  assert.match(history, /\.historyPaperCoverTitle\s*\{/);
+  assert.match(history, /\.historyPaperPreview\s*\{[\s\S]*?aspect-ratio:\s*8\s*\/\s*5/);
+  assert.match(
+    history,
+    /\.historyWorkspaceSearch input:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--primary-700\);[\s\S]*?outline-offset:\s*-?\d+px;/
+  );
+
+  for (const token of [
+    "--stage-canvas",
+    "--stage-line",
+    "--stage-forest",
+    "--stage-sage",
+    "--stage-sage-soft",
+    "--stage-yellow",
+    "--stage-yellow-soft",
+    "--stage-lavender-deep"
+  ]) {
+    assert.match(history, new RegExp(`var\\(${token}\\)`));
+  }
+
+  assert.match(
+    history,
+    /\.historyPaperGrid\s*\{[\s\S]*?repeat\(3,\s*minmax\(0,\s*1fr\)\)/
+  );
+  assert.match(
+    responsive,
+    /@media \(max-width: 1100px\) and \(min-width: 761px\)[\s\S]*?\.historyPaperGrid\s*\{[\s\S]*?repeat\(2,\s*minmax\(0,\s*1fr\)\)/
+  );
+  assert.match(
+    responsive,
+    /@media \(max-width: 760px\)[\s\S]*?\.historyPaperGrid\s*\{[\s\S]*?grid-template-columns:\s*1fr/
+  );
+  assert.match(
+    history,
+    /\.historyQuestionDelete\s*\{[\s\S]*?min-width:\s*44px;[\s\S]*?min-height:\s*44px/
+  );
+  assert.match(
+    responsive,
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.historyPaperCard\s*\{[\s\S]*?transform:\s*none[\s\S]*?\.historySkeletonGrid\s*\{[\s\S]*?animation:\s*none/
+  );
+
+  for (const [path, expected] of frozenFiles) {
+    assert.equal(sha256(path), expected, path);
+  }
+});

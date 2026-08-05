@@ -439,7 +439,115 @@
   }
 }
 
+@media (max-width: 1100px) and (min-width: 761px) {
+  .historyPaperGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .historySkeletonGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) and (min-width: 761px) {
+  .historyWorkspaceHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .historyWorkspaceToolbar {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .historyWorkspaceSearch {
+    flex: 1;
+  }
+
+  .historyWorkspaceSearch input {
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .historyWorkspaceHeader {
+    align-items: stretch;
+    flex-direction: column;
+    padding: var(--space-4);
+  }
+
+  .historyWorkspaceToolbar {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .historyWorkspaceSearch {
+    flex: 1;
+  }
+
+  .historyWorkspaceSearch input {
+    width: 100%;
+  }
+
+  .historyWorkspaceBody {
+    padding: 0 var(--space-4) var(--space-6);
+  }
+
+  .historyPaperGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .historySkeletonGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .historyQuestionRow {
+    grid-template-columns: minmax(0, 1fr) 44px;
+  }
+}
+
+@media (max-width: 480px) {
+  .historyWorkspaceHeader,
+  .historyWorkspaceBody {
+    padding-inline: var(--space-3);
+  }
+
+  .historyWorkspaceToolbar {
+    flex-direction: column;
+  }
+
+  .historyWorkspaceSearch,
+  .historyWorkspaceSort {
+    width: 100%;
+  }
+
+  .historyPaperPreview {
+    padding: var(--space-4);
+  }
+
+  .historyPaperTab {
+    right: var(--space-4);
+  }
+
+  .historyWorkspaceAlert {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .historyWorkspaceAlert .historyWorkspaceAction {
+    width: 100%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .historyPaperCard {
+    transform: none !important;
+  }
+
+  .historySkeletonGrid {
+    animation: none !important;
+  }
+
   *,
   *::before,
   *::after {
