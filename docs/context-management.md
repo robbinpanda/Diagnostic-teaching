@@ -31,7 +31,7 @@ SQLite schema 由 `apps/api/migrations/versions/` 下的 Alembic revision 管理
 apps/api/app/services/input_acceptance.py
 ```
 
-该文件是稳定的公共门面；首次建会话、普通消息、卡片关闭和 checkpoint 答案分别由同目录下的分域模块实现。拆分只隔离代码职责，每一种输入仍在自己的单一 `BEGIN IMMEDIATE` 事务中同时写入 `session_inputs`、业务状态和对应稳定事件。
+该文件是稳定的公共门面；首次建会话、普通消息、卡片关闭和 checkpoint 答案分别由同目录下的分域模块实现。拆分只隔离代码职责，每一种输入仍在自己的单一 `BEGIN IMMEDIATE` 事务中同时写入 `session_inputs`、业务状态和对应稳定事件。若 SQLite 在取写锁或提交时返回 `BUSY/LOCKED`，连接上下文先回滚整笔事务，再以 50ms、150ms 的两次有限等待从操作开头重放；不会只重放某条 SQL。其他数据库错误不重试。
 
 它与生成服务的边界是：
 

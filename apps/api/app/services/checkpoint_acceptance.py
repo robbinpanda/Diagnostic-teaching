@@ -14,10 +14,12 @@ from app.services.input_acceptance_models import (
 from app.services.input_acceptance_models import (
     load_json as _load_json,
 )
+from app.storage.database import with_sqlite_busy_retry
 from app.storage.repository_utils import new_id, now_iso
 
 
 class CheckpointAcceptanceMixin:
+    @with_sqlite_busy_retry
     def accept_checkpoint_answer(
         self,
         checkpoint_id: str,

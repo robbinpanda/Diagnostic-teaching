@@ -5,12 +5,13 @@ import sqlite3
 
 from app.core.schemas import TutorTurn
 from app.storage.card_folder_repository import default_folder_id
-from app.storage.database import Database
+from app.storage.database import Database, with_sqlite_busy_retry
 from app.storage.repository_utils import new_id, now_iso
 from app.storage.run_state import RunStateConflict
 from app.storage.session_events import SessionEventRepository
 
 
+@with_sqlite_busy_retry
 def record_tutor_action(
     db: Database,
     events: SessionEventRepository,

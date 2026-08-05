@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import sqlite3
 
+from app.storage.database import with_sqlite_busy_retry
 from app.storage.repository_utils import new_id, now_iso
 from app.storage.run_state import RunStateConflict
 
 
 class SessionRunRepositoryMixin:
+    @with_sqlite_busy_retry
     def admit_run(
         self,
         session_id: str,
@@ -105,6 +107,7 @@ class SessionRunRepositoryMixin:
                 (session_id,),
             ).fetchone()
 
+    @with_sqlite_busy_retry
     def mark_run_running(self, run_id: str) -> sqlite3.Row:
         ts = now_iso()
         with self.db.connect() as conn:
@@ -156,6 +159,7 @@ class SessionRunRepositoryMixin:
     ) -> sqlite3.Row:
         return self._finish_run(run_id, "interrupted", error=error)
 
+    @with_sqlite_busy_retry
     def _finish_run(
         self,
         run_id: str,
@@ -225,6 +229,7 @@ class SessionRunRepositoryMixin:
                 self.events.append_in_transaction(conn, row["session_id"], events)
         return self.get_run(run_id)
 
+    @with_sqlite_busy_retry
     def recover_orphaned_runs(self) -> list[sqlite3.Row]:
         """Fail work left active by a previous process; provider calls are never resumed."""
         ts = now_iso()

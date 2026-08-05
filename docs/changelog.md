@@ -4,6 +4,12 @@
 
 ## 未发布
 
+### SQLite 关键写事务有限重放
+
+- 连接原有 5 秒 `busy_timeout` 之后，关键输入接纳、run 生命周期、session event 和完整 assistant action 写入对 `SQLITE_BUSY/LOCKED` 再执行两次有限重放（50ms、150ms）。
+- 每次重放前由原连接上下文完整回滚，从业务操作开头重新执行；不拆分 commit、不只重试单条 SQL。稳定的 session/message/run 幂等键继续约束最终结果。
+- 非锁竞争的 SQL、约束、校验和业务错误不重试；耗尽后保留原异常，使请求和 run 明确失败而不是静默丢失。
+
 ### 初始题图 IndexedDB 恢复
 
 - 新建 session 前的题图不再只存在 React 内存：IndexedDB 保存原始 Blob、文件元数据、模型/年级和 `pending / detecting / selecting / starting` 阶段。
