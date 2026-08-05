@@ -153,6 +153,8 @@ test("checkpoint and pending card interactions render inside the conversation wi
   );
   assert.match(card, /对话中的知识卡片/);
   assert.match(card, /修改内容/);
+  assert.match(card, /翻到背面/);
+  assert.match(card, /cardFaceFront/);
   assert.match(card, /保存为知识卡片/);
   assert.match(card, /舍弃/);
   assert.doesNotMatch(card, /modalBackdrop/);
@@ -273,6 +275,12 @@ test("workspace sidebars render active sessions and filtered cards", () => {
     />
   );
   assert.match(sessions, /sessionRow active/);
+  assert.match(sessions, /主要导航/);
+  assert.match(sessions, /开始答疑/);
+  assert.match(sessions, /历史搜题/);
+  assert.match(sessions, /知识库/);
+  assert.match(sessions, /错题库/);
+  assert.match(sessions, /搜索历史答疑/);
   assert.match(sessions, /3 条消息/);
   assert.match(sessions, /正在思考/);
 

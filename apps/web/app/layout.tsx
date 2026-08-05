@@ -3,8 +3,8 @@ import "katex/dist/katex.min.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "诊断式数学答疑 MVP",
-  description: "面向初高中数学题的诊断式答疑 demo"
+  title: "熊猫析题",
+  description: "面向初高中数学题的诊断式 AI 答疑"
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

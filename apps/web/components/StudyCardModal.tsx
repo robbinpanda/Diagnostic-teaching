@@ -8,6 +8,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  RefreshCw,
   Save,
   Trash2,
   X
@@ -251,7 +252,8 @@ export function StudyCardModal({
   const [validationError, setValidationError] = useState("");
   const [discardConfirmation, setDiscardConfirmation] = useState(false);
   const [folderId, setFolderId] = useState("");
-  const [collapsed, setCollapsed] = useState(Boolean(card?.deferred_at));
+  const [collapsed, setCollapsed] = useState(Boolean(card?.deferred_at) && displayMode === "inline");
+  const [showBack, setShowBack] = useState(false);
 
   useEffect(() => {
     if (card && folders.length) {
@@ -260,8 +262,9 @@ export function StudyCardModal({
   }, [card, folders]);
 
   useEffect(() => {
-    if (card?.deferred_at) setCollapsed(true);
-  }, [card?.deferred_at]);
+    if (displayMode === "viewer") setCollapsed(false);
+    else if (card?.deferred_at) setCollapsed(true);
+  }, [card?.deferred_at, displayMode]);
 
   useEffect(() => {
     if (autoCollapsed) setCollapsed(true);
@@ -270,6 +273,10 @@ export function StudyCardModal({
   useEffect(() => {
     if (forceExpanded) setCollapsed(false);
   }, [forceExpanded]);
+
+  useEffect(() => {
+    setShowBack(false);
+  }, [card?.id]);
 
   if (!card) return null;
   const currentCard = card;
@@ -363,6 +370,18 @@ export function StudyCardModal({
               {editing ? "预览卡片" : "修改内容"}
             </button>
           )}
+          {!collapsed && !editing && (
+            <button
+              className="cardFlipButton"
+              type="button"
+              onClick={() => setShowBack((value) => !value)}
+              aria-pressed={showBack}
+              title={showBack ? "翻回卡片正面" : "查看卡片背面"}
+            >
+              <RefreshCw size={15} />
+              {showBack ? "查看正面" : "翻到背面"}
+            </button>
+          )}
           {onClose && (
             <button
               className="cardCloseButton"
@@ -386,74 +405,82 @@ export function StudyCardModal({
             setValidationError("");
           }} />
         ) : (
-          <div className="studyCardBody">
+          <div className={`studyCardBody cardFace ${showBack ? "cardFaceBack" : "cardFaceFront"}`}>
+            {!showBack ? <>
+              <section className="cardLeadSection">
+                <span>本卡知识点</span>
+                <MathText text={knowledgeContent.knowledge_point} />
+              </section>
+              <section>
+                <h3>核心原理</h3>
+                <MathText text={knowledgeContent.core_idea} />
+              </section>
+              <p className="cardFlipHint">点击“翻到背面”查看推导、适用场景和易错点</p>
+            </> : <>
+              <section>
+                <h3>原理怎么推出</h3>
+                <ol className="cardStepList">
+                  {knowledgeContent.derivation_steps.map((item, index) => (
+                    <li key={`${index}-${item.title}`}>
+                      <strong><MathText text={item.title} /></strong>
+                      <MathText text={item.content} />
+                    </li>
+                  ))}
+                </ol>
+              </section>
+              <section>
+                <h3>什么时候用</h3>
+                <TextList items={knowledgeContent.when_to_use} />
+              </section>
+              <section>
+                <h3>容易踩的坑</h3>
+                <TextList items={knowledgeContent.common_mistakes} />
+              </section>
+              <section className="cardConnection">
+                <h3>回到当前题</h3>
+                <MathText text={knowledgeContent.connection_to_problem} />
+              </section>
+            </>}
+          </div>
+        )
+      ) : currentCard.content.type === "problem_card" ? (
+        <div className={`studyCardBody cardFace ${showBack ? "cardFaceBack" : "cardFaceFront"}`}>
+          {!showBack ? <>
             <section className="cardLeadSection">
-              <span>本卡知识点</span>
-              <MathText text={knowledgeContent.knowledge_point} />
+              <span>题目摘要</span>
+              <MathText text={currentCard.content.problem_summary} />
+            </section>
+            <p className="cardFlipHint">先独立想一想，再点击“翻到背面”查看完整解析</p>
+          </> : <>
+            <section>
+              <h3>上帝视角路线</h3>
+              <MathText text={currentCard.content.solution_overview} />
             </section>
             <section>
-              <h3>核心原理</h3>
-              <MathText text={knowledgeContent.core_idea} />
-            </section>
-            <section>
-              <h3>原理怎么推出</h3>
-              <ol className="cardStepList">
-                {knowledgeContent.derivation_steps.map((item, index) => (
-                  <li key={`${index}-${item.title}`}>
-                    <strong><MathText text={item.title} /></strong>
-                    <MathText text={item.content} />
+              <h3>完整解答流程</h3>
+              <ol className="cardStepList problemStepList">
+                {currentCard.content.solution_steps.map((item) => (
+                  <li key={`${item.step}-${item.title}`}>
+                    <div className="problemStepTitle"><span>{item.step}</span><strong><MathText text={item.title} /></strong></div>
+                    <p className="stepReason"><MathText text={item.reasoning} /></p>
+                    <div className="stepResult"><MathText text={item.result} /></div>
                   </li>
                 ))}
               </ol>
             </section>
             <section>
-              <h3>什么时候用</h3>
-              <TextList items={knowledgeContent.when_to_use} />
+              <h3>如何想到这些步骤</h3>
+              <TextList items={currentCard.content.how_to_think} />
             </section>
             <section>
-              <h3>容易踩的坑</h3>
-              <TextList items={knowledgeContent.common_mistakes} />
+              <h3>需要注意的坑</h3>
+              <TextList items={currentCard.content.pitfalls} />
             </section>
-            <section className="cardConnection">
-              <h3>回到当前题</h3>
-              <MathText text={knowledgeContent.connection_to_problem} />
+            <section className="cardFinalAnswer">
+              <h3>最终答案</h3>
+              <MathText text={currentCard.content.final_answer} />
             </section>
-          </div>
-        )
-      ) : currentCard.content.type === "problem_card" ? (
-        <div className="studyCardBody">
-          <section className="cardLeadSection">
-            <span>题目摘要</span>
-            <MathText text={currentCard.content.problem_summary} />
-          </section>
-          <section>
-            <h3>上帝视角路线</h3>
-            <MathText text={currentCard.content.solution_overview} />
-          </section>
-          <section>
-            <h3>完整解答流程</h3>
-            <ol className="cardStepList problemStepList">
-              {currentCard.content.solution_steps.map((item) => (
-                <li key={`${item.step}-${item.title}`}>
-                  <div className="problemStepTitle"><span>{item.step}</span><strong><MathText text={item.title} /></strong></div>
-                  <p className="stepReason"><MathText text={item.reasoning} /></p>
-                  <div className="stepResult"><MathText text={item.result} /></div>
-                </li>
-              ))}
-            </ol>
-          </section>
-          <section>
-            <h3>如何想到这些步骤</h3>
-            <TextList items={currentCard.content.how_to_think} />
-          </section>
-          <section>
-            <h3>需要注意的坑</h3>
-            <TextList items={currentCard.content.pitfalls} />
-          </section>
-          <section className="cardFinalAnswer">
-            <h3>最终答案</h3>
-            <MathText text={currentCard.content.final_answer} />
-          </section>
+          </>}
         </div>
       ) : null}
 

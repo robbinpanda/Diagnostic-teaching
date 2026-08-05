@@ -1,4 +1,4 @@
-import { BookOpen, Bot, ChevronDown, ClipboardCheck } from "lucide-react";
+import { BookOpen, Bot, Camera, ChevronDown, ClipboardCheck, MessageCircleMore, PencilLine } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { ChatMessage } from "../../lib/timeline";
 import { CheckpointModal } from "../CheckpointModal";
@@ -192,12 +192,24 @@ export function MessageTimeline({
         )}
         {messages.length === 0 && !interaction && (
           <div className="welcomeState">
-            <div className="welcomeGlyph"><Bot size={30} /></div>
-            <h1>从你卡住的地方开始</h1>
-            <p>在下方一次输入题目和你想到哪一步，也可以先只发题目。信息不完整时，我会继续追问。</p>
-            <div className="welcomeExamples">
-              <span>题目：已知……求……</span>
-              <span>我的思路：我做到……但不懂……</span>
+            <div className="welcomeCopy">
+              <span className="welcomeEyebrow">你的专属数学答疑伙伴</span>
+              <h1>今天想解决什么问题？</h1>
+              <p>上传或输入题目，AI 会循着你的思路逐步分析，陪你真正弄懂每一道题。</p>
+              <div className="welcomeExamples" aria-label="支持的答疑方式">
+                <span><Camera size={16} />拍照 / 上传题目</span>
+                <span><PencilLine size={16} />输入题目</span>
+                <span><MessageCircleMore size={16} />连续追问</span>
+              </div>
+            </div>
+            <div className="knowledgeOrbit" aria-hidden="true">
+              <span className="orbit orbitOne" />
+              <span className="orbit orbitTwo" />
+              <span className="orbitDot dotOne" />
+              <span className="orbitDot dotTwo" />
+              <span className="orbitDot dotThree" />
+              <span className="paperShape paperOne" />
+              <span className="paperShape paperTwo" />
             </div>
           </div>
         )}

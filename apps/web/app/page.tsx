@@ -12,9 +12,11 @@ import {
   type LearningCardExportLayout
 } from "../components/LearningCardExportDialog";
 import { LearningCardPrintView } from "../components/LearningCardPrintView";
+import { AppTopbar } from "../components/workspace/AppTopbar";
+import { CardShelfTabs } from "../components/workspace/CardShelfTabs";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import { MessageTimeline } from "../components/workspace/MessageTimeline";
-import { SessionSidebar } from "../components/workspace/SessionSidebar";
+import { SessionSidebar, type WorkspaceNavigation } from "../components/workspace/SessionSidebar";
 import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
 import { TutorComposer } from "../components/workspace/TutorComposer";
 import { useModelProfiles } from "../hooks/useModelProfiles";
@@ -97,7 +99,10 @@ export default function Home() {
   const [deleteSessionBusyId, setDeleteSessionBusyId] = useState("");
   const [deleteAllSessionsBusy, setDeleteAllSessionsBusy] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
-  const [rightOpen, setRightOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(false);
+  const [responsiveReady, setResponsiveReady] = useState(false);
+  const [activeNavigation, setActiveNavigation] = useState<WorkspaceNavigation>("start");
+  const [cardLibraryMode, setCardLibraryMode] = useState<"all" | "knowledge" | "problem">("all");
   const [learningCardExportOpen, setLearningCardExportOpen] = useState(false);
   const [learningCardPrintJob, setLearningCardPrintJob] = useState<LearningCardPrintJob | null>(null);
   const [imageSelection, setImageSelection] = useState<PendingImageSelection | null>(null);
@@ -132,6 +137,15 @@ export default function Home() {
     streamBusy,
     workflow
   } = runtime;
+
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 760px)").matches) setLeftOpen(false);
+    setResponsiveReady(true);
+  }, []);
+
+  function closeNavigationOnMobile() {
+    if (window.matchMedia("(max-width: 760px)").matches) setLeftOpen(false);
+  }
 
   function handleRunSettled(targetSessionId: string) {
     void refreshHistory();
@@ -1076,7 +1090,16 @@ export default function Home() {
 
   return (
     <>
-    <main className={`appShell ${leftOpen ? "leftOpen" : "leftClosed"} ${rightOpen ? "rightOpen" : "rightClosed"}`}>
+    <main className={`appShell ${responsiveReady ? "responsiveReady" : ""} ${leftOpen ? "leftOpen" : "leftClosed"} ${rightOpen ? "rightOpen" : "rightClosed"}`}>
+      <AppTopbar />
+      {(leftOpen || rightOpen) && (
+        <button
+          className="mobileScrim"
+          type="button"
+          aria-label="关闭侧栏"
+          onClick={() => { setLeftOpen(false); setRightOpen(false); }}
+        />
+      )}
       <SessionSidebar
         historyItems={historyItems}
         activeSessionId={sessionId}
@@ -1085,9 +1108,28 @@ export default function Home() {
         deleteSessionBusyId={deleteSessionBusyId}
         deleteAllSessionsBusy={deleteAllSessionsBusy}
         runningSessionIds={runningSessionIds}
+        activeNavigation={activeNavigation}
         onCollapse={() => setLeftOpen(false)}
-        onNewChat={clearCurrentSessionState}
-        onOpenSession={handleOpenSession}
+        onNewChat={() => {
+          setActiveNavigation("start");
+          clearCurrentSessionState();
+          closeNavigationOnMobile();
+        }}
+        onNavigate={(navigation) => {
+          setActiveNavigation(navigation);
+          if (navigation === "knowledge" || navigation === "mistakes") {
+            setCardLibraryMode(navigation === "knowledge" ? "knowledge" : "problem");
+            setRightOpen(true);
+            closeNavigationOnMobile();
+          } else {
+            setRightOpen(false);
+          }
+        }}
+        onOpenSession={(targetSessionId) => {
+          setActiveNavigation("history");
+          closeNavigationOnMobile();
+          void handleOpenSession(targetSessionId);
+        }}
         onDeleteSession={handleDeleteSession}
         onDeleteAllSessions={handleDeleteAllSessions}
       />
@@ -1105,11 +1147,16 @@ export default function Home() {
             ? runtime.timeline.run.progress?.label
             : undefined}
           onExpandLeft={() => setLeftOpen(true)}
-          onToggleCards={() => setRightOpen((value) => !value)}
+          onToggleCards={() => {
+            setCardLibraryMode("all");
+            setRightOpen((value) => !value);
+          }}
           onViewProblemImage={() => {
             if (originalProblemImage) setViewerImageUrl(originalProblemImage);
           }}
         />
+
+        <CardShelfTabs cards={cards} onOpenCard={setViewingCard} />
 
         <MessageTimeline
           messages={messages}
@@ -1200,6 +1247,7 @@ export default function Home() {
         pasteBusy={pasteBusy}
         deleteAllCardsBusy={deleteAllCardsBusy}
         composerBlocked={composerBlocked || anySessionRunning}
+        libraryMode={cardLibraryMode}
         onCollapse={() => setRightOpen(false)}
         onOpenFolder={setCurrentFolderId}
         onCreateFolder={createFolder}
@@ -1253,7 +1301,7 @@ export default function Home() {
         onMove={(card, folderId) => void moveCardToFolder(card, folderId)}
       />
     </main>
-    {viewingCard && !activeCard && !checkpoint && (
+    {viewingCard && (
       <div className="cardViewerLayer">
         <StudyCardModal
           key={viewingCard.id}

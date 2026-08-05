@@ -1,14 +1,15 @@
 .cardSidebar {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px 12px 12px;
-  border-left: 1px solid var(--line);
-  background: var(--panel);
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-3) var(--space-3);
+  border-left: 1px solid var(--neutral-200);
+  background: var(--neutral-0);
+  box-shadow: -8px 0 24px rgba(41, 55, 41, 0.035);
 }
 
 .cardSidebarHeader {
-  min-height: 36px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -22,12 +23,13 @@
 }
 
 .cardSidebarHeader strong {
-  font-size: 14px;
+  color: var(--neutral-900);
+  font-size: 16px;
 }
 
 .cardSidebarHeader span {
-  color: var(--muted);
-  font-size: 10px;
+  color: var(--neutral-500);
+  font-size: 11px;
 }
 
 .cardFilters {
@@ -67,16 +69,20 @@
 
 .cardItem {
   position: relative;
-  border: 1px solid var(--line);
-  border-radius: 11px;
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-md);
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
-  background: #ffffff;
+  background: var(--neutral-0);
+  transition: border-color 160ms var(--ease-standard), background 160ms var(--ease-standard), transform 160ms var(--ease-standard), box-shadow 160ms var(--ease-standard);
 }
 
 .cardItem:hover {
-  border-color: var(--line-strong);
+  border-color: var(--primary-500);
+  background: var(--primary-50);
+  box-shadow: var(--shadow-card);
+  transform: translateY(-1px);
 }
 
 .cardItem.cut {
@@ -106,13 +112,13 @@
 }
 
 .cardIcon.knowledge {
-  color: #2b745a;
-  background: #e4f2eb;
+  color: var(--primary-800);
+  background: var(--primary-100);
 }
 
 .cardIcon.problem {
-  color: #8b6428;
-  background: #f8edda;
+  color: var(--warning);
+  background: var(--warning-soft);
 }
 
 .cardText {
@@ -388,7 +394,7 @@
 .clearCardsButton {
   min-height: 35px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -415,7 +421,7 @@
 .exportCardsButton {
   min-height: 35px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -426,9 +432,60 @@
 }
 
 .exportCardsButton:hover:not(:disabled) {
-  border-color: #a8d9d1;
+  border-color: var(--primary-500);
   color: var(--accent-strong);
   background: var(--accent-soft);
+}
+
+.cardFlipButton {
+  min-height: 34px;
+  border: 1px solid var(--neutral-200);
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--primary-800);
+  background: var(--neutral-0);
+  font-size: 11px;
+  font-weight: 600;
+  transition: border-color 160ms var(--ease-standard), background 160ms var(--ease-standard), transform 160ms var(--ease-standard);
+}
+
+.cardFlipButton:hover:not(:disabled) {
+  border-color: var(--primary-500);
+  background: var(--primary-50);
+}
+
+.cardFlipButton:active:not(:disabled) {
+  transform: rotateY(8deg);
+}
+
+.cardFace {
+  transform-origin: center top;
+  animation: cardFaceIn 240ms var(--ease-standard);
+}
+
+.cardFaceBack {
+  animation-name: cardFaceBackIn;
+}
+
+.cardFlipHint {
+  border-top: 1px dashed var(--neutral-200);
+  padding-top: var(--space-3);
+  color: var(--neutral-500);
+  font-size: 12px;
+  text-align: center;
+}
+
+@keyframes cardFaceIn {
+  from { opacity: 0; transform: perspective(900px) rotateY(-7deg) translateY(4px); }
+  to { opacity: 1; transform: perspective(900px) rotateY(0) translateY(0); }
+}
+
+@keyframes cardFaceBackIn {
+  from { opacity: 0; transform: perspective(900px) rotateY(7deg) translateY(4px); }
+  to { opacity: 1; transform: perspective(900px) rotateY(0) translateY(0); }
 }
 
 .exportDialogBackdrop {
