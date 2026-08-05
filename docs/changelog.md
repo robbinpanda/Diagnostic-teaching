@@ -4,6 +4,13 @@
 
 ## 未发布
 
+### SSE 明确终态、断流对账与本轮重试
+
+- chat SSE 新增 `stream_complete`；只有最后 action 和 `session_runs.completed` 已提交后才发送。前端 `streamChat()` 不再把 `message_done` 或干净 EOF 当成功，无明确终态即抛出流意外关闭。
+- EOF/传输异常会查询 `/run`：action 已提交时从 SQLite 重载 session；没有 action 且 run 可重试时自动续跑一次。`provider_error / stream_closed` 也进入刷新后的受控恢复，不要求学生发送“继续”。
+- 新增稳定 `client_run_id` 和数据库唯一索引，重复生成请求返回既有 run，避免响应丢失后启动两个 provider；run 查询同步返回该客户端身份。
+- provider 最终失败时保留 composer 输入与正常追加内容能力，并在最近一条学生消息旁显示“重试本轮”；按钮只重启生成，不新增学生消息。
+
 ### Provider 瞬时故障指数退避
 
 - OpenAI Responses、OpenAI-compatible Chat Completions 与 Anthropic Messages 统一使用结构化 provider error，保留 HTTP status、安全响应头、失败阶段、是否已收到内容、错误代码与 retryable；最终失败时同步进入 `session_runs.error_json`。

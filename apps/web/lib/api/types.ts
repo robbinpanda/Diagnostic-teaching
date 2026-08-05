@@ -111,8 +111,9 @@ type SseEventPayload =
   | { event: "checkpoint_ready"; data: Checkpoint }
   | { event: "card_ready"; data: StudyCard }
   | { event: "message_done"; data: { ok: boolean; action_index?: number; wait_for_student?: boolean; will_continue?: boolean; awaiting_card_dismissal?: boolean; continue_after_card?: boolean } }
+  | { event: "stream_complete"; data: { run_id: string; status: "completed"; last_committed_action_index: number } }
   | { event: "run_interrupted"; data: { run_id: string; status: "interrupted" } }
-  | { event: "error"; data: { message: string } }
+  | { event: "error"; data: { message: string; code?: string; retryable?: boolean } }
   | { event: string; data: Record<string, unknown> };
 
 export type SseEvent = SseEventPayload & { id?: string };
@@ -201,6 +202,7 @@ export type SessionInputAcceptance = {
 
 export type SessionRun = {
   run_id: string;
+  client_run_id?: string | null;
   session_id: string;
   attempt: number;
   status: "queued" | "running" | "completed" | "failed" | "interrupted";

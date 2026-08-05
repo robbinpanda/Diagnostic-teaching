@@ -360,6 +360,7 @@ RunStatus = Literal["queued", "running", "completed", "failed", "interrupted"]
 
 class SessionRunPublic(BaseModel):
     run_id: str
+    client_run_id: str | None = None
     session_id: str
     attempt: int
     status: RunStatus
@@ -385,6 +386,7 @@ class SessionInterruptResponse(BaseModel):
 
 class ChatStreamRequest(BaseModel):
     session_id: str
+    client_run_id: str | None = Field(default=None, min_length=1, max_length=128)
     message: str | None = None
     client_message_id: str | None = Field(default=None, min_length=1, max_length=128)
     # 仅兼容旧前端；新流程由 checkpoint answer 接口原子写入 CHECKPOINT_RESPONSE。

@@ -117,6 +117,20 @@ test("problem image viewer exposes persistent access and bounded zoom controls",
   assert.equal(clampImageScale(8), 5);
 });
 
+test("failed student turn exposes a retry control beside the original message", () => {
+  const timeline = renderToStaticMarkup(
+    <MessageTimeline
+      messages={[{ id: "failed-student", role: "student", text: "我的思路是先配方" }]}
+      messageEndRef={{ current: null }}
+      retryableMessageId="failed-student"
+      onRetryMessage={() => {}}
+    />
+  );
+
+  assert.match(timeline, /重试本轮/);
+  assert.match(timeline, /重试这条消息对应的答疑/);
+});
+
 test("checkpoint and pending card interactions render inside the conversation without backdrops", () => {
   const checkpoint = renderToStaticMarkup(
     <CheckpointModal checkpoint={checkpointFixture} onSubmit={() => {}} />

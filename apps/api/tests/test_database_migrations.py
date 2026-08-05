@@ -176,8 +176,16 @@ def test_fresh_database_uses_alembic_and_sqlite_reliability_pragmas(tmp_path: Pa
         assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == SQLITE_BUSY_TIMEOUT_MS
         assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1
         assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == (
-            "0010_merge_feature_heads"
+            "0011_client_run_id"
         )
+        run_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(session_runs)")
+        }
+        run_indexes = {
+            row["name"] for row in conn.execute("PRAGMA index_list(session_runs)")
+        }
+        assert "client_run_id" in run_columns
+        assert "uq_session_runs_client_run" in run_indexes
 
         session_fks = {
             (row["from"], row["table"], row["on_delete"])

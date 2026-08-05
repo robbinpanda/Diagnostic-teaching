@@ -259,6 +259,8 @@ function applyStreamEvent(state: TimelineState, event: CanonicalStreamEvent): Ti
         done: true
       };
       break;
+    case "stream_complete":
+      break;
     case "run_interrupted":
       break;
     case "error": {

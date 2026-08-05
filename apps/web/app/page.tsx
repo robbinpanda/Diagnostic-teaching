@@ -86,7 +86,12 @@ type PendingComposerImage = {
 };
 
 const DRAFT_SCOPE = "draft";
-const RECOVERABLE_RUN_CODES = new Set(["client_disconnected", "process_restarted"]);
+const RECOVERABLE_RUN_CODES = new Set([
+  "client_disconnected",
+  "process_restarted",
+  "provider_error",
+  "stream_closed"
+]);
 
 export default function Home() {
   const [gradeBand, setGradeBand] = useState<"junior" | "senior">("junior");
@@ -132,6 +137,9 @@ export default function Home() {
     streamBusy,
     workflow
   } = runtime;
+  const retryableMessageId = runtime.timeline.lastError && !streamBusy
+    ? messages.findLast((message) => message.role === "student")?.id ?? null
+    : null;
 
   function handleRunSettled(targetSessionId: string) {
     void refreshHistory();
@@ -1115,6 +1123,9 @@ export default function Home() {
           messages={messages}
           messageEndRef={messageEndRef}
           onOpenImage={setViewerImageUrl}
+          retryableMessageId={retryableMessageId}
+          retryBusy={streamBusy}
+          onRetryMessage={() => void runtime.retryRun(sessionId)}
           anchoredInteractions={activeCards.map((card) => ({
             id: card.id,
             sourceActionId: card.source_action_id,

@@ -175,6 +175,34 @@
   background: #f0f0ed;
 }
 
+.messageRetryRow {
+  display: flex;
+  justify-content: flex-end;
+  padding-right: 2px;
+}
+
+.messageRetryButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  padding: 3px 6px;
+  color: #687069;
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.messageRetryButton:hover:not(:disabled),
+.messageRetryButton:focus-visible {
+  color: var(--accent);
+}
+
+.messageRetryButton:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 .chatMessage.student.checkpointResponseMessage .messageBody {
   width: calc(100% - 42px);
   max-width: none;

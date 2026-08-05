@@ -554,3 +554,38 @@ def test_anthropic_sse_yields_text_deltas_and_stop_reason():
         {"event": "content_delta", "delta": "好", "finish_reason": None},
         {"delta": "", "finish_reason": "end_turn"},
     ]
+
+
+def test_openai_responses_clean_eof_before_terminal_is_retryable_failure():
+    class FakeResponse:
+        async def aiter_lines(self):
+            yield 'data: {"type":"response.output_text.delta","delta":"partial"}'
+
+    async def run():
+        return [event async for event in _openai_responses_events(FakeResponse(), 8000)]
+
+    with pytest.raises(LlmProviderError) as raised:
+        asyncio.run(run())
+    assert raised.value.code == "provider_stream_closed"
+    assert raised.value.phase == "response_stream"
+    assert raised.value.saw_content is True
+    assert raised.value.retryable is True
+
+
+def test_anthropic_clean_eof_before_terminal_is_retryable_failure():
+    class FakeResponse:
+        async def aiter_lines(self):
+            yield (
+                'data: {"type":"content_block_delta",'
+                '"delta":{"type":"text_delta","text":"partial"}}'
+            )
+
+    async def run():
+        return [event async for event in _anthropic_response_events(FakeResponse(), 8000)]
+
+    with pytest.raises(LlmProviderError) as raised:
+        asyncio.run(run())
+    assert raised.value.code == "provider_stream_closed"
+    assert raised.value.phase == "response_stream"
+    assert raised.value.saw_content is True
+    assert raised.value.retryable is True

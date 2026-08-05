@@ -659,6 +659,7 @@ async def _openai_chat_stream_completion(
                 yield {"event": "response_headers", "delta": "", "finish_reason": None}
                 finish_reason: str | None = None
                 saw_any_data = False
+                saw_terminal = False
                 async for line in response.aiter_lines():
                     line = line.strip()
                     if not line or not line.startswith("data:"):
@@ -666,6 +667,7 @@ async def _openai_chat_stream_completion(
                     saw_any_data = True
                     data_str = line[len("data:") :].strip()
                     if data_str == "[DONE]":
+                        saw_terminal = True
                         break
                     try:
                         chunk = json.loads(data_str)
@@ -703,6 +705,7 @@ async def _openai_chat_stream_completion(
                         }
                     if choice.get("finish_reason"):
                         finish_reason = choice["finish_reason"]
+                        saw_terminal = True
                 if not saw_any_data:
                     raise LlmProviderError(
                         "模型流式响应中没有任何 data 事件，请确认 base_url/模型配置",
@@ -712,6 +715,14 @@ async def _openai_chat_stream_completion(
                     )
                 if not saw_content:
                     _assert_nonempty("", finish_reason, requested_max_tokens)
+                if not saw_terminal:
+                    raise LlmProviderError(
+                        "模型流式响应在明确完成事件之前关闭",
+                        phase="response_stream",
+                        saw_content=saw_content,
+                        retryable=True,
+                        code="provider_stream_closed",
+                    )
                 yield {"delta": "", "finish_reason": finish_reason}
     except httpx.TimeoutException as exc:
         raise _transport_error(
@@ -911,6 +922,7 @@ async def _openai_responses_events(response: Any, requested_max_tokens: int):
     saw_any_data = False
     saw_content = False
     finish_reason: str | None = None
+    saw_terminal = False
     async for raw_line in response.aiter_lines():
         line = raw_line.strip()
         if not line or not line.startswith("data:"):
@@ -944,6 +956,7 @@ async def _openai_responses_events(response: Any, requested_max_tokens: int):
             yield {"event": "reasoning_delta", "delta": "", "finish_reason": None}
             continue
         if event_type in {"response.completed", "response.incomplete"}:
+            saw_terminal = True
             response_payload = event.get("response")
             response_payload = response_payload if isinstance(response_payload, dict) else {}
             status = response_payload.get("status")
@@ -998,6 +1011,14 @@ async def _openai_responses_events(response: Any, requested_max_tokens: int):
         )
     if not saw_content:
         _assert_nonempty("", finish_reason, requested_max_tokens)
+    if not saw_terminal:
+        raise LlmProviderError(
+            "OpenAI Responses 流在明确完成事件之前关闭",
+            phase="response_stream",
+            saw_content=saw_content,
+            retryable=True,
+            code="provider_stream_closed",
+        )
     yield {"delta": "", "finish_reason": finish_reason or "stop"}
 
 
@@ -1144,6 +1165,7 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
     saw_any_data = False
     saw_content = False
     finish_reason: str | None = None
+    saw_terminal = False
     async for raw_line in response.aiter_lines():
         line = raw_line.strip()
         if not line or not line.startswith("data:"):
@@ -1192,8 +1214,10 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
             delta = event.get("delta")
             if isinstance(delta, dict) and delta.get("stop_reason"):
                 finish_reason = str(delta["stop_reason"])
+                saw_terminal = True
         elif event_type == "message_stop":
             finish_reason = finish_reason or "end_turn"
+            saw_terminal = True
         if text:
             saw_content = True
             yield {
@@ -1212,5 +1236,13 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
     if not saw_content:
         _assert_nonempty(
             "", "length" if finish_reason == "max_tokens" else finish_reason, requested_max_tokens
+        )
+    if not saw_terminal:
+        raise LlmProviderError(
+            "Anthropic 流在明确完成事件之前关闭",
+            phase="response_stream",
+            saw_content=saw_content,
+            retryable=True,
+            code="provider_stream_closed",
         )
     yield {"delta": "", "finish_reason": finish_reason}

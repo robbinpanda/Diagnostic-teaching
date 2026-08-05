@@ -227,7 +227,7 @@ scripts\inspect-session.cmd sess_c4052d2538a6
 5. `card_folders`：卡片目录名称、父目录、系统默认目录标记与默认卡片类型。
 6. `study_cards`：全局知识/题目卡片内容、来源 session/action/message、`folder_id`，以及是否已由学生保存归档的 `saved_at`。
 7. `session_events`：按 session 严格递增的 durable change feed，用于有限历史、SSE 断线补发和事件顺序排查；它与 JSONL 诊断日志无关。
-8. `session_runs`：每次生成的 `run_id / attempt / status`、开始结束时间、最后提交 action 下标和结构化错误。
+8. `session_runs`：每次生成的 `run_id / client_run_id / attempt / status`、开始结束时间、最后提交 action 下标和结构化错误；`session_id + client_run_id` 唯一，防止响应丢失后重复启动 run。
 
 生成过程中可查询或显式停止当前 session：
 

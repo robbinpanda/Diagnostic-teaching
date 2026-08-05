@@ -395,10 +395,12 @@ GET  /api/sessions/{session_id}/run
 POST /api/sessions/{session_id}/interrupt
 
 X-Run-Id: run_...
-run_started -> message_delta... -> decision... -> message_done
+run_started -> message_delta... -> decision... -> message_done -> stream_complete
 run_interrupted  # 仅显式中断
 error            # failed run
 ```
+
+`message_done` 只结束当前 action，不代表 HTTP run 成功。`stream_complete` 只能在 assistant action 与 `session_runs.status=completed` 已经提交后发送；前端在 EOF 前未收到 `stream_complete / error / run_interrupted` 时抛出流意外关闭并查询 `/run` 对账。若 action 已提交则从 SQLite 重载；若没有 action、run 可重试，则按同一生成意图受控续跑一次。每次浏览器生成意图带稳定 `client_run_id`，数据库唯一约束防止响应丢失造成双 run。
 
 `session_runs` 由 Alembic `apps/api/migrations/versions/0004_session_runs.py` 创建，并通过 `down_revision` 接在 session event 迁移之后。后续只扩展这条统一迁移链，不要恢复运行时建表或建立第二套 run 表。
 

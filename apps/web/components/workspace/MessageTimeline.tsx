@@ -1,4 +1,4 @@
-import { BookOpen, Bot, ChevronDown, ClipboardCheck } from "lucide-react";
+import { BookOpen, Bot, ChevronDown, ClipboardCheck, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { ChatMessage } from "../../lib/timeline";
 import { CheckpointModal } from "../CheckpointModal";
@@ -31,6 +31,9 @@ type Props = {
   interaction?: ReactNode;
   anchoredInteractions?: AnchoredInteractionConfig[];
   onOpenImage?: (imageUrl: string) => void;
+  retryableMessageId?: string | null;
+  retryBusy?: boolean;
+  onRetryMessage?: (message: ChatMessage) => void;
 };
 
 export function anchoredInteractionScrollTop(
@@ -133,7 +136,10 @@ export function MessageTimeline({
   messageEndRef,
   interaction,
   anchoredInteractions = [],
-  onOpenImage
+  onOpenImage,
+  retryableMessageId,
+  retryBusy = false,
+  onRetryMessage
 }: Props) {
   const [pastInteractionIds, setPastInteractionIds] = useState<string[]>([]);
   const [forceExpandedIds, setForceExpandedIds] = useState<string[]>([]);
@@ -236,6 +242,20 @@ export function MessageTimeline({
               )}
             </div>
           </article>
+          {message.role === "student" && message.id === retryableMessageId && (
+            <div className="messageRetryRow">
+              <button
+                className="messageRetryButton"
+                type="button"
+                disabled={retryBusy}
+                onClick={() => onRetryMessage?.(message)}
+                aria-label="重试这条消息对应的答疑"
+              >
+                <RotateCcw size={13} />
+                {retryBusy ? "正在重试" : "重试本轮"}
+              </button>
+            </div>
+          )}
           {anchoredNodesFor(message.actionId)}
         </div>))}
         {anchoredInteractions
