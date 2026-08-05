@@ -1015,6 +1015,58 @@ def test_stream_retries_invalid_json_and_resets_partial_message(monkeypatch):
     assert "完整、合法" in requests[1][-1]["content"]
 
 
+def test_stream_allows_two_json_corrections_before_succeeding(monkeypatch):
+    responses = [
+        '{"message":"第一次残缺',
+        '{"message":"第二次仍残缺',
+        json.dumps(
+            {
+                "message": "请说说你目前想到哪一步？",
+                "action": "ASK_OPEN_QUESTION",
+                "context_status": "need_thought",
+                "state_hint": "diagnosing",
+            },
+            ensure_ascii=False,
+        ),
+    ]
+    requests = []
+
+    async def fake_chat_stream_completion(profile, messages, **kwargs):
+        requests.append(messages)
+        yield {"delta": responses[len(requests) - 1], "finish_reason": None}
+        yield {"delta": "", "finish_reason": "stop"}
+
+    monkeypatch.setattr(teaching, "chat_stream_completion", fake_chat_stream_completion)
+    profile = LlmProfile(
+        id="prof_test",
+        provider="openai_compatible",
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="test-model",
+        timeout_ms=30000,
+        temperature=0.2,
+        max_output_tokens=1200,
+    )
+    session = {
+        "id": "sess_test",
+        "problem_text": "求函数最大值。",
+        "student_initial_thought": "",
+        "context_status": "need_thought",
+        "phase": "diagnosing",
+    }
+
+    async def collect_events():
+        return [event async for event in teaching.generate_tutor_turn_stream(profile, session, [])]
+
+    events = asyncio.run(collect_events())
+
+    assert len(requests) == 3
+    assert sum(kind == "message_reset" for kind, _ in events) == 2
+    turn = next(value for kind, value in events if kind == "turn")
+    assert turn.message == "请说说你目前想到哪一步？"
+    assert turn.debug["format_retry_count"] == 2
+
+
 def test_stream_retries_once_when_provider_returns_no_content(monkeypatch):
     valid_response = json.dumps(
         {

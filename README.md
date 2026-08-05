@@ -63,6 +63,8 @@ Checkpoint answer 也进入 `session_inputs`，并由数据库唯一约束保证
 
 每个浏览器生成意图还会发送稳定 `client_run_id`；`session_id + client_run_id` 在 SQLite 中唯一，响应丢失后重复到达不会启动第二个 provider run。chat SSE 只有在完整 action 与 run 的 `completed` 状态已经提交后才发送 `stream_complete`；前端不再把 `message_done` 或干净 EOF 当作整条流成功。EOF/传输异常后会查询 `/run`：已有 action 则重载 SQLite session，未提交 action且错误可重试时受控续跑一次；仍失败时保留输入并在对应学生消息旁显示“重试本轮”，也允许直接在输入框追加内容发起下一轮。
 
+TutorTurn 的 JSON 合同现在允许最多 3 次总格式尝试（2 次带错误反馈的纠正重试）。文字拆题、题图区域检测和图片内容分析共用同一个结构化 JSON 重试器：语法错误、非对象结果或必需字段类型错误不会第一次就返回 502；它们最多进行 3 次结构化尝试，同时对连接失败、超时、408/429/5xx 和 overloaded/unavailable 复用最多 4 次/60 秒的瞬时故障退避。合法的空题目数组仍进入业务层 422，不会伪装成格式故障。
+
 run 中只有完整解析并通过 SQLite 事务提交的教学 action 才进入会话历史；流式显示到一半的 step 不会写成 assistant message。应用启动时会把上次进程遗留的 `queued/running` run 标为 `failed/process_restarted`，不会静默恢复可能重复的 provider 工作。
 
 AI 正在输出时，学生可以反复点击发送插嘴。前端不会中断当前 run，也不会保存半截 assistant 消息；这些输入按发送顺序进入本地可恢复 outbox，等当前完整输出提交后再依次通过 `session_inputs` 接纳，并只启动一轮后续生成，让模型同时看到全部插嘴内容。原有“打断支线—解决支线—返回原讲解”状态和接口已删除；空输入时的停止按钮仍只执行显式中断。

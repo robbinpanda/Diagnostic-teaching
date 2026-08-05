@@ -358,7 +358,9 @@ checkpoint answer 会在原子事务中依次追加 `checkpoint.completed` 和�
 - `strip_code_fence()` 去掉 markdown fence。
 - `extract_json_object()` 从文本中截取最外层 JSON。
 - `repair_unescaped_string_field(text, "message")` 修复 message 内部未转义引号。
-- `recover_tutor_turn_from_raw()` 在 JSON 解析失败时恢复最小可用 turn。
+- TutorTurn JSON 解析或合同校验失败时，把错误反馈给模型并最多纠正 2 次；连续 3 次仍不合法才终止 run。
+- 文字拆题、题图区域检测和图片内容分析共用结构化 JSON 重试器，最多 3 次格式尝试。
+- `recover_tutor_turn_from_raw()` 仅用于读取旧历史中的遗留原始 JSON，不作为新生成 run 的成功兜底。
 - `validate_checkpoint()` 移除不合格 checkpoint。
 - `apply_backend_action_policy()` 修正 action/checkpoint/wait 的不一致。
 

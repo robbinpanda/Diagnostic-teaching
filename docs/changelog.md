@@ -4,6 +4,12 @@
 
 ## 未发布
 
+### 结构化 JSON 有界纠正
+
+- TutorTurn 非法 JSON/合同校验失败从 1 次纠正提高为最多 2 次纠正，即 3 次总格式尝试；每次重试前仍发送 `message_reset`，不把前一次残片留在界面。
+- 文字拆题、题图区域检测和图片内容分析共用 `structured_json_completion()`：统一提取 JSON 对象、校验必需字段，并在第一次或第二次格式错误后把校验原因反馈给模型重做。
+- 结构化入口同时复用连接失败、超时、408/429/5xx、overloaded/unavailable 的最多 4 次/60 秒退避；合法空结果继续由业务层返回 422。
+
 ### SSE 明确终态、断流对账与本轮重试
 
 - chat SSE 新增 `stream_complete`；只有最后 action 和 `session_runs.completed` 已提交后才发送。前端 `streamChat()` 不再把 `message_done` 或干净 EOF 当成功，无明确终态即抛出流意外关闭。

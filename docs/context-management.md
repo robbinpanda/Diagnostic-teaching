@@ -470,7 +470,9 @@ stream_complete（仅在 run.completed 与最后 action 已原子提交后）
 run_interrupted（仅显式中断，且没有当前 step 的完整 action 落库）
 ```
 
-只有学生可见的 `message` 字段会增量展示。`progress` 只携带后端定义的 stage/label/elapsed_ms；provider reasoning chunk 的原文不会进入 SSE。若首个模型输出格式不合法并触发重试，`message_reset` 会让前端丢弃该 action 已展示的残片。`state_hint`、`action`、`checkpoint` 和 card 必须等完整 JSON 到达、校验和后端策略归一化后才发出。`card_ready` 后当前 HTTP stream 停止，等待前端保存卡片。
+只有学生可见的 `message` 字段会增量展示。`progress` 只携带后端定义的 stage/label/elapsed_ms；provider reasoning chunk 的原文不会进入 SSE。TutorTurn 最多执行 3 次总格式尝试；每次非法 JSON 后 `message_reset` 会让前端丢弃该 action 已展示的残片，再把校验错误反馈给模型纠正，最多纠正 2 次。`state_hint`、`action`、`checkpoint` 和 card 必须等完整 JSON 到达、校验和后端策略归一化后才发出。`card_ready` 后当前 HTTP stream 停止，等待前端保存卡片。
+
+文字拆题、题图区域检测和图片内容分析调用 `structured_json_completion()`。该助手共享 JSON 对象提取、必需字段校验、最多 3 次结构化尝试以及最多 4 次/60 秒的瞬时 provider 退避；第一次格式错不再直接 502。`problems=[]` 等“schema 合法但业务上没有识别结果”的响应仍交给路由返回 422，不消耗格式纠正重试。
 
 `message_delta/message_reset` 是高频瞬时事件，不写 `session_events`。完整 student/assistant message、归一化 action、checkpoint/card、run 完成、error 和 idle 等稳定边界会与业务数据一起写入 SQLite。`streamChat()` 必须看见 `stream_complete / error / run_interrupted` 之一；无明确终态的 EOF 是失败。断流后前端查询 `/run`，已提交 action 时重载 session；未提交且 `retryable=true` 时以新 run、同一业务历史受控重试一次，绝不凭半截字符恢复。
 
