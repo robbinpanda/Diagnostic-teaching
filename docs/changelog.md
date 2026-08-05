@@ -4,6 +4,12 @@
 
 ## 未发布
 
+### 初始题图 IndexedDB 恢复
+
+- 新建 session 前的题图不再只存在 React 内存：IndexedDB 保存原始 Blob、文件元数据、模型/年级和 `pending / detecting / selecting / starting` 阶段。
+- 检测结果及用户编辑后的区域持续持久化；每个 region 对应的稳定 session/message IDs 在首次确认时写入，删除或新增区域不会让其余区域换 ID。
+- 刷新后可恢复待发送图片、重新继续检测、回到框选页，或用原 IDs 幂等续交批量建会话；成功建会话、移除图片、取消框选或明确离开草稿时清理记录。
+
 ### 结构化 JSON 有界纠正
 
 - TutorTurn 非法 JSON/合同校验失败从 1 次纠正提高为最多 2 次纠正，即 3 次总格式尝试；每次重试前仍发送 `message_reset`，不把前一次残片留在界面。

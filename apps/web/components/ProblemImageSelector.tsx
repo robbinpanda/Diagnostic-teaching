@@ -10,6 +10,7 @@ type Props = {
   busy: boolean;
   onCancel: () => void;
   onConfirm: (regions: DetectedProblemRegion[]) => void;
+  onRegionsChange?: (regions: DetectedProblemRegion[]) => void;
 };
 
 type ResizeDirection = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
@@ -80,7 +81,8 @@ export function ProblemImageSelector({
   initialRegions,
   busy,
   onCancel,
-  onConfirm
+  onConfirm,
+  onRegionsChange
 }: Props) {
   const [regions, setRegions] = useState(initialRegions);
   const [selectedId, setSelectedId] = useState(initialRegions[0]?.id ?? "");
@@ -90,6 +92,15 @@ export function ProblemImageSelector({
   const dragRef = useRef<DragState | null>(null);
   const drawRef = useRef<DrawState | null>(null);
   const manualRegionSequenceRef = useRef(1);
+  const onRegionsChangeRef = useRef(onRegionsChange);
+
+  useEffect(() => {
+    onRegionsChangeRef.current = onRegionsChange;
+  }, [onRegionsChange]);
+
+  useEffect(() => {
+    onRegionsChangeRef.current?.(regions);
+  }, [regions]);
 
   function removeRegion(id: string) {
     if (busy) return;

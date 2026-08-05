@@ -550,6 +550,11 @@ test("workspace persists recoverable requests before clearing visible text", () 
   assert.match(pageSource, /restoreWorkspaceAfterRefresh/);
   assert.match(pageSource, /isApiResponseError\(nextError, 404\)/);
   assert.match(pageSource, /clearPendingStudentRequestsForSession\(window\.localStorage, activeSessionId\)/);
+  assert.match(pageSource, /saveImageDraft/);
+  assert.match(pageSource, /loadImageDraft/);
+  assert.match(pageSource, /stage: "detecting"/);
+  assert.match(pageSource, /persistedSelection\(startingSelection, "starting"\)/);
+  assert.match(pageSource, /stableImageStartItems/);
 });
 test("local demo configuration never asks users for real credentials", () => {
   const dialogSource = readFileSync(resolve(__dirname, "../../../components/ModelConfigDialog.tsx"), "utf8");

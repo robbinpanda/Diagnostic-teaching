@@ -513,7 +513,7 @@ controller 以 session id 为键保存多条活动 `streamChat`。切换会话�
 
 timeline reducer 仍校验 event 的 session id 与本地 run id，因此后台流和迟到回调不能写入当前打开的另一个 session。重新打开仍在生成的 session 时，页面先读取 SQLite 快照恢复已提交 action，再依据 controller 中该 session 的活动 run 接收后续事件；切换期间遗漏的半截字符不作为恢复依据，最终 `decision` 或下次 SQLite 快照负责校准完整内容。显式停止时仅移除尚未 `message_done` 的临时 assistant 片段；已经完成的 action 和学生消息保留，SQLite 仍是重新打开会话时的唯一权威来源。
 
-图片检测阶段尚未创建 session；只有发起检测的草稿仍有效时才展示框选确认页。确认时前端为每个最终框生成稳定的 session id 和 `client_message_id`，后端在一个批量事务中裁剪并接纳全部子会话。成功后第一题绑定当前视图，其余题作为独立后台 session 并行生成；所有流继续由 `sessionId + runId` 隔离。用户取消框选或在检测完成前切换草稿时不会创建任何 session。
+图片检测阶段尚未创建 session。前端把原图 Blob 和 `pending / detecting / selecting / starting` 阶段写入 IndexedDB；检测结果及每次新增、删除、移动、缩放后的框持续覆盖同一草稿。确认时按 region id 为每个最终框生成并保存稳定的 session id 和 `client_message_id`，随后后端在一个批量事务中裁剪并接纳全部子会话。刷新后，pending 恢复到 composer，detecting 重新执行检测，selecting 恢复编辑后的框，starting 使用相同 IDs 幂等续交。成功后第一题绑定当前视图，其余题作为独立后台 session 并行生成；成功或明确取消才清理 IndexedDB 草稿，且所有流继续由 `sessionId + runId` 隔离。
 
 chat 流与 durable change feed 的边界如下：
 
