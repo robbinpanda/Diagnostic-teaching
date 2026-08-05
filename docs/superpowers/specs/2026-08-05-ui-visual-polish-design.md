@@ -2,7 +2,7 @@
 
 日期：2026-08-05
 
-状态：待用户审阅
+状态：已批准（2026-08-05；卡片边界按用户最新说明修订）
 
 实施分支：`feat/ui-visual-polish`
 
@@ -11,7 +11,7 @@
 本次重构采用「专注光场」中的 A「明亮中庭」作为主构图，并吸收 C「层叠地平线」更明显但克制的绿紫渐变与空间层次。
 
 - 已批准高保真构图：[focus-light-a-luminous-atrium.png](../../../.impeccable/mocks/focus-light-a-luminous-atrium.png)
-- 用户补充指示：以 A 为主，增加一点 C 的渐变；左侧历史搜题必须继续保持“试卷 → 题目”的树形格式。
+- 用户补充指示：以 A 为主，增加一点 C 的渐变；左侧历史搜题必须继续保持“试卷 → 题目”的树形格式；卡片外观可以优化，但右侧收纳与自然滑动形式不变。
 - 构图图中的示例题目、会话文字和占位卡片只表达布局与气质，不代表新增业务内容或功能。
 - 现有产品名称与信息文案保持不变；不新增熊猫、卡通角色、吉祥物或无关主题插画。
 
@@ -32,7 +32,7 @@
 - 不改后端教学逻辑、API 协议、数据模型、流式解析、会话恢复或卡片持久化。
 - 不新增页面路由；开始答疑、历史搜题、知识库和错题库仍在根路由工作台内切换状态。
 - 不新增产品模块、营销区、统计面板、排行榜、插画人物或装饰性内容。
-- 不改变卡片内容结构、卡片主题、保存/舍弃/编辑/移动/导出流程。
+- 不改变卡片内容字段、正反面内容对应关系、保存/舍弃/编辑/移动/导出流程；卡片主题色、材质、排版和正反面视觉允许统一优化。
 - 不引入新的 UI 组件库、字体包或动画依赖。
 
 ## 4. 不可破坏的信息层级与功能
@@ -79,9 +79,9 @@
 
 右侧继续承载知识卡、题目卡、文件夹、剪贴板、编辑、移动、删除、导出与清空卡片功能。知识库和错题库仍通过相同右栏按类型过滤，不拆成新页面。
 
-## 5. 卡片冻结合同
+## 5. 卡片行为与收纳形态合同
 
-用户明确要求现有卡片设计不变，包括右侧收纳、点击后自然滑出、正反翻面及两面不同的内容组织。本次只重做卡片周围的应用壳层。
+用户最新说明是：卡片的样子可以改，但滑动和收纳形式不要改变。因此本次可以让卡片本体与新壳层形成统一的色彩、材质和排版语言；卡片来源、右侧收纳结构、开合几何链路、返回方式、翻面功能和两面内容语义仍是硬约束。
 
 以下文件以当前工作区内容为基线，实施中保持字节级不变：
 
@@ -90,26 +90,22 @@
 | `apps/web/components/StudyCardModal.tsx` | `00AFE8C85B9F13B45DD365F2EA960C74258CF90719D102F91CE496B8F058A721` |
 | `apps/web/components/workspace/CardShelfTabs.tsx` | `8CDC67AC6615C122CC7B57C690F7C32FF3EAC4DB2F5F62990C42C4D87F55B5EF` |
 | `apps/web/components/workspace/StudyCardSidebar.tsx` | `811FA9B446B6257992A07F8E831BF2DFA5244D56AB3867B94FA4FB53C5FAF393` |
-| `apps/web/lib/card-theme.ts` | `B640F703980D1B5C2517F6899FB42BFF27F3C03FCA359CD80A4E6749078F154B` |
 | `apps/web/hooks/useStudyCards.ts` | `E6E2ED3FCFFADD7E58DF592571B9AECC51DA37111DB9400682B9F04152824E94` |
 | `apps/web/hooks/useSessionRuntime.ts` | `FA0DEF4BFF68A4D5549E22547CA6CA5D982CF6BF3891A2DF2A8F67C0BBA9279A` |
 | `apps/web/lib/api/types.ts` | `646C76F6B9455C9D629E0EA9EC7895C887B2EE3BC6492CC042221CD1EC1DED7D` |
-| `apps/web/styles/cards.css` | `1E2660A1AC5268325ED2A74E97E42660D399A5AAFB7F639C77D53BB5367A960B` |
-| `apps/web/styles/dialogs.css` | `89DF7DD1D6B31AB8A628854027A5F2651DDBC5A959FFD418E58D4FED423B75D4` |
 
 此外，下列逻辑与样式块保持语义和数值不变：
 
 - `page.tsx` 中 `openShelfCard`、`closeShelfCard`、`shelfCardOriginRef`、`shelfCardMotion`、`shelfCardTransitionPhase` 和 `flushSync` 驱动的开合链路。
 - `page.tsx` 中 `dockedActiveCard` / `displayedDockCard*`、目标矩形测量、`--shelf-motion-*` 写入、`data-shelf-transition-phase`、`key="dock-…"` 和 `onAnimationEnd` 的事件目标保护。
-- `shell.css` 中 `.cardShelfTabs`、`.cardShelfTabs button`、`.shelfCardSourceHidden` 及各卡片标签的尺寸、颜色、角度、阴影和层叠关系。
+- `shell.css` 中 `.cardShelfTabs`、`.cardShelfTabs button`、`.shelfCardSourceHidden` 的右侧竖向收纳、尺寸、重叠、角度和层叠关系；颜色与表面质感可以随卡片主题统一调整。
 - `conversation.css` 中 `.activeKnowledgeCardDock`、`.shelfTransitionDock`、`shelfCardOpen`、`shelfCardClose`、`activeCardDockEnter` 与 `--shelf-motion-*` 计算。
-- `dialogs.css` 中 `.flashcardPresentation`、`.cardFaceFront`、`.cardFaceBack`、`.flashcardFlipBar` 和知识卡/题目卡正反面样式。
+- `StudyCardModal` 中 `showBack`、`aria-pressed`、`.cardFaceFront` / `.cardFaceBack` 切换和知识卡/题目卡正反面的字段映射。
 - `responsive.css` 中右栏关闭时的 `translateX(105%)`、手机端 `.activeKnowledgeCardDock` 定位和 reduced-motion 处理。
-- 所有 `--flashcard-*` 变量和 `cardThemeProperties` 输出。
 
 现有两条打开路径不合并：会话顶部收纳卡签继续从源按钮矩形自然滑出；完整右栏中的 `.cardOpenButton` 继续直接打开。关闭时找不到当前会话来源卡签的卡片继续直接关闭，不伪造返回动画。新生成卡片使用独立的 `activeCardDockEnter 420ms` 从右侧入场，这也属于冻结行为。
 
-允许调整卡片系统外部的容器留白和应用壳层位置；不允许通过改根级旧令牌间接改变卡片颜色、边框、阴影、圆角或动效。新视觉令牌使用独立的 `--stage-*` / `--shell-*` 命名空间。
+允许调整 `card-theme.ts`、`cards.css` 和 `dialogs.css` 中卡片的主题色、背景材质、细线、阴影、圆角、字级、区块层次、按钮外观及正反面视觉差异。不得改变收纳卡签的结构/几何尺寸、开合动画时间与路径、翻面触发方式或字段映射。新视觉令牌使用独立的 `--stage-*` / `--shell-*` 命名空间，卡片继续使用 `--flashcard-*` 主题变量。
 
 ## 6. 视觉与构图
 
@@ -157,6 +153,13 @@
 - 欢迎页保留现有标题、说明和三种输入方式；将过于常规的轨道/纸片装饰弱化为与晨光方向一致的抽象层次，不增加插画或角色。
 - 输入器保持底部工作台结构，使用清楚的主次工具分组、半透明暖白表面和足够的键盘焦点对比；发送/停止状态与禁用逻辑不变。
 
+### 6.6 卡片视觉
+
+- 卡片继续通过稳定的 `card.id` 获得主题变化；知识卡使用低饱和鼠尾草、灰绿和淡薰衣草变体，题目卡保留暖金/燕麦色区分，但整体降低饱和度并与工作台晨光统一。
+- 正面更像清晰的学习索引：标题、关键关系/题目摘要和核心原理形成三层字级；背面更像结构化复盘页：推导/步骤、使用场景、易错点和最终答案分区明确。
+- 可以增加极轻纸感颗粒、半透明内容块、细线和更精确的阴影；不加入贴纸、熊猫、卡通图标或与学科无关的装饰。
+- 翻面按钮位置、`aria-pressed`、正反面内容字段和现有切换逻辑不变；视觉重做不得把背面内容压缩到不可滚动或不可读。
+
 ## 7. 响应式行为
 
 ### 宽屏（`>= 1320px`）
@@ -193,12 +196,15 @@
 主要修改：
 
 - `apps/web/styles/base.css`：新增独立壳层令牌、背景和全局焦点/排版基础；保留卡片依赖的旧令牌值。
-- `apps/web/styles/shell.css`：工作台外壳、顶部栏、左侧树、侧翼表面、中央头部与抽屉布局；不改卡片收纳标签样式块。
+- `apps/web/styles/shell.css`：工作台外壳、顶部栏、左侧树、侧翼表面、中央头部与抽屉布局；卡片收纳标签只改主题表面，不改尺寸、重叠、角度和层叠形式。
 - `apps/web/styles/conversation.css`：消息阅读面、欢迎态和输入器视觉；不改卡片滑出/返回动画块。
-- `apps/web/styles/responsive.css`：宽屏/中屏/手机断点、抽屉与 `dvh`；不改手机卡片本体样式。
+- `apps/web/styles/cards.css`：卡片库条目、正反面过渡表面和辅助状态视觉；不改翻面触发逻辑。
+- `apps/web/styles/dialogs.css`：完整知识卡/题目卡的主题材质、排版、区块和控件视觉；不改内容字段或交互状态。
+- `apps/web/lib/card-theme.ts`：把稳定主题映射调整为批准方向的低饱和知识卡与暖色题目卡色板，保留稳定索引与 CSS 变量接口。
+- `apps/web/styles/responsive.css`：宽屏/中屏/手机断点、抽屉与 `dvh`；卡片响应式只处理可读性，不改 dock 定位和开合路径。
 - `apps/web/components/workspace/SessionSidebar.tsx`：恢复“清空全部会话”入口、补齐打开会话时的删除禁用，并保持试卷/题目树逻辑。
 - `apps/web/app/page.tsx`：只允许调整中屏侧栏初始开合、选题后不自动收起、恢复会话时导航状态同步等壳层行为，不触碰卡片开合链路。
-- `apps/web/tests/workspace-components.test.tsx`：把当前“不得出现清空全部会话”的回归断言改为功能存在与禁用条件断言，并补充历史树、未分类题目、打开会话时删除禁用、卡片动画冻结和响应式壳层断言。
+- `apps/web/tests/workspace-components.test.tsx`：把当前“不得出现清空全部会话”的回归断言改为功能存在与禁用条件断言，并补充历史树、未分类题目、打开会话时删除禁用、卡片主题映射、收纳/滑动契约和响应式壳层断言。
 - `apps/web/public/ambient-grain.webp`：低透明环境纹理。
 - `apps/web/app/layout.tsx`：加入可检索的方向合同标记；不改变 metadata 和页面结构。
 - `apps/desktop/src/main.cjs`：仅把 Electron 首帧背景色同步为暖白/浅鼠尾草，避免启动时闪出旧底色。
@@ -228,11 +234,11 @@ npm.cmd run build
 2. 历史搜索可按试卷名/题目名筛选；试卷展开后仍显示嵌套题目；恢复和单条删除正常；选择题目不会替用户自动收起左栏。
 3. 清空全部会话入口可聚焦，取消确认无副作用，确认后使用现有逻辑。
 4. 左右侧栏开合、知识库/错题库过滤、文件夹和导出入口正常。
-5. 点击右侧收纳卡片时，卡片从原位置自然滑出；翻到背面后内容与样式保持原样；翻回并关闭时自然返回。
-6. 卡片正面、背面、滑出中、打开后和关闭返回的视觉与本次实施前保持一致。
+5. 点击右侧收纳卡片时，卡片继续从原位置按相同轨迹与时长自然滑出；翻到背面后字段与功能完整；翻回并关闭时按相同轨迹自然返回。
+6. 卡片正面、背面和库内条目完成统一视觉升级，但右侧竖向重叠收纳形式、来源卡签隐藏、打开/关闭状态链和正反面字段映射与实施前一致。
 7. 无横向溢出、软键盘遮挡、文字截断异常或低对比焦点。
 8. Electron 启动首帧与网页背景色一致，不出现旧灰底闪烁。
 
 ## 11. 完成定义
 
-只有在以下条件同时满足时才可交付：批准构图在真实界面中成立；原有信息层级和业务功能未减少；“试卷 → 题目”历史树完整；卡片冻结合同通过；所有自动命令通过；多尺寸和关键交互完成两轮视觉复查；最终审阅未发现需要修复的高优先级问题。
+只有在以下条件同时满足时才可交付：批准构图在真实界面中成立；原有信息层级和业务功能未减少；“试卷 → 题目”历史树完整；卡片行为与收纳形态合同通过；所有自动命令通过；多尺寸和关键交互完成两轮视觉复查；最终审阅未发现需要修复的高优先级问题。
