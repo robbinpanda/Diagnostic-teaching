@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
@@ -7,6 +8,7 @@ import { CheckpointModal } from "../components/CheckpointModal";
 import { LearningCardExportDialog } from "../components/LearningCardExportDialog";
 import { StudyCardModal } from "../components/StudyCardModal";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
+import { HistoryWorkspace } from "../components/workspace/HistoryWorkspace";
 import {
   anchoredInteractionScrollTop,
   floatingCardAvoidanceWidth,
@@ -67,6 +69,170 @@ const problemCardFixture: StudyCard = {
   created_at: "2026-07-18T00:00:00Z",
   saved_at: "2026-07-18T00:00:01Z"
 };
+
+const historyWorkspaceItems: SessionHistoryItem[] = [
+  {
+    session_id: "session-current", paper_id: "paper-a", paper_name: "期中数学卷", title: "当前题目",
+    grade_band: "junior", model_profile_id: profile.id, model_display_name: profile.display_name,
+    message_count: 3, checkpoint_count: 1, state_hint: "diagnosing", context_status: "ready",
+    created_at: "2026-08-01T00:00:00Z", updated_at: "2026-08-03T00:00:00Z"
+  },
+  {
+    session_id: "session-running", paper_id: "paper-a", paper_name: "期中数学卷", title: "生成中题目",
+    grade_band: "junior", model_profile_id: profile.id, model_display_name: profile.display_name,
+    message_count: 2, checkpoint_count: 0, state_hint: "diagnosing", context_status: "ready",
+    created_at: "2026-08-01T00:00:00Z", updated_at: "2026-08-02T00:00:00Z"
+  },
+  {
+    session_id: "session-delete", paper_id: "paper-a", paper_name: "期中数学卷", title: "可删除题目",
+    grade_band: "senior", model_profile_id: profile.id, model_display_name: profile.display_name,
+    message_count: 1, checkpoint_count: 0, state_hint: "diagnosing", context_status: "ready",
+    created_at: "2026-08-01T00:00:00Z", updated_at: "2026-08-01T00:00:00Z"
+  }
+];
+
+const historyWorkspaceProps = {
+  items: historyWorkspaceItems,
+  overviewQuery: "",
+  sortMode: "recent" as const,
+  selectedPaperName: "期中数学卷",
+  historyBusy: false,
+  historyLoadError: "",
+  actionError: "",
+  leftOpen: true,
+  activeSessionId: "session-current",
+  runningSessionIds: ["session-running"],
+  openSessionBusyId: "",
+  deleteSessionBusyId: "",
+  onExpandLeft: () => {},
+  onOverviewQueryChange: () => {},
+  onSortModeChange: () => {},
+  onOpenPaper: () => {},
+  onBackToOverview: () => {},
+  onOpenSession: () => {},
+  onDeleteSession: () => {},
+  onStartNewChat: () => {},
+  onRetry: () => {},
+  onClearActionError: () => {}
+};
+
+function historyDeleteButton(markup: string, title: string) {
+  const match = markup.match(new RegExp(
+    `<button(?=[^>]*class="historyQuestionDelete")(?=[^>]*aria-label="删除会话：${title}")[^>]*>`
+  ));
+  assert.ok(match);
+  return match[0];
+}
+
+test("history workspace renders overview and paper detail from real session metadata", () => {
+  const overview = renderToStaticMarkup(
+    <HistoryWorkspace {...historyWorkspaceProps} view={{ mode: "overview" }} />
+  );
+  const detail = renderToStaticMarkup(
+    <HistoryWorkspace {...historyWorkspaceProps} view={{ mode: "paper", paperId: "paper-a" }} />
+  );
+
+  assert.match(overview, /历史搜题/);
+  assert.match(overview, /按试卷继续你的学习/);
+  assert.match(overview, /搜索试卷或题目/);
+  assert.match(overview, /最近更新/);
+  assert.match(overview, /名称排序/);
+  assert.doesNotMatch(overview, /<img/);
+  assert.doesNotMatch(overview, /historyQuestionDelete/);
+  assert.match(detail, /返回全部试卷/);
+  assert.match(detail, /正在思考/);
+  assert.match(detail, /3 条消息/);
+  assert.match(detail, /1 个检查点/);
+});
+
+test("history workspace formats SSR dates in Asia Shanghai", () => {
+  const componentPath = resolve(__dirname, "../components/workspace/HistoryWorkspace.js");
+  const result = spawnSync(process.execPath, ["-e", `
+    const React = require("react");
+    const { renderToStaticMarkup } = require("react-dom/server");
+    const { HistoryWorkspace } = require(${JSON.stringify(componentPath)});
+    const noop = () => {};
+    const markup = renderToStaticMarkup(React.createElement(HistoryWorkspace, {
+      view: { mode: "overview" },
+      items: [{
+        session_id: "session-midnight",
+        paper_id: "paper-midnight",
+        paper_name: "午夜试卷",
+        title: "跨日题目",
+        grade_band: "junior",
+        model_profile_id: "profile-1",
+        model_display_name: "本地演示",
+        message_count: 1,
+        checkpoint_count: 0,
+        state_hint: "diagnosing",
+        context_status: "ready",
+        created_at: "2026-08-05T16:00:00Z",
+        updated_at: "2026-08-05T16:30:00Z"
+      }],
+      overviewQuery: "",
+      sortMode: "recent",
+      selectedPaperName: "午夜试卷",
+      historyBusy: false,
+      historyLoadError: "",
+      actionError: "",
+      leftOpen: true,
+      activeSessionId: "",
+      runningSessionIds: [],
+      openSessionBusyId: "",
+      deleteSessionBusyId: "",
+      onExpandLeft: noop,
+      onOverviewQueryChange: noop,
+      onSortModeChange: noop,
+      onOpenPaper: noop,
+      onBackToOverview: noop,
+      onOpenSession: noop,
+      onDeleteSession: noop,
+      onStartNewChat: noop,
+      onRetry: noop,
+      onClearActionError: noop
+    }));
+    process.stdout.write(markup);
+  `], {
+    cwd: resolve(__dirname, "../../.."),
+    encoding: "utf8",
+    env: { ...process.env, TZ: "UTC" }
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /2026年8月6日/);
+  assert.doesNotMatch(result.stdout, /2026年8月5日/);
+});
+
+test("history workspace renders loading empty no-result error and emptied-paper states", () => {
+  const loading = renderToStaticMarkup(<HistoryWorkspace {...historyWorkspaceProps} items={[]} historyBusy view={{ mode: "overview" }} />);
+  const empty = renderToStaticMarkup(<HistoryWorkspace {...historyWorkspaceProps} items={[]} view={{ mode: "overview" }} />);
+  const noResult = renderToStaticMarkup(<HistoryWorkspace {...historyWorkspaceProps} overviewQuery="不存在" view={{ mode: "overview" }} />);
+  const failed = renderToStaticMarkup(<HistoryWorkspace {...historyWorkspaceProps} items={[]} historyLoadError="连接失败" view={{ mode: "overview" }} />);
+  const emptiedPaper = renderToStaticMarkup(<HistoryWorkspace {...historyWorkspaceProps} items={[]} view={{ mode: "paper", paperId: "paper-a" }} />);
+
+  assert.equal((loading.match(/class="historyPaperSkeleton"/g) ?? []).length, 6);
+  assert.match(empty, /还没有历史答疑/);
+  assert.match(empty, /开始答疑/);
+  assert.match(noResult, /没有匹配的试卷或题目/);
+  assert.match(noResult, /清除搜索/);
+  assert.match(failed, /重新加载/);
+  assert.match(emptiedPaper, /这份试卷暂无历史题目/);
+  assert.match(emptiedPaper, /返回全部试卷/);
+});
+
+test("history workspace disables deletion for current running and concurrent sessions", () => {
+  const detail = renderToStaticMarkup(
+    <HistoryWorkspace {...historyWorkspaceProps} view={{ mode: "paper", paperId: "paper-a" }} />
+  );
+  assert.match(historyDeleteButton(detail, "当前题目"), /disabled=""/);
+  assert.match(historyDeleteButton(detail, "生成中题目"), /disabled=""/);
+  assert.doesNotMatch(historyDeleteButton(detail, "可删除题目"), /disabled=""/);
+
+  const opening = renderToStaticMarkup(
+    <HistoryWorkspace {...historyWorkspaceProps} openSessionBusyId="session-other" view={{ mode: "paper", paperId: "paper-a" }} />
+  );
+  assert.match(historyDeleteButton(opening, "可删除题目"), /disabled=""/);
+});
 
 test("workspace header and timeline preserve teaching context labels", () => {
   const header = renderToStaticMarkup(
