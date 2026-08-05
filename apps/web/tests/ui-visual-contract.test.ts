@@ -199,6 +199,7 @@ test("history workspace reuses C4 tokens and responsive paper grids", () => {
   const globals = text("app/globals.css");
   const history = text("styles/history.css");
   const responsive = text("styles/responsive.css");
+  const shell = text("styles/shell.css");
 
   assert.match(
     globals,
@@ -255,6 +256,14 @@ test("history workspace reuses C4 tokens and responsive paper grids", () => {
   assert.match(
     history,
     /\.historyQuestionDelete\s*\{[\s\S]*?min-width:\s*44px;[\s\S]*?min-height:\s*44px/
+  );
+  assert.match(
+    shell,
+    /\.historyTreeToggle\s*\{[\s\S]*?width:\s*44px;[\s\S]*?height:\s*44px/
+  );
+  assert.match(
+    shell,
+    /\.paperGroupButton\s*\{[\s\S]*?min-height:\s*44px/
   );
   assert.match(
     responsive,

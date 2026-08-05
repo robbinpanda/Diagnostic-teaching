@@ -266,7 +266,7 @@
   min-width: 0;
   border-radius: 10px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 38px;
+  grid-template-columns: minmax(0, 1fr) 44px;
   align-items: center;
 }
 
@@ -276,8 +276,8 @@
 }
 
 .historyTreeToggle {
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   border: 0;
   border-radius: 8px;
   display: grid;
@@ -321,7 +321,7 @@
 .paperGroupButton {
   width: 100%;
   min-width: 0;
-  min-height: 38px;
+  min-height: 44px;
   border: 0;
   border-radius: 9px;
   display: grid;
