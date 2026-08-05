@@ -1069,6 +1069,178 @@ def test_stream_retries_once_when_provider_returns_no_content(monkeypatch):
     assert turn.debug["empty_response_retry_count"] == 1
 
 
+def test_stream_retries_transient_provider_errors_with_progress_and_attempt_log(monkeypatch):
+    requests = []
+    waits = []
+    valid_response = json.dumps(
+        {
+            "message": "你先说说目前想到哪一步？",
+            "action": "ASK_OPEN_QUESTION",
+            "context_status": "ready",
+            "state_hint": "diagnosing",
+        },
+        ensure_ascii=False,
+    )
+
+    async def fake_chat_stream_completion(profile, messages, **kwargs):
+        requests.append(messages)
+        if len(requests) < 4:
+            raise teaching.LlmProviderError(
+                "server overloaded",
+                status_code=503,
+                response_headers={"retry-after": "0.01"},
+                phase="response_headers",
+                retryable=True,
+                code="provider_http_error",
+            )
+        yield {"event": "content_delta", "delta": valid_response, "finish_reason": None}
+        yield {"delta": "", "finish_reason": "stop"}
+
+    async def fake_sleep(seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr(teaching, "chat_stream_completion", fake_chat_stream_completion)
+    monkeypatch.setattr(teaching.asyncio, "sleep", fake_sleep)
+    profile = LlmProfile(
+        id="prof_test",
+        provider="openai_compatible",
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="test-model",
+        timeout_ms=30000,
+        temperature=0.2,
+        max_output_tokens=1200,
+    )
+    session = {
+        "id": "sess_test",
+        "problem_text": "求函数最大值。",
+        "student_initial_thought": "我卡住了。",
+        "context_status": "ready",
+        "phase": "diagnosing",
+    }
+
+    async def collect_events():
+        return [event async for event in teaching.generate_tutor_turn_stream(profile, session, [])]
+
+    events = asyncio.run(collect_events())
+    retries = [
+        value
+        for kind, value in events
+        if kind == "progress" and value["stage"] == "retrying_provider"
+    ]
+    turn = next(value for kind, value in events if kind == "turn")
+
+    assert len(requests) == 4
+    assert waits == [0.01, 0.01, 0.01]
+    assert [item["label"] for item in retries] == [
+        "服务器繁忙，第 2 次重试，预计 1 秒后继续",
+        "服务器繁忙，第 3 次重试，预计 1 秒后继续",
+        "服务器繁忙，第 4 次重试，预计 1 秒后继续",
+    ]
+    assert [item["outcome"] for item in turn.debug["provider_attempts"]] == [
+        "provider_error",
+        "provider_error",
+        "provider_error",
+        "response_complete",
+    ]
+
+
+def test_stream_does_not_retry_nonretryable_provider_error(monkeypatch):
+    calls = 0
+
+    async def fake_chat_stream_completion(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise teaching.LlmProviderError(
+            "invalid api key",
+            status_code=401,
+            phase="response_headers",
+            retryable=False,
+            code="provider_http_error",
+        )
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(teaching, "chat_stream_completion", fake_chat_stream_completion)
+    profile = LlmProfile(
+        id="prof_test",
+        provider="openai_compatible",
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="test-model",
+        timeout_ms=30000,
+        temperature=0.2,
+        max_output_tokens=1200,
+    )
+    session = {
+        "id": "sess_test",
+        "problem_text": "求函数最大值。",
+        "student_initial_thought": "我卡住了。",
+        "context_status": "ready",
+        "phase": "diagnosing",
+    }
+
+    async def collect_events():
+        return [event async for event in teaching.generate_tutor_turn_stream(profile, session, [])]
+
+    with pytest.raises(teaching.LlmProviderError):
+        asyncio.run(collect_events())
+    assert calls == 1
+
+
+def test_provider_backoff_wait_is_cancellable(monkeypatch):
+    wait_started = asyncio.Event()
+
+    async def fake_chat_stream_completion(*args, **kwargs):
+        raise teaching.LlmProviderError(
+            "server overloaded",
+            status_code=503,
+            phase="response_headers",
+            retryable=True,
+        )
+        yield  # pragma: no cover
+
+    async def blocked_sleep(_seconds):
+        wait_started.set()
+        await asyncio.Future()
+
+    monkeypatch.setattr(teaching, "chat_stream_completion", fake_chat_stream_completion)
+    monkeypatch.setattr(teaching.asyncio, "sleep", blocked_sleep)
+    profile = LlmProfile(
+        id="prof_test",
+        provider="openai_compatible",
+        base_url="https://example.test/v1",
+        api_key="test-key",
+        model="test-model",
+        timeout_ms=30000,
+        temperature=0.2,
+        max_output_tokens=1200,
+    )
+    session = {
+        "id": "sess_test",
+        "problem_text": "求函数最大值。",
+        "student_initial_thought": "我卡住了。",
+        "context_status": "ready",
+        "phase": "diagnosing",
+    }
+
+    async def exercise():
+        async def collect():
+            return [
+                event
+                async for event in teaching.generate_tutor_turn_stream(
+                    profile, session, []
+                )
+            ]
+
+        task = asyncio.create_task(collect())
+        await asyncio.wait_for(wait_started.wait(), timeout=1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(exercise())
+
+
 def test_stream_preserves_model_text_when_context_guard_corrects_action(monkeypatch):
     raw = json.dumps(
         {

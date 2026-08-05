@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import replace
+from datetime import datetime, timezone
 
 import pytest
 
@@ -8,14 +9,70 @@ from app.llm import provider
 from app.llm.provider import (
     LlmEmptyResponseError,
     LlmProfile,
+    LlmProviderError,
     _anthropic_response_events,
     _openai_responses_events,
     anthropic_messages_url,
     anthropic_request_payload,
     chat_stream_completion,
     openai_responses_request_payload,
+    provider_retry_delay_seconds,
     responses_url,
 )
+
+
+def test_provider_retry_delay_honors_headers_and_exponential_jitter():
+    assert provider_retry_delay_seconds(
+        LlmProviderError(
+            "busy",
+            response_headers={"retry-after-ms": "1500"},
+            retryable=True,
+        ),
+        1,
+    ) == 1.5
+    assert provider_retry_delay_seconds(
+        LlmProviderError(
+            "busy",
+            response_headers={"retry-after": "7"},
+            retryable=True,
+        ),
+        1,
+    ) == 7.0
+    assert provider_retry_delay_seconds(
+        LlmProviderError(
+            "busy",
+            response_headers={"retry-after": "Wed, 05 Aug 2026 08:00:09 GMT"},
+            retryable=True,
+        ),
+        1,
+        now=datetime(2026, 8, 5, 8, 0, 0, tzinfo=timezone.utc),
+    ) == 9.0
+    error = LlmProviderError("busy", retryable=True)
+    assert provider_retry_delay_seconds(error, 1, jitter=1.0) == 2.0
+    assert provider_retry_delay_seconds(error, 2, jitter=1.0) == 4.0
+    assert provider_retry_delay_seconds(error, 5, jitter=1.0) == 30.0
+
+
+def test_provider_error_diagnostic_keeps_transport_context():
+    error = LlmProviderError(
+        "server overloaded",
+        status_code=503,
+        response_headers={"retry-after": "4", "x-request-id": "req_1"},
+        phase="response_headers",
+        saw_content=False,
+        retryable=True,
+        code="provider_http_error",
+    )
+
+    assert error.diagnostic() == {
+        "code": "provider_http_error",
+        "message": "server overloaded",
+        "status_code": 503,
+        "response_headers": {"retry-after": "4", "x-request-id": "req_1"},
+        "phase": "response_headers",
+        "saw_content": False,
+        "retryable": True,
+    }
 
 
 def _profile(provider="local_demo"):

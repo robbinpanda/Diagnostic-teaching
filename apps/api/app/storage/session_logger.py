@@ -150,6 +150,7 @@ class SessionLogger:
                     f"- Latency metrics: `{json.dumps(record.get('latency_metrics') or {}, ensure_ascii=False)}`",
                     f"- Parse OK: `{record.get('parse_ok')}`",
                     f"- Retried: `{record.get('used_fallback')}`",
+                    f"- Provider attempts: `{json.dumps(record.get('provider_attempts') or [], ensure_ascii=False)}`",
                     f"- Error: `{record.get('error') or '-'}`",
                 ]
             )
@@ -266,6 +267,7 @@ class SessionLogger:
         error: str | None = None,
         latency_metrics: dict[str, int | None] | None = None,
         reasoning_effort: str = "low",
+        provider_attempts: list[dict[str, Any]] | None = None,
     ) -> None:
         self._append(
             session_id,
@@ -281,6 +283,7 @@ class SessionLogger:
                 "reasoning_effort": reasoning_effort,
                 "parse_ok": parse_ok,
                 "used_fallback": used_fallback,
+                "provider_attempts": provider_attempts or [],
                 "error": error,
             },
         )

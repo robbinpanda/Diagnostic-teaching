@@ -42,6 +42,7 @@ def record_tutor_action(
         "card_id": card_id,
         "knowledge_card": turn.knowledge_card.model_dump() if turn.knowledge_card else None,
         "problem_card": turn.problem_card.model_dump() if turn.problem_card else None,
+        "debug": turn.debug,
     }
     if provider_response is not None:
         metadata["provider_response"] = provider_response

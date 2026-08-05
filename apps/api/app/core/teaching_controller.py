@@ -34,6 +34,7 @@ from app.llm.provider import (
     LlmProfile,
     LlmProviderError,
     chat_stream_completion,
+    provider_retry_delay_seconds,
 )
 from app.storage.session_logger import SessionLogger
 
@@ -64,6 +65,8 @@ __all__ = [
 FORMAT_RETRY_LIMIT = 1
 EMPTY_RESPONSE_RETRY_LIMIT = 1
 IMAGE_NEED_PROBLEM_RETRY_LIMIT = 1
+PROVIDER_ATTEMPT_LIMIT = 4
+PROVIDER_RETRY_BUDGET_SECONDS = 60.0
 
 
 TEACHING_ACTION_DEFINITIONS = [
@@ -595,6 +598,7 @@ async def generate_tutor_turn_stream(
     parse_ok = True
     error: str | None = None
     turn_final: TutorTurn | None = None
+    provider_attempts: list[dict[str, Any]] = []
 
     def elapsed_ms() -> int:
         return int((time.perf_counter() - started) * 1000)
@@ -616,7 +620,10 @@ async def generate_tutor_turn_stream(
         empty_response_retry_count = 0
         image_need_problem_retry_count = 0
         image_problem_retry_eligible = _is_initial_image_problem_turn(session, history)
+        provider_call_count = 0
         while True:
+            provider_call_count += 1
+            provider_attempt_started = time.perf_counter()
             extractor = MessageStreamExtractor()
             raw_parts: list[str] = []
             emitted_message_parts: list[str] = []
@@ -656,16 +663,83 @@ async def generate_tutor_turn_stream(
                             yield ("message_delta", inc)
             except LlmEmptyResponseError:
                 raw = "".join(raw_parts)
+                provider_attempts.append(
+                    {
+                        "attempt": provider_call_count,
+                        "outcome": "empty_response",
+                        "latency_ms": int(
+                            (time.perf_counter() - provider_attempt_started) * 1000
+                        ),
+                        "phase": "response_stream",
+                        "saw_content": bool(raw),
+                        "retryable": True,
+                    }
+                )
                 parse_ok = False
                 if emitted_message_parts:
                     yield ("message_reset", "")
-                if empty_response_retry_count < EMPTY_RESPONSE_RETRY_LIMIT:
+                if (
+                    empty_response_retry_count < EMPTY_RESPONSE_RETRY_LIMIT
+                    and provider_call_count < PROVIDER_ATTEMPT_LIMIT
+                ):
                     empty_response_retry_count += 1
                     used_fallback = True
                     yield progress("retrying_empty_response", "模型未返回内容，正在自动重试")
                     continue
                 raise
+            except LlmProviderError as exc:
+                raw = "".join(raw_parts)
+                attempt_record = {
+                    "attempt": provider_call_count,
+                    "outcome": "provider_error",
+                    "latency_ms": int(
+                        (time.perf_counter() - provider_attempt_started) * 1000
+                    ),
+                    **exc.diagnostic(),
+                }
+                provider_attempts.append(attempt_record)
+                parse_ok = False
+                retry_number = sum(
+                    1
+                    for attempt in provider_attempts
+                    if attempt.get("outcome") == "provider_error"
+                )
+                delay_seconds = provider_retry_delay_seconds(exc, retry_number)
+                within_budget = (
+                    time.perf_counter() - started + delay_seconds
+                    <= PROVIDER_RETRY_BUDGET_SECONDS
+                )
+                if (
+                    exc.retryable
+                    and provider_call_count < PROVIDER_ATTEMPT_LIMIT
+                    and within_budget
+                ):
+                    if emitted_message_parts:
+                        yield ("message_reset", "")
+                    used_fallback = True
+                    attempt_record["retry_delay_ms"] = int(delay_seconds * 1000)
+                    next_attempt = provider_call_count + 1
+                    wait_seconds = max(1, round(delay_seconds))
+                    yield progress(
+                        "retrying_provider",
+                        f"服务器繁忙，第 {next_attempt} 次重试，预计 {wait_seconds} 秒后继续",
+                    )
+                    await asyncio.sleep(delay_seconds)
+                    continue
+                raise
             raw = "".join(raw_parts)
+            provider_attempts.append(
+                {
+                    "attempt": provider_call_count,
+                    "outcome": "response_complete",
+                    "latency_ms": int(
+                        (time.perf_counter() - provider_attempt_started) * 1000
+                    ),
+                    "phase": "response_stream",
+                    "saw_content": bool(raw),
+                    "retryable": False,
+                }
+            )
             try:
                 turn_final = parse_and_validate_tutor_turn(
                     raw,
@@ -675,10 +749,15 @@ async def generate_tutor_turn_stream(
                     current_student_thought=_row_value(session, "student_initial_thought", ""),
                 )
             except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+                provider_attempts[-1]["outcome"] = "invalid_tutor_turn"
+                provider_attempts[-1]["error"] = str(exc)
                 parse_ok = False
                 if emitted_message_parts:
                     yield ("message_reset", "")
-                if format_retry_count < FORMAT_RETRY_LIMIT:
+                if (
+                    format_retry_count < FORMAT_RETRY_LIMIT
+                    and provider_call_count < PROVIDER_ATTEMPT_LIMIT
+                ):
                     format_retry_count += 1
                     used_fallback = True
                     request_messages = build_format_retry_messages(messages, raw, exc)
@@ -693,6 +772,7 @@ async def generate_tutor_turn_stream(
                 image_problem_retry_eligible
                 and turn_final.context_status == "need_problem"
                 and image_need_problem_retry_count < IMAGE_NEED_PROBLEM_RETRY_LIMIT
+                and provider_call_count < PROVIDER_ATTEMPT_LIMIT
             ):
                 if emitted_message_parts:
                     yield ("message_reset", "")
@@ -705,6 +785,7 @@ async def generate_tutor_turn_stream(
                 turn_final.debug["image_need_problem_retry_count"] = (
                     image_need_problem_retry_count
                 )
+            turn_final.debug["provider_attempts"] = provider_attempts
             parse_ok = True
             emitted_message = "".join(emitted_message_parts)
             if turn_final.message:
@@ -759,4 +840,5 @@ async def generate_tutor_turn_stream(
                 error=error,
                 latency_metrics=latency_metrics,
                 reasoning_effort=profile.reasoning_effort,
+                provider_attempts=provider_attempts,
             )

@@ -4,6 +4,12 @@
 
 ## 未发布
 
+### Provider 瞬时故障指数退避
+
+- OpenAI Responses、OpenAI-compatible Chat Completions 与 Anthropic Messages 统一使用结构化 provider error，保留 HTTP status、安全响应头、失败阶段、是否已收到内容、错误代码与 retryable；最终失败时同步进入 `session_runs.error_json`。
+- 正式 TutorTurn 对连接失败、超时、HTTP 408/429/5xx 和 overloaded/unavailable 在 60 秒预算内最多执行 4 次总尝试；优先服从 `retry-after-ms` / `Retry-After`，否则采用带约 20% jitter 的 2/4/8/16 秒指数退避并封顶 30 秒。
+- 退避通过 progress 事件显示“第 N 次重试”和预计等待时间；等待使用可取消的异步 sleep，显式 interrupt 会立即终止。每次 provider attempt 的延迟、结果和错误诊断写入 TutorTurn debug、SQLite assistant metadata 与 JSONL/Markdown 诊断日志。
+
 ### 题图识别条件重试与模型正文直出
 
 - 初始题图轮次第一次有效 TutorTurn 仍返回 `need_problem` 时，正式生成链路携带同一裁图和定向识别提示自动重试一次；清除第一次瞬时流文本，最多执行两次识别，并在最终 turn debug 中记录重试次数。

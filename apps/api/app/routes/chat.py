@@ -388,11 +388,30 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                 code,
                 message,
                 error_type=exc.__class__.__name__,
-                retryable=code != "input_error",
+                retryable=(exc.retryable if isinstance(exc, LlmProviderError) else code != "input_error"),
             )
+            if isinstance(exc, LlmProviderError):
+                diagnostic = exc.diagnostic()
+                error.update(
+                    {
+                        "provider_code": diagnostic["code"],
+                        "status_code": diagnostic["status_code"],
+                        "response_headers": diagnostic["response_headers"],
+                        "phase": diagnostic["phase"],
+                        "saw_content": diagnostic["saw_content"],
+                    }
+                )
             request.app.state.sessions.mark_run_failed(handle.run_id, error)
             terminal = True
-            yield sse("error", {"message": message, "run_id": handle.run_id, "code": code})
+            yield sse(
+                "error",
+                {
+                    "message": message,
+                    "run_id": handle.run_id,
+                    "code": code,
+                    "retryable": bool(error["retryable"]),
+                },
+            )
         finally:
             if not terminal:
                 error = run_error(

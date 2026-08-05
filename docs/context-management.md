@@ -448,6 +448,7 @@ logs/sessions/<session_id>.log.md
 
 ```text
 provider.chat_stream_completion()
+  -> 瞬时 provider 错误按 Retry-After 或 2/4/8/16 秒指数退避（最多 4 次/60 秒）
   -> MessageStreamExtractor.feed(delta)
   -> generate_tutor_turn_stream()
   -> chat.py SSE
@@ -458,7 +459,7 @@ provider.chat_stream_completion()
 
 ```text
 run_started
-progress（正在读取题目 / 核对思路 / 选择教学方式 / 组织回复）
+progress（正在读取题目 / 核对思路 / provider 退避重试 / 选择教学方式 / 组织回复）
 message_delta ...
 message_reset（仅格式重试时可能出现）
 decision

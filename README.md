@@ -59,7 +59,7 @@ Checkpoint answer 也进入 `session_inputs`，并由数据库唯一约束保证
 
 进入图片题目的答疑会话后，顶部“查看题目”按钮和消息中的题图都可打开全屏查看器。查看器默认适应屏幕，支持滚轮或按钮在 100%—500% 之间缩放、放大后拖动、重置视图，并可通过关闭按钮、Esc 或点击遮罩退出。
 
-每次 `POST /api/chat/stream` 现在都有持久化 `run_id` 和递增 `attempt`，状态依次为 `queued -> running -> completed`，异常或中断则进入 `failed / interrupted`。同一 session 的 run 按进入顺序串行，不同 session 可并行；`GET /api/sessions/{session_id}/run` 可查询活动或最新 run，`POST /api/sessions/{session_id}/interrupt` 会显式取消 provider 请求和后续 bounded loop，空闲或重复中断是幂等 no-op。浏览器仅停止读取不会伪装成显式中断，而会记录为结构化 `failed/client_disconnected`。provider 若完成推理却没有返回任何可见内容，本轮会用相同请求透明重试一次；连续两次空响应才把 run 标为可重试失败。
+每次 `POST /api/chat/stream` 现在都有持久化 `run_id` 和递增 `attempt`，状态依次为 `queued -> running -> completed`，异常或中断则进入 `failed / interrupted`。同一 session 的 run 按进入顺序串行，不同 session 可并行；`GET /api/sessions/{session_id}/run` 可查询活动或最新 run，`POST /api/sessions/{session_id}/interrupt` 会显式取消 provider 请求、指数退避等待和后续 bounded loop，空闲或重复中断是幂等 no-op。浏览器仅停止读取不会伪装成显式中断，而会记录为结构化 `failed/client_disconnected`。provider 的连接失败、超时、HTTP 408/429/5xx 以及 overloaded/unavailable 错误会在 60 秒预算内最多进行 4 次总尝试；优先服从 `retry-after-ms` / `Retry-After`，否则使用带约 20% jitter 的 2/4/8/16 秒指数退避并封顶 30 秒。provider 若完成推理却没有返回任何可见内容，本轮仍会用相同请求透明重试一次；连续两次空响应才把 run 标为可重试失败。每次 provider attempt 的结果、延迟、错误分类、响应阶段和是否已收到内容会进入 turn debug 与诊断日志。
 
 run 中只有完整解析并通过 SQLite 事务提交的教学 action 才进入会话历史；流式显示到一半的 step 不会写成 assistant message。应用启动时会把上次进程遗留的 `queued/running` run 标为 `failed/process_restarted`，不会静默恢复可能重复的 provider 工作。
 

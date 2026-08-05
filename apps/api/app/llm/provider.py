@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import random
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
@@ -26,6 +29,7 @@ __all__ = [
     "LlmProfile",
     "LlmEmptyResponseError",
     "LlmProviderError",
+    "provider_retry_delay_seconds",
     "TEXT_PROBLEM_SPLIT_PROMPT",
     "_anthropic_response_events",
     "analyze_problem_text",
@@ -63,13 +67,152 @@ class LlmProfile:
 
 
 class LlmProviderError(RuntimeError):
-    pass
+    """Normalized provider failure used by every supported wire protocol."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        response_headers: dict[str, str] | None = None,
+        phase: str = "unknown",
+        saw_content: bool = False,
+        retryable: bool = False,
+        code: str = "provider_error",
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.response_headers = response_headers or {}
+        self.phase = phase
+        self.saw_content = saw_content
+        self.retryable = retryable
+        self.code = code
+
+    def diagnostic(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "message": str(self),
+            "status_code": self.status_code,
+            "response_headers": self.response_headers,
+            "phase": self.phase,
+            "saw_content": self.saw_content,
+            "retryable": self.retryable,
+        }
 
 
 class LlmEmptyResponseError(LlmProviderError):
     """Provider completed a request without emitting any visible model content."""
 
     pass
+
+
+_TRANSIENT_HTTP_STATUSES = {408, 409, 425, 429}
+_TRANSIENT_ERROR_MARKERS = (
+    "overload",
+    "overloaded",
+    "server is busy",
+    "server busy",
+    "too many requests",
+    "rate limit",
+    "rate_limit",
+    "temporarily unavailable",
+    "service unavailable",
+    "resource exhausted",
+    "resource_exhausted",
+    "unavailable",
+)
+
+
+def _safe_response_headers(headers: Any) -> dict[str, str]:
+    if headers is None:
+        return {}
+    blocked = {"authorization", "proxy-authorization", "set-cookie"}
+    try:
+        return {
+            str(key).lower(): str(value)
+            for key, value in headers.items()
+            if str(key).lower() not in blocked
+        }
+    except (AttributeError, TypeError):
+        return {}
+
+
+def _provider_error_retryable(status_code: int | None, message: str) -> bool:
+    if status_code in _TRANSIENT_HTTP_STATUSES or (
+        status_code is not None and status_code >= 500
+    ):
+        return True
+    lowered = message.lower()
+    return any(marker in lowered for marker in _TRANSIENT_ERROR_MARKERS)
+
+
+def _http_status_error(
+    prefix: str,
+    response: Any,
+    body: bytes,
+) -> LlmProviderError:
+    status_code = int(response.status_code)
+    body_preview = body.decode("utf-8", "ignore")[:300]
+    message = f"{prefix} {status_code}: {body_preview}"
+    return LlmProviderError(
+        message,
+        status_code=status_code,
+        response_headers=_safe_response_headers(response.headers),
+        phase="response_headers",
+        retryable=_provider_error_retryable(status_code, body_preview),
+        code="provider_http_error",
+    )
+
+
+def _transport_error(
+    prefix: str,
+    exc: httpx.HTTPError,
+    *,
+    headers_received: bool,
+    saw_content: bool,
+) -> LlmProviderError:
+    is_timeout = isinstance(exc, httpx.TimeoutException)
+    return LlmProviderError(
+        prefix,
+        phase="response_stream" if headers_received else "request",
+        saw_content=saw_content,
+        retryable=True,
+        code="provider_timeout" if is_timeout else "provider_network_error",
+    )
+
+
+def provider_retry_delay_seconds(
+    error: LlmProviderError,
+    retry_number: int,
+    *,
+    now: datetime | None = None,
+    jitter: float | None = None,
+) -> float:
+    """Return Retry-After or 2/4/8/16s exponential delay with ±20% jitter."""
+
+    headers = {key.lower(): value for key, value in error.response_headers.items()}
+    retry_after_ms = headers.get("retry-after-ms")
+    if retry_after_ms:
+        try:
+            return max(0.0, min(float(retry_after_ms) / 1000.0, 30.0))
+        except ValueError:
+            pass
+    retry_after = headers.get("retry-after")
+    if retry_after:
+        try:
+            return max(0.0, min(float(retry_after), 30.0))
+        except ValueError:
+            try:
+                target = parsedate_to_datetime(retry_after)
+                if target.tzinfo is None:
+                    target = target.replace(tzinfo=timezone.utc)
+                current = now or datetime.now(timezone.utc)
+                return max(0.0, min((target - current).total_seconds(), 30.0))
+            except (TypeError, ValueError, OverflowError):
+                pass
+    base = min(2.0 * (2 ** max(0, retry_number - 1)), 30.0)
+    factor = jitter if jitter is not None else random.uniform(0.8, 1.2)
+    return max(0.0, min(base * factor, 30.0))
 
 
 IMAGE_ANALYSIS_PROMPT = """你是数学题图片录入助手，不是解题助手或学情评估助手。请识别图片中的数学题和学生实际写下的内容，并只返回 JSON，不要 Markdown。
@@ -502,6 +645,8 @@ async def _openai_chat_stream_completion(
     connect_timeout = min(profile.timeout_ms / 1000, 10.0)
     read_timeout = max(profile.timeout_ms / 1000, 60.0)
     timeout = httpx.Timeout(connect_timeout, read=read_timeout, write=10.0, pool=10.0)
+    headers_received = False
+    saw_content = False
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream(
@@ -509,13 +654,11 @@ async def _openai_chat_stream_completion(
             ) as response:
                 if response.status_code >= 400:
                     body = await response.aread()
-                    raise LlmProviderError(
-                        f"模型请求失败 {response.status_code}: {body.decode('utf-8', 'ignore')[:300]}"
-                    )
+                    raise _http_status_error("模型请求失败", response, body)
+                headers_received = True
                 yield {"event": "response_headers", "delta": "", "finish_reason": None}
                 finish_reason: str | None = None
                 saw_any_data = False
-                saw_content = False
                 async for line in response.aiter_lines():
                     line = line.strip()
                     if not line or not line.startswith("data:"):
@@ -562,17 +705,28 @@ async def _openai_chat_stream_completion(
                         finish_reason = choice["finish_reason"]
                 if not saw_any_data:
                     raise LlmProviderError(
-                        "模型流式响应中没有任何 data 事件，请确认 base_url/模型配置"
+                        "模型流式响应中没有任何 data 事件，请确认 base_url/模型配置",
+                        phase="response_stream",
+                        retryable=True,
+                        code="provider_empty_stream",
                     )
                 if not saw_content:
                     _assert_nonempty("", finish_reason, requested_max_tokens)
                 yield {"delta": "", "finish_reason": finish_reason}
     except httpx.TimeoutException as exc:
-        raise LlmProviderError(
-            "模型流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置"
+        raise _transport_error(
+            "模型流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置",
+            exc,
+            headers_received=headers_received,
+            saw_content=saw_content,
         ) from exc
     except httpx.HTTPError as exc:
-        raise LlmProviderError(f"模型请求异常：{str(exc) or exc.__class__.__name__}") from exc
+        raise _transport_error(
+            f"模型请求异常：{str(exc) or exc.__class__.__name__}",
+            exc,
+            headers_received=headers_received,
+            saw_content=saw_content,
+        ) from exc
 
 
 def openai_responses_request_payload(
@@ -692,6 +846,8 @@ async def _openai_responses_stream_completion(
     connect_timeout = min(profile.timeout_ms / 1000, 10.0)
     read_timeout = max(profile.timeout_ms / 1000, 60.0)
     timeout = httpx.Timeout(connect_timeout, read=read_timeout, write=10.0, pool=10.0)
+    headers_received = False
+    saw_content = False
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             attempts = [payload]
@@ -721,23 +877,33 @@ async def _openai_responses_stream_completion(
                         )
                         if can_replay_full_history:
                             continue
-                        raise LlmProviderError(
-                            f"OpenAI Responses 请求失败 {response.status_code}: "
-                            f"{body.decode('utf-8', 'ignore')[:300]}"
+                        raise _http_status_error(
+                            "OpenAI Responses 请求失败",
+                            response,
+                            body,
                         )
+                    headers_received = True
                     yield {"event": "response_headers", "delta": "", "finish_reason": None}
                     async for event in _openai_responses_events(
                         response, requested_max_tokens
                     ):
+                        if event.get("delta"):
+                            saw_content = True
                         yield event
                     return
     except httpx.TimeoutException as exc:
-        raise LlmProviderError(
-            "OpenAI Responses 流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置"
+        raise _transport_error(
+            "OpenAI Responses 流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置",
+            exc,
+            headers_received=headers_received,
+            saw_content=saw_content,
         ) from exc
     except httpx.HTTPError as exc:
-        raise LlmProviderError(
-            f"OpenAI Responses 请求异常：{str(exc) or exc.__class__.__name__}"
+        raise _transport_error(
+            f"OpenAI Responses 请求异常：{str(exc) or exc.__class__.__name__}",
+            exc,
+            headers_received=headers_received,
+            saw_content=saw_content,
         ) from exc
 
 
@@ -815,11 +981,20 @@ async def _openai_responses_events(response: Any, requested_max_tokens: int):
                 message = error.get("message") or error.get("code") or json.dumps(error)
             else:
                 message = str(error or "未知错误")
-            raise LlmProviderError(f"OpenAI Responses 流式响应错误：{message}")
+            raise LlmProviderError(
+                f"OpenAI Responses 流式响应错误：{message}",
+                phase="response_stream",
+                saw_content=saw_content,
+                retryable=_provider_error_retryable(None, message),
+                code="provider_stream_error",
+            )
 
     if not saw_any_data:
         raise LlmProviderError(
-            "OpenAI Responses 流式响应中没有任何 data 事件，请确认 base_url/模型配置"
+            "OpenAI Responses 流式响应中没有任何 data 事件，请确认 base_url/模型配置",
+            phase="response_stream",
+            retryable=True,
+            code="provider_empty_stream",
         )
     if not saw_content:
         _assert_nonempty("", finish_reason, requested_max_tokens)
@@ -848,6 +1023,8 @@ async def _anthropic_stream_completion(
     connect_timeout = min(profile.timeout_ms / 1000, 10.0)
     read_timeout = max(profile.timeout_ms / 1000, 60.0)
     timeout = httpx.Timeout(connect_timeout, read=read_timeout, write=10.0, pool=10.0)
+    headers_received = False
+    saw_content = False
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream(
@@ -858,20 +1035,30 @@ async def _anthropic_stream_completion(
             ) as response:
                 if response.status_code >= 400:
                     body = await response.aread()
-                    raise LlmProviderError(
-                        f"Anthropic 模型请求失败 {response.status_code}: "
-                        f"{body.decode('utf-8', 'ignore')[:300]}"
+                    raise _http_status_error(
+                        "Anthropic 模型请求失败",
+                        response,
+                        body,
                     )
+                headers_received = True
                 yield {"event": "response_headers", "delta": "", "finish_reason": None}
                 async for event in _anthropic_response_events(response, requested_max_tokens):
+                    if event.get("delta"):
+                        saw_content = True
                     yield event
     except httpx.TimeoutException as exc:
-        raise LlmProviderError(
-            "Anthropic 流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置"
+        raise _transport_error(
+            "Anthropic 流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置",
+            exc,
+            headers_received=headers_received,
+            saw_content=saw_content,
         ) from exc
     except httpx.HTTPError as exc:
-        raise LlmProviderError(
-            f"Anthropic 模型请求异常：{str(exc) or exc.__class__.__name__}"
+        raise _transport_error(
+            f"Anthropic 模型请求异常：{str(exc) or exc.__class__.__name__}",
+            exc,
+            headers_received=headers_received,
+            saw_content=saw_content,
         ) from exc
 
 
@@ -973,7 +1160,13 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
             message = (
                 error.get("message") if isinstance(error, dict) else str(error or "unknown error")
             )
-            raise LlmProviderError(f"Anthropic 流式响应错误：{message}")
+            raise LlmProviderError(
+                f"Anthropic 流式响应错误：{message}",
+                phase="response_stream",
+                saw_content=saw_content,
+                retryable=_provider_error_retryable(None, message),
+                code="provider_stream_error",
+            )
         if event_type == "content_block_delta":
             delta = event.get("delta")
             if isinstance(delta, dict) and delta.get("type") in {
@@ -1010,7 +1203,12 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
             }
 
     if not saw_any_data:
-        raise LlmProviderError("Anthropic 流式响应中没有任何 data 事件，请确认 base_url/模型配置")
+        raise LlmProviderError(
+            "Anthropic 流式响应中没有任何 data 事件，请确认 base_url/模型配置",
+            phase="response_stream",
+            retryable=True,
+            code="provider_empty_stream",
+        )
     if not saw_content:
         _assert_nonempty(
             "", "length" if finish_reason == "max_tokens" else finish_reason, requested_max_tokens
