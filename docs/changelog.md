@@ -4,6 +4,12 @@
 
 ## 未发布
 
+### 试卷分组历史与会话卡片隔离
+
+- 新增 `exam_papers`、`sessions.paper_id` 与 Alembic `0011_exam_papers`；提供 `GET/POST /api/exam-papers`，图片框选确认时可选择已有试卷或创建新试卷，同批裁剪题目共享该归属。
+- 历史搜题改为可折叠、可滚动的“试卷 → 题目”树；旧会话统一显示在“未分类题目”，会话历史与显式恢复响应同时返回 `paper_id/paper_name`。
+- 会话顶部已收纳卡片标签按来源 `session_id` 过滤，首页和其他题目不再显示不属于当前题目的卡片。
+
 ### Provider 瞬时故障指数退避
 
 - OpenAI Responses、OpenAI-compatible Chat Completions 与 Anthropic Messages 统一使用结构化 provider error，保留 HTTP status、安全响应头、失败阶段、是否已收到内容、错误代码与 retryable；最终失败时同步进入 `session_runs.error_json`。

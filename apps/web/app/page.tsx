@@ -5,7 +5,7 @@ import { flushSync } from "react-dom";
 import { CardMoveDialog } from "../components/CardMoveDialog";
 import { CheckpointModal } from "../components/CheckpointModal";
 import { ModelConfigDialog } from "../components/ModelConfigDialog";
-import { ProblemImageSelector } from "../components/ProblemImageSelector";
+import { ProblemImageSelector, type PaperSelection } from "../components/ProblemImageSelector";
 import { ProblemImageViewer } from "../components/ProblemImageViewer";
 import { StudyCardModal } from "../components/StudyCardModal";
 import {
@@ -30,16 +30,19 @@ import {
   answerCheckpoint,
   batchStartImageSessions,
   batchStartSessions,
+  createExamPaper,
   deleteAllSessions,
   deleteSession,
   detectProblemImageRegions,
   dismissKnowledgeCardAndContinue,
+  fetchExamPapers,
   fetchSession,
   fetchSessionHistory,
   fetchSessionRunStatus,
   isApiResponseError,
   saveCard,
   DetectedProblemRegion,
+  ExamPaper,
   SessionHistoryItem,
   SessionStartResult,
   StudyCard,
@@ -104,6 +107,7 @@ export default function Home() {
   const [gradeBand, setGradeBand] = useState<"junior" | "senior">("junior");
   const [input, setInput] = useState("");
   const [historyItems, setHistoryItems] = useState<SessionHistoryItem[]>([]);
+  const [examPapers, setExamPapers] = useState<ExamPaper[]>([]);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [openSessionBusyId, setOpenSessionBusyId] = useState("");
   const [deleteSessionBusyId, setDeleteSessionBusyId] = useState("");
@@ -134,6 +138,7 @@ export default function Home() {
   const pendingSessionBatchesRef = useRef(new Map<number, PendingSessionBatch>());
   const openSessionRequestRef = useRef(0);
   const historyRequestRef = useRef(0);
+  const examPapersRequestRef = useRef(0);
   const viewTokenRef = useRef(0);
   const speechBaseInputRef = useRef("");
   const runtime = useSessionRuntime({ onRunSettled: handleRunSettled });
@@ -379,6 +384,7 @@ export default function Home() {
   useEffect(() => {
     refreshProfiles();
     refreshCards();
+    void refreshExamPapers();
     void restoreWorkspaceAfterRefresh();
     if (window.innerWidth <= 1120) setRightOpen(false);
     if (window.innerWidth <= 760) setLeftOpen(false);
@@ -662,6 +668,19 @@ export default function Home() {
     }
   }
 
+  async function refreshExamPapers() {
+    const requestId = examPapersRequestRef.current + 1;
+    examPapersRequestRef.current = requestId;
+    try {
+      const nextPapers = await fetchExamPapers();
+      if (examPapersRequestRef.current === requestId) setExamPapers(nextPapers);
+    } catch (nextError) {
+      if (examPapersRequestRef.current === requestId) {
+        runtime.setError(nextError instanceof Error ? nextError.message : "试卷列表加载失败");
+      }
+    }
+  }
+
   function clearCurrentSessionState() {
     openSessionRequestRef.current += 1;
     const previousViewToken = viewTokenRef.current;
@@ -684,6 +703,7 @@ export default function Home() {
     const requestId = openSessionRequestRef.current + 1;
     openSessionRequestRef.current = requestId;
     viewTokenRef.current += 1;
+    setViewingCard(null);
     setViewerImageUrl(null);
     setPendingComposerImage(null);
     setOpenSessionBusyId(nextSessionId);
@@ -692,11 +712,11 @@ export default function Home() {
       const opened = await fetchSession(nextSessionId);
       if (openSessionRequestRef.current !== requestId) return;
       runtime.loadSession(opened);
+      setActiveNavigation("history");
       setSelectedProfileId(opened.model_profile_id);
       setGradeBand(opened.grade_band);
       saveActiveSessionId(window.localStorage, opened.session_id);
       setInput(loadComposerDraft(window.localStorage, draftScope(opened.session_id)));
-      setViewingCard(null);
       await recoverSessionRun(opened.session_id, true);
     } catch (nextError) {
       if (openSessionRequestRef.current !== requestId) return;
@@ -1028,7 +1048,10 @@ export default function Home() {
     }
   }
 
-  async function handleConfirmImageRegions(regions: DetectedProblemRegion[]) {
+  async function handleConfirmImageRegions(
+    regions: DetectedProblemRegion[],
+    paperSelection: PaperSelection
+  ) {
     if (!imageSelection || imageConfirmBusy || !regions.length) return;
     const selection = imageSelection;
     const startItems = selection.startItems ?? regions.map((region) => ({
@@ -1040,14 +1063,20 @@ export default function Home() {
     setImageConfirmBusy(true);
     runtime.clearError();
     try {
+      const paper = paperSelection.mode === "existing"
+        ? examPapers.find((item) => item.id === paperSelection.paperId)
+        : await createExamPaper(paperSelection.name);
+      if (!paper) throw new Error("所选试卷不存在，请重新选择");
       const result = await batchStartImageSessions({
         grade_band: selection.gradeBand,
         subject: "math",
         model_profile_id: selection.profileId,
+        paper_id: paper.id,
         source_image_data_url: selection.imageUrl,
         items: startItems
       });
       setImageSelection(null);
+      await refreshExamPapers();
       if (imageInputRef.current) imageInputRef.current.value = "";
       await finishSessionBatchStart(result.sessions, selection.viewToken);
     } catch (nextError) {
@@ -1250,7 +1279,6 @@ export default function Home() {
         }}
         onOpenSession={(targetSessionId) => {
           setActiveNavigation("history");
-          closeNavigationOnMobile();
           void handleOpenSession(targetSessionId);
         }}
         onDeleteSession={handleDeleteSession}
@@ -1456,13 +1484,14 @@ export default function Home() {
         <ProblemImageSelector
           imageUrl={imageSelection.imageUrl}
           initialRegions={imageSelection.regions}
+          papers={examPapers}
           busy={imageConfirmBusy}
           onCancel={() => {
             if (imageConfirmBusy) return;
             setImageSelection(null);
             if (imageInputRef.current) imageInputRef.current.value = "";
           }}
-          onConfirm={(regions) => void handleConfirmImageRegions(regions)}
+          onConfirm={(regions, paper) => void handleConfirmImageRegions(regions, paper)}
         />
       )}
       {viewerImageUrl && (

@@ -104,6 +104,11 @@ def run_from_row(row) -> SessionRunPublic:
 
 
 def validate_session_profile(payload: SessionCreate, request: Request):
+    if payload.paper_id:
+        try:
+            request.app.state.sessions.get_exam_paper(payload.paper_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=400, detail="所选试卷不存在") from exc
     try:
         profile = request.app.state.model_profiles.get(payload.model_profile_id)
     except KeyError as exc:
@@ -243,6 +248,7 @@ def batch_start_image_sessions(
                 grade_band=payload.grade_band,
                 subject=payload.subject,
                 model_profile_id=payload.model_profile_id,
+                paper_id=payload.paper_id,
                 message=f"上传了一张框选题目图片（第 {index} 题）",
                 problem_text="",
                 student_initial_thought="",
@@ -260,6 +266,8 @@ def list_session_history(request: Request) -> SessionHistoryListResponse:
             {
                 "session_id": row["id"],
                 "restored_from": row["restored_from"],
+                "paper_id": row["paper_id"],
+                "paper_name": row["paper_name"],
                 # Keep complete math delimiters; the frontend applies visual ellipsis.
                 "title": (
                     row["problem_text"].strip()
@@ -296,6 +304,12 @@ def session_detail_response(request: Request, session) -> SessionRestoreResponse
     return SessionRestoreResponse(
         session_id=session["id"],
         restored_from=session["restored_from"],
+        paper_id=session["paper_id"],
+        paper_name=(
+            request.app.state.sessions.get_exam_paper(session["paper_id"])["name"]
+            if session["paper_id"]
+            else None
+        ),
         state_hint=session["phase"],
         context_status=session["context_status"],
         breakpoint_description=session["breakpoint_description"],
@@ -454,6 +468,12 @@ def restore_session(payload: SessionRestoreRequest, request: Request) -> Session
     return SessionRestoreResponse(
         session_id=session["id"],
         restored_from=payload.session_id,
+        paper_id=session["paper_id"],
+        paper_name=(
+            request.app.state.sessions.get_exam_paper(session["paper_id"])["name"]
+            if session["paper_id"]
+            else None
+        ),
         state_hint=session["phase"],
         context_status=session["context_status"],
         breakpoint_description=session["breakpoint_description"],

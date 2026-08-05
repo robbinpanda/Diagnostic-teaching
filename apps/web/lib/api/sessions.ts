@@ -35,6 +35,7 @@ export async function batchStartImageSessions(input: {
   grade_band: "junior" | "senior";
   subject: "math";
   model_profile_id: string;
+  paper_id: string;
   source_image_data_url: string;
   items: Array<{
     session_id: string;

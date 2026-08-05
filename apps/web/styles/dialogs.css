@@ -310,6 +310,49 @@
   border-top: 1px solid var(--line);
 }
 
+.paperAssignment {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.paperAssignmentHeader {
+  width: min(430px, 44vw);
+  flex: 0 1 430px;
+}
+
+.paperAssignmentTitle {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.paperAssignmentControls {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(150px, 1fr);
+  gap: 8px;
+}
+
+.paperAssignmentControls select,
+.paperAssignmentControls input {
+  min-width: 0;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: #ffffff;
+  font: inherit;
+  font-size: 12px;
+}
+
+.paperAssignmentControls select:focus,
+.paperAssignmentControls input:focus {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 .problemSelectorTools {
   display: flex;
   align-items: center;
@@ -361,6 +404,27 @@
     max-width: 280px;
   }
 
+  .problemSelectorHeader {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .problemSelectorHeader > div:first-child {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .problemSelectorHeader > .iconButton {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .paperAssignmentHeader {
+    width: 100%;
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
   .problemSelectorWorkspace {
     padding: 18px 10px;
   }
@@ -370,6 +434,8 @@
     align-items: stretch;
     gap: 10px;
   }
+
+  .paperAssignmentControls { grid-template-columns: 1fr; }
 
   .problemSelectorTools {
     justify-content: space-between;

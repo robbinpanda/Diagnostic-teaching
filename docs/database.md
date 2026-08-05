@@ -41,6 +41,7 @@ python -m alembic -c alembic.ini upgrade head
 | 子表/列 | 父表 | 删除语义 |
 |---|---|---|
 | `sessions.model_profile_id` | `model_profiles.id` | `RESTRICT`；profile 的正常删除仍是软删除，历史 session 可继续引用 |
+| `sessions.paper_id` | `exam_papers.id` | `SET NULL`；删除试卷归属时会话仍保留为未分类题目 |
 | `session_inputs.session_id` | `sessions.id` | `CASCADE`；输入接纳记录随 session 删除 |
 | `messages.session_id` | `sessions.id` | `CASCADE` |
 | `checkpoints.session_id` | `sessions.id` | `CASCADE` |
@@ -60,6 +61,8 @@ python -m alembic -c alembic.ini upgrade head
 必要索引覆盖历史排序、session 子记录查询、阻塞 action 回复查找、待答 checkpoint、活动/全局卡片列表和外键父记录删除检查。
 
 `0006_card_folders` 新增层级 `card_folders` 和 `study_cards.folder_id`。两个系统默认目录以稳定 ID 建立，升级时所有旧卡片按类型回填目录。普通目录同级名称使用大小写不敏感唯一索引；仓储层同时阻止自引用和把目录移动到自己的后代中。默认目录不能重命名、移动或删除；普通目录仅能在没有子目录且没有卡片时删除。
+
+`0011_exam_papers` 新增 `exam_papers` 和可空的 `sessions.paper_id`。试卷名称使用大小写不敏感唯一索引；重复创建同名试卷返回现有记录，便于图片批量建题失败后安全重试。旧 session 不回填虚构试卷，`paper_id=NULL` 在界面归入“未分类题目”。显式恢复 session 时保留原试卷归属。
 
 `0007_reasoning_effort` 为 `model_profiles` 新增非空 `reasoning_effort`，`0008_reasoning_effort_levels` 曾扩展为四档。`0009_reasoning_effort_protocol_probe` 将现行档位统一为 `none / low / high`，把旧 `minimal` 迁为 `none`、旧 `auto / medium` 迁为默认 `low`，并新增非空 `reasoning_effort_options_json`。该 JSON 数组保存完整 profile 实测成功的档位；未测试配置默认 `["none","low","high"]`。请求字段只按供应商类型绑定的协议决定：OpenAI Responses 使用 `reasoning.effort`，OpenAI-compatible Chat Completions 使用 `reasoning_effort`，Anthropic Messages 使用 `output_config.effort`，不再根据 Host 或模型名猜测。
 
@@ -98,4 +101,4 @@ foreign keys 是连接级开关，因此不能只在建库时设置。WAL 是数
 python -m alembic -c alembic.ini revision -m "describe change"
 ```
 
-编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。当前迁移链在层级 `card_folders` 后分为两条兼容分支：checkpoint free text → nonblocking cards，以及 reasoning effort → reasoning effort levels → protocol probe；`0010_merge_feature_heads` 将两条迁移头合并。后续 schema 应以该合并 revision 为 `down_revision` 继续串成单一迁移链。
+编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。当前迁移链在层级 `card_folders` 后分为两条兼容分支：checkpoint free text → nonblocking cards，以及 reasoning effort → reasoning effort levels → protocol probe；`0010_merge_feature_heads` 将两条迁移头合并，`0011_exam_papers` 从合并点继续单一迁移链。后续 schema 应以当前最新 revision 为 `down_revision`。

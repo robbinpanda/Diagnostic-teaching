@@ -316,6 +316,8 @@ test("checkpoint and pending card interactions render inside the conversation wi
 test("workspace sidebars render active sessions and filtered cards", () => {
   const history: SessionHistoryItem[] = [{
     session_id: "session-a",
+    paper_id: "paper-a",
+    paper_name: "期中数学卷",
     title: "方程题",
     grade_band: "junior",
     model_profile_id: profile.id,
@@ -326,6 +328,20 @@ test("workspace sidebars render active sessions and filtered cards", () => {
     context_status: "ready",
     created_at: "2026-07-18T00:00:00Z",
     updated_at: "2026-07-18T00:00:00Z"
+  }, {
+    session_id: "session-b",
+    paper_id: null,
+    paper_name: null,
+    title: "未分类题",
+    grade_band: "junior",
+    model_profile_id: profile.id,
+    model_display_name: profile.display_name,
+    message_count: 1,
+    checkpoint_count: 0,
+    state_hint: "diagnosing",
+    context_status: "ready",
+    created_at: "2026-07-17T00:00:00Z",
+    updated_at: "2026-07-17T00:00:00Z"
   }];
   const sessions = renderToStaticMarkup(
     <SessionSidebar
@@ -344,6 +360,17 @@ test("workspace sidebars render active sessions and filtered cards", () => {
     />
   );
   assert.match(sessions, /sessionRow active/);
+  assert.match(sessions, /期中数学卷/);
+  assert.match(sessions, /未分类题目/);
+  assert.ok(sessions.indexOf("期中数学卷") < sessions.indexOf("方程题"));
+  assert.match(sessions, /paperGroupButton/);
+  assert.doesNotMatch(sessions, /试卷与题目/);
+  assert.match(sessions, /clearSessionsButton/);
+  assert.match(sessions, /清空全部会话/);
+  assert.doesNotMatch(sessions, /lucide-folder/);
+  assert.match(sessions, /historyNavigationGroup expanded/);
+  assert.ok(sessions.indexOf("historyTree") > sessions.indexOf("historyNavigationRow"));
+  assert.ok(sessions.indexOf("historyTree") < sessions.indexOf('title="知识库"'));
   assert.match(sessions, /主要导航/);
   assert.match(sessions, /开始答疑/);
   assert.match(sessions, /历史搜题/);
@@ -352,6 +379,40 @@ test("workspace sidebars render active sessions and filtered cards", () => {
   assert.match(sessions, /搜索历史答疑/);
   assert.match(sessions, /3 条消息/);
   assert.match(sessions, /正在思考/);
+
+  const openingSession = renderToStaticMarkup(
+    <SessionSidebar
+      historyItems={[history[1]]}
+      activeSessionId="session-b"
+      historyBusy={false}
+      openSessionBusyId="session-b"
+      deleteSessionBusyId=""
+      deleteAllSessionsBusy={false}
+      runningSessionIds={[]}
+      onCollapse={() => {}}
+      onNewChat={() => {}}
+      onOpenSession={() => {}}
+      onDeleteSession={() => {}}
+      onDeleteAllSessions={() => {}}
+    />
+  );
+  assert.match(
+    openingSession,
+    /<button[^>]*class="sessionDeleteButton"[^>]*disabled=""[^>]*aria-label="删除会话：未分类题"/
+  );
+
+  const pageSource = readFileSync(resolve(__dirname, "../../../app/page.tsx"), "utf8");
+  const onOpenSessionStart = pageSource.indexOf("onOpenSession={(targetSessionId) => {");
+  const onDeleteSessionStart = pageSource.indexOf(
+    "onDeleteSession={handleDeleteSession}",
+    onOpenSessionStart
+  );
+  assert.ok(onOpenSessionStart >= 0);
+  assert.ok(onDeleteSessionStart > onOpenSessionStart);
+  assert.doesNotMatch(
+    pageSource.slice(onOpenSessionStart, onDeleteSessionStart),
+    /closeNavigationOnMobile/
+  );
 
   const cards = renderToStaticMarkup(
     <StudyCardSidebar
@@ -517,6 +578,8 @@ test("scrolling grid lists keep intrinsic row heights", () => {
   const cardStyles = readFileSync(resolve(__dirname, "../../../styles/cards.css"), "utf8");
 
   assert.match(shellStyles, /\.sessionList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
+  assert.match(shellStyles, /\.sessionEntry\s*\{[^}]*padding:\s*6px 8px;/);
+  assert.match(shellStyles, /\.sessionEntry > strong\s*\{[^}]*font-size:\s*12px;/);
   assert.match(cardStyles, /\.cardList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.cardFileList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.knowledgeExportBody\s*\{[^}]*grid-auto-rows:\s*max-content;/);
@@ -652,6 +715,7 @@ test("problem image selector renders movable and resizable regions", () => {
   const selector = renderToStaticMarkup(
     <ProblemImageSelector
       imageUrl="data:image/png;base64,AAAA"
+      papers={[{ id: "paper-a", name: "期中数学卷", session_count: 0, created_at: "2026-07-18T00:00:00Z", updated_at: "2026-07-18T00:00:00Z" }]}
       initialRegions={[
         {
           id: "problem-1",
@@ -676,6 +740,11 @@ test("problem image selector renders movable and resizable regions", () => {
   assert.match(selector, /删除题目 1/);
   assert.match(selector, /新增题目框/);
   assert.match(selector, /aria-pressed="false"/);
+  assert.match(selector, /所属试卷/);
+  assert.match(selector, /期中数学卷/);
+  assert.match(selector, /新建试卷/);
+  assert.match(selector, /paperAssignment paperAssignmentHeader/);
+  assert.ok(selector.indexOf("paperAssignmentHeader") < selector.indexOf("problemSelectorWorkspace"));
   assert.match(selector, /handle-nw/);
   assert.match(dialogStyles, /\.problemRegion\.selected/);
   assert.match(dialogStyles, /\.problemSelectorCanvas\.adding/);
@@ -704,7 +773,9 @@ test("workspace keeps text and image multi-problem intake wired", () => {
   assert.match(pageSource, /batchStartSessions/);
   assert.match(pageSource, /detectProblemImageRegions/);
   assert.match(pageSource, /<ProblemImageSelector/);
+  assert.match(pageSource, /createExamPaper\(paperSelection\.name\)/);
   assert.match(pageSource, /batchStartImageSessions/);
+  assert.match(pageSource, /paper_id: paper\.id/);
   assert.match(pageSource, /pendingComposerImage/);
   assert.match(pageSource, /handlePastedImages/);
   assert.match(pageSource, /image_data_url: pending\.imageDataUrl/);
@@ -721,6 +792,29 @@ test("workspace keeps text and image multi-problem intake wired", () => {
   assert.match(pageSource, /data-shelf-transition-phase/);
   assert.doesNotMatch(pageSource, /viewingCard\.card_type === "problem_card"/);
   assert.doesNotMatch(pageSource, /当前答疑暂不支持追加图片/);
+});
+
+test("exam paper refresh ignores stale responses", () => {
+  const pageSource = readFileSync(resolve(__dirname, "../../../app/page.tsx"), "utf8");
+  const refreshStart = pageSource.indexOf("async function refreshExamPapers()");
+  const refreshEnd = pageSource.indexOf("function clearCurrentSessionState()", refreshStart);
+  const refreshSource = pageSource.slice(refreshStart, refreshEnd);
+
+  assert.ok(refreshStart >= 0);
+  assert.ok(refreshEnd > refreshStart);
+  assert.match(pageSource, /const examPapersRequestRef = useRef\(0\)/);
+  assert.match(
+    refreshSource,
+    /const requestId = examPapersRequestRef\.current \+ 1;\s*examPapersRequestRef\.current = requestId;/
+  );
+  assert.match(
+    refreshSource,
+    /if \(examPapersRequestRef\.current === requestId\) setExamPapers\(nextPapers\)/
+  );
+  assert.match(
+    refreshSource,
+    /catch \(nextError\) \{\s*if \(examPapersRequestRef\.current === requestId\)/
+  );
 });
 
 test("composer paste handling extracts images without consuming ordinary text", () => {

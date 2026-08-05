@@ -128,6 +128,7 @@ class SessionHistoryRepositoryMixin:
             return conn.execute(
                 """
                 SELECT s.*,
+                       p.name AS paper_name,
                        CASE
                          WHEN mp.id IS NULL THEN '已删除的模型'
                          ELSE mp.display_name || ' · ' || mp.model
@@ -138,6 +139,7 @@ class SessionHistoryRepositoryMixin:
                         WHERE m.session_id = s.id AND m.role = 'student'
                         ORDER BY m.created_at ASC, m.rowid ASC LIMIT 1) AS first_student_message
                 FROM sessions s
+                LEFT JOIN exam_papers p ON p.id = s.paper_id
                 LEFT JOIN model_profiles mp ON mp.id = s.model_profile_id
                 ORDER BY s.updated_at DESC
                 """
@@ -170,17 +172,18 @@ class SessionHistoryRepositoryMixin:
             conn.execute(
                 """
                 INSERT INTO sessions (
-                  id, grade_band, subject, model_profile_id, problem_text,
+                  id, grade_band, subject, model_profile_id, paper_id, problem_text,
                   problem_image_data_url, student_initial_thought, phase,
                   context_status, breakpoint_description, breakpoint_confidence, restored_from,
                   created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     new_session_id,
                     source["grade_band"],
                     source["subject"],
                     model_profile_id,
+                    source["paper_id"],
                     source["problem_text"],
                     source["problem_image_data_url"],
                     source["student_initial_thought"],

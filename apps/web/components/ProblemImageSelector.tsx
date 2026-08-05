@@ -2,14 +2,19 @@
 
 import { Check, Loader2, Plus, ScanLine, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { DetectedProblemRegion, ProblemBoundingBox } from "../lib/api";
+import type { DetectedProblemRegion, ExamPaper, ProblemBoundingBox } from "../lib/api";
+
+export type PaperSelection =
+  | { mode: "existing"; paperId: string }
+  | { mode: "new"; name: string };
 
 type Props = {
   imageUrl: string;
   initialRegions: DetectedProblemRegion[];
+  papers?: ExamPaper[];
   busy: boolean;
   onCancel: () => void;
-  onConfirm: (regions: DetectedProblemRegion[]) => void;
+  onConfirm: (regions: DetectedProblemRegion[], paper: PaperSelection) => void;
 };
 
 type ResizeDirection = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
@@ -78,6 +83,7 @@ function resizeBox(
 export function ProblemImageSelector({
   imageUrl,
   initialRegions,
+  papers = [],
   busy,
   onCancel,
   onConfirm
@@ -86,10 +92,18 @@ export function ProblemImageSelector({
   const [selectedId, setSelectedId] = useState(initialRegions[0]?.id ?? "");
   const [addingRegion, setAddingRegion] = useState(false);
   const [draftBox, setDraftBox] = useState<ProblemBoundingBox | null>(null);
+  const [paperMode, setPaperMode] = useState<"existing" | "new">(papers.length ? "existing" : "new");
+  const [paperId, setPaperId] = useState(papers[0]?.id ?? "");
+  const [newPaperName, setNewPaperName] = useState("");
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const drawRef = useRef<DrawState | null>(null);
   const manualRegionSequenceRef = useRef(1);
+  const paperReady = paperMode === "existing" ? Boolean(paperId) : Boolean(newPaperName.trim());
+
+  useEffect(() => {
+    if (paperMode === "existing" && !paperId && papers[0]) setPaperId(papers[0].id);
+  }, [paperId, paperMode, papers]);
 
   function removeRegion(id: string) {
     if (busy) return;
@@ -242,6 +256,39 @@ export function ProblemImageSelector({
                 : "可新增题目框；已有框支持平移、缩放，选中后按 Delete 删除。"}
             </p>
           </div>
+          <div className="paperAssignment paperAssignmentHeader" aria-labelledby="paper-assignment-label">
+            <div className="paperAssignmentTitle" id="paper-assignment-label">所属试卷</div>
+            <div className="paperAssignmentControls">
+              <select
+                value={paperMode}
+                onChange={(event) => setPaperMode(event.target.value as "existing" | "new")}
+                disabled={busy}
+                aria-label="试卷选择方式"
+              >
+                {papers.length ? <option value="existing">选择已有试卷</option> : null}
+                <option value="new">新建试卷</option>
+              </select>
+              {paperMode === "existing" ? (
+                <select
+                  value={paperId}
+                  onChange={(event) => setPaperId(event.target.value)}
+                  disabled={busy}
+                  aria-label="选择已有试卷"
+                >
+                  {papers.map((paper) => <option key={paper.id} value={paper.id}>{paper.name}</option>)}
+                </select>
+              ) : (
+                <input
+                  value={newPaperName}
+                  onChange={(event) => setNewPaperName(event.target.value)}
+                  maxLength={80}
+                  disabled={busy}
+                  placeholder="例如：八年级期中模拟卷"
+                  aria-label="新试卷名称"
+                />
+              )}
+            </div>
+          </div>
           <button type="button" className="iconButton" onClick={onCancel} disabled={busy} aria-label="关闭">
             <X size={18} />
           </button>
@@ -336,8 +383,13 @@ export function ProblemImageSelector({
             <button
               type="button"
               className="primaryButton"
-              onClick={() => onConfirm(regions)}
-              disabled={busy || regions.length === 0}
+              onClick={() => onConfirm(
+                regions,
+                paperMode === "existing"
+                  ? { mode: "existing", paperId }
+                  : { mode: "new", name: newPaperName.trim() }
+              )}
+              disabled={busy || regions.length === 0 || !paperReady}
             >
               {busy ? <Loader2 size={16} className="spin" /> : <Check size={16} />}
               确认并创建 {regions.length || 0} 个答疑
