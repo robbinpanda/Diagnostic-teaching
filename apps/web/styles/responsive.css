@@ -2,56 +2,77 @@
   to { transform: rotate(360deg); }
 }
 
-@media (max-width: 1199px) and (min-width: 761px) {
+@media (max-width: 1319px) and (min-width: 761px) {
   .appShell,
-  .appShell.rightClosed {
-    grid-template-columns: 72px minmax(0, 1fr) 0;
-  }
-
   .appShell.leftClosed,
+  .appShell.rightClosed,
   .appShell.leftClosed.rightClosed {
-    grid-template-columns: 0 minmax(0, 1fr) 0;
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .sessionSidebar {
-    padding-inline: 8px;
+  .conversationPanel {
+    grid-column: 1;
   }
 
-  .sidebarLead {
-    justify-content: center;
-    padding: 0;
+  .appShell:not(.responsiveReady) .sessionSidebar,
+  .appShell:not(.responsiveReady) .cardSidebar {
+    visibility: hidden;
+    opacity: 0;
   }
 
-  .sidebarLead > span,
-  .sidebarNavLabel,
-  .historySection,
-  .sessionList,
-  .sidebarFooterNote {
+  .appShell:not(.responsiveReady) .mobileScrim {
     display: none;
   }
 
-  .primaryNavigation button {
-    justify-content: center;
-    padding: 0;
+  .mobileScrim {
+    position: fixed;
+    inset: calc(var(--shell-inset) + var(--shell-topbar)) var(--shell-inset) var(--shell-inset);
+    z-index: 11;
+    display: block;
+    border: 0;
+    border-radius: 0 0 calc(var(--shell-radius) - 1px) calc(var(--shell-radius) - 1px);
+    background: rgba(32, 43, 35, 0.2);
+    backdrop-filter: blur(2px);
   }
 
-  .primaryNavigation button::before {
-    left: -8px;
+  .sessionSidebar {
+    position: fixed;
+    inset: calc(var(--shell-inset) + var(--shell-topbar)) auto var(--shell-inset) var(--shell-inset);
+    z-index: 13;
+    height: auto;
+    width: min(292px, 88vw);
+    border-radius: 0 0 0 calc(var(--shell-radius) - 1px);
+    box-shadow: 14px 0 36px rgba(42, 57, 46, 0.14);
+    transform: translateX(0);
+  }
+
+  .leftClosed .sessionSidebar {
+    transform: translateX(-105%);
   }
 
   .cardSidebar {
     position: fixed;
-    inset: 72px 0 0 auto;
+    inset: calc(var(--shell-inset) + var(--shell-topbar)) var(--shell-inset) var(--shell-inset) auto;
     z-index: 12;
+    height: auto;
     width: min(330px, 88vw);
-    box-shadow: -12px 0 32px rgba(28, 29, 26, 0.12);
+    border-radius: 0 0 calc(var(--shell-radius) - 1px) 0;
+    box-shadow: -14px 0 36px rgba(42, 57, 46, 0.14);
     transform: translateX(0);
   }
 
   .rightClosed .cardSidebar {
-    visibility: visible;
-    opacity: 1;
     transform: translateX(105%);
+  }
+}
+
+@media (min-width: 761px) and (max-width: 900px) {
+  .activeKnowledgeCardDock {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    width: min(560px, calc(100% - 28px));
+    margin: 0 auto 10px;
   }
 }
 
@@ -73,7 +94,7 @@
 
   .mobileScrim {
     position: fixed;
-    inset: 60px 0 0;
+    inset: calc(60px + var(--safe-top, 0px)) 0 var(--safe-bottom, 0px);
     z-index: 11;
     display: block;
     border: 0;
@@ -82,7 +103,7 @@
   }
 
   .cardViewerLayer {
-    inset: 60px 0 8px;
+    inset: calc(60px + var(--safe-top, 0px)) 0 calc(8px + var(--safe-bottom, 0px));
     padding-right: 8px;
   }
 
@@ -94,13 +115,23 @@
   .appShell.leftClosed,
   .appShell.rightClosed,
   .appShell.leftClosed.rightClosed {
+    --shell-inset: 0px;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 60px minmax(0, 1fr);
+    grid-template-rows: calc(60px + var(--safe-top)) minmax(0, 1fr);
+    box-shadow: none;
   }
 
   .appTopbar {
-    height: 60px;
-    padding: 0 14px;
+    height: calc(60px + var(--safe-top));
+    padding: var(--safe-top) 14px 0;
   }
 
   .appBrand {
@@ -133,11 +164,12 @@
   .cardSidebar {
     grid-column: 1;
     grid-row: 2;
+    height: auto;
   }
 
   .sessionSidebar {
     position: fixed;
-    inset: 60px auto 0 0;
+    inset: calc(60px + var(--safe-top)) auto var(--safe-bottom) 0;
     z-index: 13;
     width: min(280px, 88vw);
     box-shadow: 12px 0 32px rgba(28, 29, 26, 0.12);
@@ -145,14 +177,12 @@
   }
 
   .leftClosed .sessionSidebar {
-    visibility: visible;
-    opacity: 1;
     transform: translateX(-105%);
   }
 
   .cardSidebar {
     position: fixed;
-    inset: 60px 0 0 auto;
+    inset: calc(60px + var(--safe-top)) 0 var(--safe-bottom) auto;
     z-index: 12;
     width: min(330px, 92vw);
     box-shadow: -12px 0 32px rgba(28, 29, 26, 0.12);
@@ -160,8 +190,6 @@
   }
 
   .rightClosed .cardSidebar {
-    visibility: visible;
-    opacity: 1;
     transform: translateX(105%);
   }
 
@@ -175,7 +203,7 @@
   }
 
   .welcomeState {
-    min-height: calc(100vh - 350px);
+    min-height: calc(100dvh - 350px);
     grid-template-columns: 1fr;
     padding: 24px 0;
   }
@@ -191,7 +219,15 @@
   .composerDock {
     width: calc(100% - 20px);
     max-width: calc(100vw - 20px);
-    padding-bottom: 8px;
+    padding-bottom: calc(8px + var(--safe-bottom));
+  }
+
+  .activeKnowledgeCardDock {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    width: calc(100% - 20px);
+    margin: 0 auto 8px;
   }
 
   .composerActions select {
@@ -254,7 +290,7 @@
   }
 
   .knowledgeExportDialog {
-    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
   }
 
   .knowledgeExportCardList,
@@ -282,6 +318,19 @@
 
   .knowledgeExportFooter > div {
     justify-content: flex-end;
+  }
+}
+
+@media (max-height: 760px) {
+  .appShell {
+    --shell-inset: 0px;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
   }
 }
 
@@ -326,7 +375,7 @@
   }
 
   .welcomeState {
-    min-height: calc(100vh - 390px);
+    min-height: calc(100dvh - 390px);
     align-content: center;
   }
 

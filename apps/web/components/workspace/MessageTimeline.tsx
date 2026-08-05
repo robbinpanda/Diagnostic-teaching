@@ -31,7 +31,26 @@ type Props = {
   interaction?: ReactNode;
   anchoredInteractions?: AnchoredInteractionConfig[];
   onOpenImage?: (imageUrl: string) => void;
+  floatingObstacleRef?: RefObject<HTMLElement | null>;
+  floatingObstacleActive?: boolean;
 };
+
+type LayoutRect = Pick<DOMRect, "bottom" | "left" | "right" | "top" | "width">;
+
+export function floatingCardAvoidanceWidth(
+  messageRect: LayoutRect,
+  cardRect: LayoutRect,
+  gap = 18,
+  minimumWidth = 220
+) {
+  const overlapsVertically = Math.min(messageRect.bottom, cardRect.bottom)
+    > Math.max(messageRect.top, cardRect.top);
+  const overlapsHorizontally = cardRect.left < messageRect.right && cardRect.right > messageRect.left;
+  if (!overlapsVertically || !overlapsHorizontally) return null;
+
+  const availableWidth = Math.min(messageRect.width, cardRect.left - messageRect.left - gap);
+  return availableWidth >= minimumWidth ? availableWidth : null;
+}
 
 export function anchoredInteractionScrollTop(
   currentScrollTop: number,
@@ -133,12 +152,93 @@ export function MessageTimeline({
   messageEndRef,
   interaction,
   anchoredInteractions = [],
-  onOpenImage
+  onOpenImage,
+  floatingObstacleRef,
+  floatingObstacleActive = false
 }: Props) {
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const [pastInteractionIds, setPastInteractionIds] = useState<string[]>([]);
   const [forceExpandedIds, setForceExpandedIds] = useState<string[]>([]);
   const returnCallbacks = useRef(new Map<string, () => void>());
   const pinnedInteractions = anchoredInteractions.filter((item) => pastInteractionIds.includes(item.id));
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    let frame = 0;
+    let settleFrame = 0;
+    const clearAvoidance = (
+      messages: Iterable<HTMLElement> = viewport.querySelectorAll<HTMLElement>(".chatMessage.avoidsKnowledgeCard")
+    ) => {
+      for (const message of messages) {
+        message.classList.remove("avoidsKnowledgeCard");
+        message.style.removeProperty("--knowledge-card-avoidance-width");
+      }
+    };
+    const scheduleUpdate = () => {
+      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(settleFrame);
+      frame = window.requestAnimationFrame(() => {
+        const messages = Array.from(viewport.querySelectorAll<HTMLElement>(".chatMessage"));
+        const card = floatingObstacleRef?.current;
+        if (!floatingObstacleActive || !card || window.matchMedia("(max-width: 900px)").matches) {
+          clearAvoidance(messages);
+          return;
+        }
+
+        const cardRect = card.getBoundingClientRect();
+        const viewportRect = viewport.getBoundingClientRect();
+        if (cardRect.bottom <= viewportRect.top || cardRect.top >= viewportRect.bottom) {
+          clearAvoidance(messages);
+          return;
+        }
+
+        const updates = messages.map((message) => {
+          const messageRect = message.getBoundingClientRect();
+          const visible = messageRect.bottom > viewportRect.top && messageRect.top < viewportRect.bottom;
+          return {
+            message,
+            width: visible ? floatingCardAvoidanceWidth(messageRect, cardRect) : null
+          };
+        });
+
+        updates.forEach(({ message, width }) => {
+          if (width === null) {
+            message.classList.remove("avoidsKnowledgeCard");
+            message.style.removeProperty("--knowledge-card-avoidance-width");
+            return;
+          }
+          message.classList.add("avoidsKnowledgeCard");
+          message.style.setProperty("--knowledge-card-avoidance-width", `${Math.floor(width)}px`);
+        });
+        settleFrame = window.requestAnimationFrame(() => {
+          const settledCard = floatingObstacleRef?.current;
+          if (settledCard && settledCard.getBoundingClientRect().height !== cardRect.height) scheduleUpdate();
+        });
+      });
+    };
+
+    const card = floatingObstacleRef?.current;
+    const resizeObserver = new ResizeObserver(scheduleUpdate);
+    resizeObserver.observe(viewport);
+    if (card) resizeObserver.observe(card);
+    const mutationObserver = new MutationObserver(scheduleUpdate);
+    mutationObserver.observe(viewport, { childList: true, characterData: true, subtree: true });
+    viewport.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
+    scheduleUpdate();
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(settleFrame);
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+      viewport.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+      clearAvoidance();
+    };
+  }, [floatingObstacleActive, floatingObstacleRef, messages.length]);
 
   const handlePastChange = useCallback((id: string, past: boolean) => {
     setPastInteractionIds((ids) => past
@@ -174,7 +274,7 @@ export function MessageTimeline({
 
   const anchoredSourceIds = new Set(messages.map((message) => message.actionId));
   return (
-    <div className="messageViewport">
+    <div className="messageViewport" ref={viewportRef}>
       <div className="messageColumn">
         {pinnedInteractions.length > 0 && (
           <nav className="pinnedCardStack" aria-label="已折叠的待处理卡片">
@@ -193,7 +293,6 @@ export function MessageTimeline({
         {messages.length === 0 && !interaction && (
           <div className="welcomeState">
             <div className="welcomeCopy">
-              <span className="welcomeEyebrow">你的专属数学答疑伙伴</span>
               <h1>今天想解决什么问题？</h1>
               <p>上传或输入题目，AI 会循着你的思路逐步分析，陪你真正弄懂每一道题。</p>
               <div className="welcomeExamples" aria-label="支持的答疑方式">

@@ -1,20 +1,26 @@
 .appShell {
-  width: 100vw;
-  height: 100vh;
+  position: relative;
+  z-index: 1;
+  width: calc(100vw - (var(--shell-inset) * 2));
+  height: calc(100dvh - (var(--shell-inset) * 2));
+  margin: var(--shell-inset);
   display: grid;
-  grid-template-columns: 236px minmax(0, 1fr) 320px;
-  grid-template-rows: 72px minmax(0, 1fr);
+  grid-template-columns: 260px minmax(0, 1fr) 312px;
+  grid-template-rows: var(--shell-topbar) minmax(0, 1fr);
   overflow: hidden;
-  background: var(--neutral-25);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: var(--shell-radius);
+  background: rgba(255, 255, 248, 0.92);
+  box-shadow: var(--stage-shadow);
   transition: grid-template-columns 200ms var(--ease-standard);
 }
 
 .appShell.leftClosed {
-  grid-template-columns: 0 minmax(0, 1fr) 320px;
+  grid-template-columns: 0 minmax(0, 1fr) 312px;
 }
 
 .appShell.rightClosed {
-  grid-template-columns: 236px minmax(0, 1fr) 0;
+  grid-template-columns: 260px minmax(0, 1fr) 0;
 }
 
 .appShell.leftClosed.rightClosed {
@@ -28,9 +34,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 28px 0 30px;
-  border-bottom: 1px solid var(--neutral-200);
-  background: rgba(255, 255, 255, 0.96);
+  padding: 0 22px 0 24px;
+  border-bottom: 1px solid var(--stage-line);
+  background: rgba(255, 255, 248, 0.86);
   backdrop-filter: blur(16px);
   z-index: 20;
 }
@@ -43,15 +49,15 @@
 }
 
 .appBrand {
-  gap: 12px;
-  color: var(--primary-800);
+  gap: 10px;
+  color: var(--stage-forest);
 }
 
 .appBrand strong {
-  color: var(--neutral-900);
-  font-size: 20px;
-  font-weight: 650;
-  letter-spacing: 0.02em;
+  color: var(--stage-ink);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .pandaMark {
@@ -141,8 +147,9 @@
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-3) var(--space-3);
-  border-right: 1px solid var(--neutral-200);
-  background: var(--neutral-0);
+  border-right: 1px solid var(--stage-line);
+  background: var(--stage-wing);
+  backdrop-filter: blur(10px);
 }
 
 .sidebarLead {
@@ -281,7 +288,7 @@
 .historySearch:focus-within {
   border-color: var(--primary-500);
   background: var(--neutral-0);
-  box-shadow: 0 0 0 3px rgba(137, 169, 107, 0.14);
+  box-shadow: 0 0 0 3px rgba(105, 185, 76, 0.18);
 }
 
 .historySearch input {
@@ -314,7 +321,7 @@
 .sessionRow {
   position: relative;
   min-width: 0;
-  border-radius: 10px;
+  border-radius: 8px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 0;
   overflow: hidden;
@@ -322,8 +329,9 @@
 }
 
 .sessionRow:hover,
+.sessionRow:focus-within,
 .sessionRow.active {
-  grid-template-columns: minmax(0, 1fr) 36px;
+  grid-template-columns: minmax(0, 1fr) 40px;
   background: var(--primary-50);
 }
 
@@ -335,8 +343,8 @@
   min-width: 0;
   border: 0;
   display: grid;
-  gap: var(--space-1);
-  padding: 10px var(--space-3);
+  gap: 2px;
+  padding: 6px 8px;
   color: var(--neutral-900);
   background: transparent;
   text-align: left;
@@ -350,7 +358,7 @@
 }
 
 .sessionEntry > strong {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 560;
 }
 
@@ -358,13 +366,13 @@
   display: flex;
   align-items: center;
   gap: 3px;
-  color: var(--neutral-500);
-  font-size: 10px;
+  color: var(--neutral-600);
+  font-size: 11px;
 }
 
 .sessionDeleteButton {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   align-self: center;
   border-radius: var(--radius-sm);
   color: var(--neutral-500);
@@ -413,18 +421,19 @@
   height: 100%;
   display: grid;
   grid-template-rows: 56px minmax(0, 1fr) auto;
-  background: var(--neutral-25);
+  background: var(--stage-canvas);
 }
 
 .cardShelfTabs {
   position: absolute;
-  top: 92px;
-  right: -1px;
+  top: 96px;
+  right: -20px;
   z-index: 7;
   display: flex;
   align-items: flex-start;
   flex-direction: column;
-  gap: var(--space-2);
+  width: 82px;
+  padding: 14px 0 28px;
   transition: opacity 180ms var(--ease-standard), transform 180ms var(--ease-standard);
 }
 
@@ -435,45 +444,70 @@
 }
 
 .cardShelfTabs button {
-  width: 38px;
-  min-height: 102px;
-  border: 1px solid var(--neutral-200);
-  border-right: 0;
-  border-radius: 10px 0 0 10px;
+  position: relative;
+  z-index: calc(8 - var(--shelf-index));
+  width: 66px;
+  height: 128px;
+  min-height: 128px;
+  max-height: 128px;
+  margin-top: -28px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--flashcard-accent) 22%, white);
+  border-radius: 8px 2px 2px 8px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 8px;
-  color: var(--primary-800);
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: -3px 4px 12px rgba(41, 55, 41, 0.07);
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 13px 10px;
+  color: var(--flashcard-ink);
+  background:
+    linear-gradient(155deg, color-mix(in srgb, var(--flashcard-panel-strong) 92%, white), var(--flashcard-panel));
+  box-shadow:
+    -8px 10px 20px var(--flashcard-shadow),
+    -2px 3px 6px rgba(44, 49, 39, 0.08),
+    inset 0 1px rgba(255, 255, 255, 0.48);
   writing-mode: vertical-rl;
-  transition: width 180ms var(--ease-standard), background 180ms var(--ease-standard), transform 180ms var(--ease-standard);
+  transform: translateX(var(--shelf-offset)) rotate(var(--shelf-angle));
+  transform-origin: right center;
+  transition: box-shadow 220ms var(--ease-standard), transform 220ms var(--ease-standard);
+}
+
+.cardShelfTabs button:first-child {
+  margin-top: 0;
+}
+
+.cardShelfTabs button.firstKnowledgeTab {
+  margin-top: 32px;
 }
 
 .cardShelfTabs button:hover,
 .cardShelfTabs button:focus-visible {
-  width: 44px;
-  background: var(--primary-50);
-  transform: translateX(-2px);
+  z-index: 12;
+  box-shadow:
+    -12px 14px 26px var(--flashcard-shadow),
+    -3px 5px 8px rgba(44, 49, 39, 0.1),
+    inset 0 1px rgba(255, 255, 255, 0.52);
+  transform: translateX(var(--shelf-offset)) rotate(0deg);
+}
+
+.cardShelfTabs button.shelfCardSourceHidden {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .cardShelfTabs button.problemTab {
-  color: #795a28;
-  background: rgba(250, 241, 221, 0.96);
+  color: var(--flashcard-ink);
 }
 
 .cardShelfTabs button > span {
-  max-height: 66px;
+  display: block;
+  max-height: 100%;
   overflow: hidden;
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.cardShelfTabs button > small {
-  color: currentColor;
-  font-size: 9px;
-  opacity: 0.68;
+  font-size: 13px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .conversationHeader {
@@ -483,7 +517,7 @@
   align-items: center;
   gap: var(--space-2);
   padding: 0 var(--space-5);
-  background: rgba(250, 251, 249, 0.92);
+  background: rgba(255, 255, 248, 0.94);
   backdrop-filter: blur(12px);
   z-index: 8;
 }

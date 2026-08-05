@@ -1,25 +1,25 @@
 :root {
   color-scheme: light;
-  --primary-50: #f1f5ed;
-  --primary-100: #e8f0e0;
-  --primary-200: #dde8d2;
-  --primary-500: #89a96b;
-  --primary-600: #78975c;
-  --primary-700: #6f8f55;
-  --primary-800: #354c35;
+  --primary-50: #f3fbe9;
+  --primary-100: #e5f7d5;
+  --primary-200: #d0efb7;
+  --primary-500: #69b94c;
+  --primary-600: #4fa03a;
+  --primary-700: #357f2f;
+  --primary-800: #1d512b;
   --neutral-0: #ffffff;
-  --neutral-25: #fafbf9;
-  --neutral-50: #f3f5f2;
-  --neutral-100: #eef1ec;
-  --neutral-200: #dde2da;
-  --neutral-300: #cbd2c8;
-  --neutral-500: #8c958c;
-  --neutral-600: #5f695f;
-  --neutral-900: #1d241d;
+  --neutral-25: #fffef9;
+  --neutral-50: #f7faf3;
+  --neutral-100: #edf4e8;
+  --neutral-200: #d9e6d4;
+  --neutral-300: #c3d3bd;
+  --neutral-500: #7d8d7b;
+  --neutral-600: #526451;
+  --neutral-900: #172419;
   --success: #4f855c;
   --success-soft: #e8f3e9;
-  --warning: #a4772d;
-  --warning-soft: #faf1dd;
+  --warning: #b88100;
+  --warning-soft: #fff3bf;
   --danger: #b45d5d;
   --danger-soft: #f9e8e7;
   --info: #587b91;
@@ -41,6 +41,25 @@
   --shadow-card: 0 4px 16px rgba(41, 55, 41, 0.06);
   --shadow-float: 0 8px 24px rgba(41, 55, 41, 0.1);
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Luminous atrium shell tokens. Card palettes remain independently themed. */
+  --stage-ink: #12371f;
+  --stage-forest: #2f7542;
+  --stage-sage: #63ad50;
+  --stage-sage-soft: #d0eeb9;
+  --stage-lavender: #b7a8d4;
+  --stage-lavender-deep: #9e8bc4;
+  --stage-lavender-soft: #eae4f5;
+  --stage-yellow: #e9b72d;
+  --stage-yellow-soft: #fff0a8;
+  --stage-yellow-ink: #765400;
+  --stage-canvas: #fffef8;
+  --stage-wing: rgba(249, 255, 245, 0.84);
+  --stage-line: rgba(30, 94, 43, 0.14);
+  --stage-shadow: 0 28px 80px rgba(35, 92, 46, 0.2);
+  --shell-inset: 14px;
+  --shell-radius: 22px;
+  --shell-topbar: 64px;
 
   /* Backward-compatible aliases used by the preserved interaction components. */
   --page: var(--neutral-0);
@@ -71,10 +90,25 @@ body {
 body {
   margin: 0;
   overflow: hidden;
-  background: var(--neutral-25);
+  background:
+    radial-gradient(circle at 6% 2%, rgba(105, 204, 105, 0.68), transparent 38%),
+    radial-gradient(circle at 96% 100%, rgba(183, 168, 212, 0.58), transparent 40%),
+    linear-gradient(122deg, #c6edc3 0%, #fffce9 51%, #eae4f5 100%);
   color: var(--ink);
-  font-family: Inter, "HarmonyOS Sans SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: "Segoe UI Variable", "HarmonyOS Sans SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: url("/ambient-grain.webp");
+  background-size: 560px 560px;
+  mix-blend-mode: soft-light;
+  opacity: 0.055;
 }
 
 button,

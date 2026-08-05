@@ -9,6 +9,7 @@ import { StudyCardModal } from "../components/StudyCardModal";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import {
   anchoredInteractionScrollTop,
+  floatingCardAvoidanceWidth,
   MessageTimeline,
   shouldCollapseAnchoredInteraction
 } from "../components/workspace/MessageTimeline";
@@ -16,10 +17,12 @@ import { ModelProfilePicker } from "../components/workspace/ModelProfilePicker";
 import { TutorComposer } from "../components/workspace/TutorComposer";
 import { boxFromPoints, ProblemImageSelector } from "../components/ProblemImageSelector";
 import { clampImageScale, ProblemImageViewer } from "../components/ProblemImageViewer";
+import { CardShelfTabs } from "../components/workspace/CardShelfTabs";
 import { SessionSidebar } from "../components/workspace/SessionSidebar";
 import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
 import { getPastedImageFiles } from "../components/workspace/TutorComposer";
-import type { ModelProfile, SessionHistoryItem } from "../lib/api";
+import type { ModelProfile, SessionHistoryItem, StudyCard } from "../lib/api";
+import { cardVisualTheme, stableCardThemeIndex } from "../lib/card-theme";
 import { cardFixture, checkpointFixture, knowledgeFolderFixture } from "./fixtures";
 
 const profile: ModelProfile = {
@@ -42,6 +45,27 @@ const profile: ModelProfile = {
   reasoning_effort_options: ["none", "low", "high"],
   reasoning_control: "none",
   reasoning_control_description: "本地演示模型不使用推理预算。"
+};
+
+const problemCardFixture: StudyCard = {
+  id: "problem-card-1",
+  session_id: "session-a",
+  card_type: "problem_card",
+  source_action_id: "problem-action-1",
+  source_message_id: "problem-message-1",
+  folder_id: "folder_default_problem",
+  content: {
+    type: "problem_card",
+    title: "皮带轮半径题",
+    problem_summary: "已知两个皮带轮的直径与转数关系，求另一个轮子的半径。",
+    solution_overview: "先用周长乘转数相等求直径，再换算半径。",
+    solution_steps: [{ step: 1, title: "建立关系", reasoning: "皮带不打滑。", result: "d₁n₁=d₂n₂" }],
+    how_to_think: ["先找不变量"],
+    pitfalls: ["不要混淆直径与半径"],
+    final_answer: "24 cm"
+  },
+  created_at: "2026-07-18T00:00:00Z",
+  saved_at: "2026-07-18T00:00:01Z"
 };
 
 test("workspace header and timeline preserve teaching context labels", () => {
@@ -159,6 +183,46 @@ test("checkpoint and pending card interactions render inside the conversation wi
   assert.match(card, /舍弃/);
   assert.doesNotMatch(card, /modalBackdrop/);
 
+  const flashcard = renderToStaticMarkup(
+    <StudyCardModal
+      card={cardFixture}
+      appearance="flashcard"
+      editable
+      onSave={() => {}}
+      onDiscard={() => {}}
+    />
+  );
+  assert.match(flashcard, /flashcardPresentation/);
+  assert.match(flashcard, /flashcardPin/);
+  assert.match(flashcard, /关键关系/);
+  assert.match(flashcard, /核心原理/);
+  assert.match(flashcard, /翻转查看推导与应用/);
+  assert.match(flashcard, /保存为知识卡片/);
+  assert.doesNotMatch(flashcard, /对话中的知识卡片/);
+
+  const archivedFlashcard = renderToStaticMarkup(
+    <StudyCardModal
+      card={{ ...cardFixture, saved_at: "2026-07-21T00:00:00Z" }}
+      appearance="flashcard"
+      libraryView
+      editable
+      onSave={() => {}}
+      onClose={() => {}}
+    />
+  );
+  assert.match(archivedFlashcard, /flashcardPresentation/);
+  assert.match(archivedFlashcard, /aria-label="关闭卡片"/);
+  assert.doesNotMatch(archivedFlashcard, /cardViewerDialog/);
+
+  const problemFlashcard = renderToStaticMarkup(
+    <StudyCardModal card={problemCardFixture} appearance="flashcard" onSave={() => {}} />
+  );
+  assert.match(problemFlashcard, /problemFlashcard flashcardPresentation/);
+  assert.match(problemFlashcard, /题目摘要/);
+  assert.match(problemFlashcard, /翻转查看解题步骤/);
+  assert.match(problemFlashcard, /保存为题目卡片/);
+  assert.doesNotMatch(problemFlashcard, /先独立想一想/);
+
   const libraryCard = renderToStaticMarkup(
     <StudyCardModal
       card={{ ...cardFixture, saved_at: "2026-07-21T00:00:00Z" }}
@@ -180,6 +244,11 @@ test("checkpoint and pending card interactions render inside the conversation wi
   assert.match(cardSource, /discardConfirmation \? "确认舍弃" : "舍弃"/);
   assert.match(dialogStyles, /\.cardViewerLayer\s*\{[^}]*justify-content:\s*flex-end;[^}]*pointer-events:\s*none;/);
   assert.match(dialogStyles, /\.studyCardDialog\.cardViewerDialog\s*\{[^}]*overflow-y:\s*auto;[^}]*pointer-events:\s*auto;/);
+  assert.match(dialogStyles, /\.flashcardHeading h2,[^}]*font-size:\s*22px;/);
+  assert.match(dialogStyles, /\.flashcardPresentation \.studyCardBody section\s*\{[^}]*color:\s*var\(--flashcard-ink,[^;]+;[^}]*font-size:\s*14px;/);
+  assert.match(dialogStyles, /\.flashcardPresentation \.cardStepList li\s*\{[^}]*border:\s*1px solid color-mix\(in srgb, var\(--flashcard-accent,/);
+  assert.match(dialogStyles, /\.flashcardPresentation \.cardStepList li strong\s*\{[^}]*font-size:\s*15px;/);
+  assert.match(dialogStyles, /\.problemFlashcard \.problemStepTitle > span\s*\{[^}]*var\(--flashcard-accent,/);
 
   const timeline = renderToStaticMarkup(
     <MessageTimeline
@@ -216,7 +285,7 @@ test("checkpoint and pending card interactions render inside the conversation wi
     />
   );
   assert.match(pinnedCard, /aria-label="回到卡片位置并展开"/);
-  assert.match(pinnedCard, /studyCardDialog knowledgeCard collapsed/);
+  assert.match(pinnedCard, /studyCardDialog knowledgeCard knowledgeFlashcard collapsed/);
   assert.equal(anchoredInteractionScrollTop(500, 100, 350), 730);
   assert.equal(anchoredInteractionScrollTop(5, 100, 50), 0);
   assert.equal(shouldCollapseAnchoredInteraction(110, 500), false);
@@ -315,6 +384,132 @@ test("workspace sidebars render active sessions and filtered cards", () => {
   );
   assert.match(cards, /1 张已归档/);
   assert.match(cards, /知识卡片/);
+});
+
+test("floating knowledge cards reserve only the overlapping message width", () => {
+  const messageRect = { left: 100, right: 900, top: 200, bottom: 360, width: 800 };
+  assert.equal(
+    floatingCardAvoidanceWidth(
+      messageRect,
+      { left: 560, right: 940, top: 240, bottom: 520, width: 380 }
+    ),
+    442
+  );
+  assert.equal(
+    floatingCardAvoidanceWidth(
+      messageRect,
+      { left: 560, right: 940, top: 400, bottom: 520, width: 380 }
+    ),
+    null
+  );
+  assert.equal(
+    floatingCardAvoidanceWidth(
+      messageRect,
+      { left: 260, right: 940, top: 240, bottom: 520, width: 680 }
+    ),
+    null
+  );
+});
+
+test("card shelf tabs only render saved cards from the active source session", () => {
+  const secondKnowledgeCard = {
+    ...cardFixture,
+    id: "knowledge-card-second",
+    saved_at: "2026-07-18T00:00:03Z",
+    content: { ...cardFixture.content, title: "一次函数图像与斜率的对应关系" }
+  };
+  const cards = [
+    cardFixture,
+    problemCardFixture,
+    secondKnowledgeCard,
+    {
+      ...cardFixture,
+      id: "card-other-session",
+      session_id: "session-b",
+      content: { ...cardFixture.content, title: "另一道题的卡片" }
+    }
+  ];
+
+  const activeSessionShelf = renderToStaticMarkup(
+    <CardShelfTabs cards={cards} sessionId="session-a" onOpenCard={() => {}} />
+  );
+  assert.match(activeSessionShelf, new RegExp(cardFixture.content.title));
+  assert.match(activeSessionShelf, />题目卡片</);
+  assert.match(activeSessionShelf, new RegExp(`>${secondKnowledgeCard.content.title}<`));
+  assert.ok(activeSessionShelf.indexOf(">题目卡片<") < activeSessionShelf.indexOf(`>${secondKnowledgeCard.content.title}<`));
+  assert.match(activeSessionShelf, /knowledgeTab firstKnowledgeTab/);
+  assert.match(activeSessionShelf, /--shelf-angle:/);
+  assert.doesNotMatch(activeSessionShelf, /知识卡片 1/);
+  assert.doesNotMatch(activeSessionShelf, /另一道题的卡片/);
+
+  const shelfWithOpenCard = renderToStaticMarkup(
+    <CardShelfTabs
+      cards={cards}
+      sessionId="session-a"
+      activeCardId={cardFixture.id}
+      onOpenCard={() => {}}
+    />
+  );
+  assert.match(shelfWithOpenCard, /knowledgeTab shelfCardSourceHidden/);
+  assert.match(shelfWithOpenCard, new RegExp(`data-shelf-card-id="${cardFixture.id}"`));
+
+  const homeShelf = renderToStaticMarkup(
+    <CardShelfTabs cards={cards} sessionId="" onOpenCard={() => {}} />
+  );
+  assert.equal(homeShelf, "");
+});
+
+test("card themes are stable and match the C4 palette", () => {
+  assert.equal(stableCardThemeIndex(cardFixture.id), stableCardThemeIndex(cardFixture.id));
+  const firstKnowledgeTheme = cardVisualTheme(cardFixture);
+  const secondKnowledgeTheme = cardVisualTheme({ ...cardFixture, id: "card-matcha-variant" });
+  assert.notEqual(firstKnowledgeTheme.background, secondKnowledgeTheme.background);
+  const shelfKnowledgeColors = [0, 1, 2].map((themeVariant) => cardVisualTheme(cardFixture, themeVariant).background);
+  assert.equal(new Set(shelfKnowledgeColors).size, shelfKnowledgeColors.length);
+
+  const expectedKnowledgeThemes = [
+    {
+      background: "#8fce77", panel: "#d9f1cb", panelStrong: "#f7fcf3",
+      ink: "#173820", accent: "#3d8138", shadow: "rgba(32, 83, 31, 0.18)"
+    },
+    {
+      background: "#82cbb8", panel: "#d5f0e8", panelStrong: "#f4fbf8",
+      ink: "#123d33", accent: "#357f6c", shadow: "rgba(21, 77, 64, 0.17)"
+    },
+    {
+      background: "#a9cf7f", panel: "#e3f1cf", panelStrong: "#f8fbf2",
+      ink: "#2d3d1c", accent: "#597d38", shadow: "rgba(59, 83, 31, 0.17)"
+    },
+    {
+      background: "#cfc3e6", panel: "#ece6f6", panelStrong: "#fbf9fd",
+      ink: "#332a45", accent: "#8b78ad", shadow: "rgba(65, 52, 92, 0.17)"
+    }
+  ];
+
+  for (const [themeVariant, expected] of expectedKnowledgeThemes.entries()) {
+    assert.deepEqual(cardVisualTheme(cardFixture, themeVariant), expected);
+  }
+
+  assert.deepEqual(cardVisualTheme(problemCardFixture), {
+    background: "#f2d15f", panel: "#fbe9a5", panelStrong: "#fff9df",
+    ink: "#4b3905", accent: "#9a7000", shadow: "rgba(112, 83, 0, 0.2)"
+  });
+});
+
+test("card shelf separates the problem card, clips natural titles, and launches cards fully offscreen", () => {
+  const shellStyles = readFileSync(resolve(__dirname, "../../../styles/shell.css"), "utf8");
+  const conversationStyles = readFileSync(resolve(__dirname, "../../../styles/conversation.css"), "utf8");
+
+  assert.match(shellStyles, /\.cardShelfTabs button\.firstKnowledgeTab\s*\{[^}]*margin-top:\s*32px;/);
+  assert.match(shellStyles, /\.cardShelfTabs button\s*\{[^}]*height:\s*128px;[^}]*overflow:\s*hidden;/);
+  assert.match(shellStyles, /\.cardShelfTabs button > span\s*\{[^}]*white-space:\s*nowrap;/);
+  assert.match(shellStyles, /\.cardShelfTabs button\.shelfCardSourceHidden\s*\{[^}]*visibility:\s*hidden;/);
+  assert.doesNotMatch(shellStyles, /translateX\(calc\(var\(--shelf-offset\) - 14px\)\)/);
+  assert.match(conversationStyles, /\.activeKnowledgeCardDock\.shelfTransitionDock\s*\{[^}]*animation:\s*none;/);
+  assert.match(conversationStyles, /@keyframes shelfCardOpen[\s\S]*var\(--shelf-motion-x\)/);
+  assert.match(conversationStyles, /@keyframes shelfCardClose[\s\S]*var\(--shelf-motion-x\)/);
+  assert.match(conversationStyles, /@keyframes activeCardDockEnter[\s\S]*translate3d\(100vw,/);
+  assert.doesNotMatch(conversationStyles, /translate3d\(150px,/);
 });
 
 test("scrolling grid lists keep intrinsic row heights", () => {
@@ -513,6 +708,18 @@ test("workspace keeps text and image multi-problem intake wired", () => {
   assert.match(pageSource, /pendingComposerImage/);
   assert.match(pageSource, /handlePastedImages/);
   assert.match(pageSource, /image_data_url: pending\.imageDataUrl/);
+  assert.match(pageSource, /activeKnowledgeCardDock/);
+  assert.match(pageSource, /appearance="flashcard"/);
+  assert.match(pageSource, /anchoredActiveCards/);
+  assert.match(pageSource, /displayedDockCard/);
+  assert.match(pageSource, /const dockedActiveCard = useMemo/);
+  assert.match(pageSource, /card\.card_type === "knowledge_card" \|\| card\.card_type === "problem_card"/);
+  assert.doesNotMatch(pageSource, /dockedKnowledgeCard/);
+  assert.match(pageSource, /key={`dock-\$\{displayedDockCard\.id\}`}/);
+  assert.match(pageSource, /onOpenCard=\{openShelfCard\}/);
+  assert.match(pageSource, /onClose=\{displayedDockCardIsArchived \? closeShelfCard/);
+  assert.match(pageSource, /data-shelf-transition-phase/);
+  assert.doesNotMatch(pageSource, /viewingCard\.card_type === "problem_card"/);
   assert.doesNotMatch(pageSource, /当前答疑暂不支持追加图片/);
 });
 

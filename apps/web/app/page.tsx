@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { flushSync } from "react-dom";
 import { CardMoveDialog } from "../components/CardMoveDialog";
 import { CheckpointModal } from "../components/CheckpointModal";
 import { ModelConfigDialog } from "../components/ModelConfigDialog";
@@ -62,6 +63,15 @@ import {
   savePendingStudentRequest
 } from "../lib/request-recovery";
 
+type ShelfCardTransitionPhase = "idle" | "preparing" | "opening" | "open" | "closing";
+
+type ShelfCardMotion = {
+  x: number;
+  y: number;
+  scaleX: number;
+  scaleY: number;
+};
+
 type LearningCardPrintJob = {
   cards: StudyCard[];
   layout: LearningCardExportLayout;
@@ -110,8 +120,13 @@ export default function Home() {
   const [pendingComposerImage, setPendingComposerImage] = useState<PendingComposerImage | null>(null);
   const [imageConfirmBusy, setImageConfirmBusy] = useState(false);
   const [viewingCardSaveBusy, setViewingCardSaveBusy] = useState(false);
+  const [shelfCardTransitionPhase, setShelfCardTransitionPhase] = useState<ShelfCardTransitionPhase>("idle");
+  const [shelfCardMotion, setShelfCardMotion] = useState<ShelfCardMotion | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const knowledgeCardDockRef = useRef<HTMLDivElement | null>(null);
+  const shelfCardOriginRef = useRef<DOMRectReadOnly | null>(null);
+  const shelfCardTriggerRef = useRef<HTMLElement | null>(null);
   const sendInFlightKeysRef = useRef(new Set<string>());
   const pendingStudentMessagesRef = useRef(new Map<string, PendingStudentRequest>());
   const queuedInterjectionsRef = useRef(new Map<string, PendingStudentRequest[]>());
@@ -139,8 +154,18 @@ export default function Home() {
   } = runtime;
 
   useEffect(() => {
-    if (window.matchMedia("(max-width: 760px)").matches) setLeftOpen(false);
-    setResponsiveReady(true);
+    const compact = window.matchMedia("(max-width: 1319px)");
+    const syncCompactState = (matches: boolean) => {
+      if (matches) {
+        setLeftOpen(false);
+        setRightOpen(false);
+      }
+      setResponsiveReady(true);
+    };
+    syncCompactState(compact.matches);
+    const onChange = (event: MediaQueryListEvent) => syncCompactState(event.matches);
+    compact.addEventListener("change", onChange);
+    return () => compact.removeEventListener("change", onChange);
   }, []);
 
   function closeNavigationOnMobile() {
@@ -252,6 +277,104 @@ export default function Home() {
     () => historyItems.find((item) => item.session_id === sessionId),
     [historyItems, sessionId]
   );
+  const dockedActiveCard = useMemo(
+    () => [...activeCards].reverse().find((card) => (
+      card.card_type === "knowledge_card" || card.card_type === "problem_card"
+    )) ?? null,
+    [activeCards]
+  );
+  const viewedShelfCard = viewingCard;
+  const displayedDockCard = viewedShelfCard ?? dockedActiveCard;
+  const displayedDockCardIsArchived = Boolean(
+    displayedDockCard && viewedShelfCard?.id === displayedDockCard.id
+  );
+  const displayedDockCardThemeVariant = useMemo(() => {
+    if (!displayedDockCard || displayedDockCard.card_type !== "knowledge_card" || !displayedDockCard.saved_at) {
+      return undefined;
+    }
+    return [...cards]
+      .filter((card) => card.session_id === displayedDockCard.session_id
+        && card.card_type === "knowledge_card"
+        && Boolean(card.saved_at))
+      .sort((left, right) => (right.saved_at || "").localeCompare(left.saved_at || ""))
+      .findIndex((card) => card.id === displayedDockCard.id);
+  }, [cards, displayedDockCard]);
+  const anchoredActiveCards = useMemo(
+    () => activeCards.filter((card) => card.id !== dockedActiveCard?.id),
+    [activeCards, dockedActiveCard?.id]
+  );
+
+  function openShelfCard(nextCard: StudyCard, origin: DOMRectReadOnly) {
+    shelfCardOriginRef.current = origin;
+    shelfCardTriggerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    flushSync(() => {
+      setShelfCardMotion(null);
+      setShelfCardTransitionPhase("preparing");
+      setViewingCard(nextCard);
+    });
+  }
+
+  function focusShelfCard() {
+    window.requestAnimationFrame(() => {
+      knowledgeCardDockRef.current
+        ?.querySelector<HTMLElement>('[aria-label="关闭卡片"]')
+        ?.focus({ preventScroll: true });
+    });
+  }
+
+  function restoreShelfCardFocus() {
+    window.requestAnimationFrame(() => {
+      shelfCardTriggerRef.current?.focus({ preventScroll: true });
+      shelfCardTriggerRef.current = null;
+    });
+  }
+
+  function closeShelfCard() {
+    if (!viewedShelfCard || !knowledgeCardDockRef.current) {
+      setViewingCard(null);
+      restoreShelfCardFocus();
+      return;
+    }
+    const source = document.querySelector<HTMLElement>(`[data-shelf-card-id="${CSS.escape(viewedShelfCard.id)}"]`);
+    if (!source) {
+      setViewingCard(null);
+      restoreShelfCardFocus();
+      return;
+    }
+    const origin = source.getBoundingClientRect();
+    const target = knowledgeCardDockRef.current.getBoundingClientRect();
+    setShelfCardMotion({
+      x: origin.left - target.left,
+      y: origin.top - target.top,
+      scaleX: origin.width / target.width,
+      scaleY: origin.height / target.height
+    });
+    setShelfCardTransitionPhase("closing");
+  }
+
+  useLayoutEffect(() => {
+    if (shelfCardTransitionPhase !== "preparing" || !viewedShelfCard) return;
+    const origin = shelfCardOriginRef.current;
+    const target = knowledgeCardDockRef.current?.getBoundingClientRect();
+    if (!origin || !target) return;
+    setShelfCardMotion({
+      x: origin.left - target.left,
+      y: origin.top - target.top,
+      scaleX: origin.width / target.width,
+      scaleY: origin.height / target.height
+    });
+    setShelfCardTransitionPhase("opening");
+    focusShelfCard();
+  }, [shelfCardTransitionPhase, viewedShelfCard]);
+
+  useEffect(() => {
+    if (viewedShelfCard) return;
+    shelfCardOriginRef.current = null;
+    setShelfCardMotion(null);
+    setShelfCardTransitionPhase("idle");
+  }, [viewedShelfCard]);
 
   useEffect(() => {
     refreshProfiles();
@@ -1156,13 +1279,20 @@ export default function Home() {
           }}
         />
 
-        <CardShelfTabs cards={cards} onOpenCard={setViewingCard} />
+        <CardShelfTabs
+          cards={cards}
+          sessionId={sessionId}
+          activeCardId={viewedShelfCard?.id}
+          onOpenCard={openShelfCard}
+        />
 
         <MessageTimeline
           messages={messages}
           messageEndRef={messageEndRef}
           onOpenImage={setViewerImageUrl}
-          anchoredInteractions={activeCards.map((card) => ({
+          floatingObstacleRef={knowledgeCardDockRef}
+          floatingObstacleActive={Boolean(displayedDockCard)}
+          anchoredInteractions={anchoredActiveCards.map((card) => ({
             id: card.id,
             sourceActionId: card.source_action_id,
             title: card.content.title,
@@ -1178,6 +1308,7 @@ export default function Home() {
                   : undefined}
                 busy={cardSaveBusy}
                 editable={card.card_type === "knowledge_card"}
+                appearance="flashcard"
                 autoCollapsed={autoCollapsed}
                 forceExpanded={forceExpanded}
                 onExpandCollapsed={returnToAnchor}
@@ -1195,44 +1326,95 @@ export default function Home() {
           ) : null}
         />
 
-        <TutorComposer
-          error={error}
-          sessionId={sessionId}
-          pendingImageUrl={pendingComposerImage?.dataUrl ?? null}
-          input={input}
-          composerBlocked={composerBlocked}
-          imageInputRef={imageInputRef}
-          imageBusy={imageBusy}
-          gradeBand={gradeBand}
-          selectedProfileId={selectedProfileId}
-          selectedProfile={selectedProfile}
-          profiles={profiles}
-          deleteBusy={deleteBusy}
-          reasoningBusy={reasoningBusy}
-          streamBusy={streamBusy}
-          stopBusy={stopBusy}
-          startBusy={startBusy}
-          speechPhase={speechInput.phase}
-          speechElapsedSeconds={speechInput.elapsedSeconds}
-          onClearError={runtime.clearError}
-          onRemoveImage={() => {
-            setPendingComposerImage(null);
-            if (imageInputRef.current) imageInputRef.current.value = "";
-            runtime.clearError();
-          }}
-          onInputChange={updateComposerInput}
-          onSend={() => void handleSend()}
-          onImageFile={(file) => void handleImageFile(file)}
-          onPasteImages={handlePastedImages}
-          onGradeBandChange={setGradeBand}
-          onProfileChange={setSelectedProfileId}
-          onAddProfile={openNewProfileDialog}
-          onEditProfile={openSelectedProfileDialog}
-          onDeleteProfiles={deleteProfiles}
-          onReasoningEffortChange={setReasoningEffort}
-          onStop={() => void runtime.stopStream()}
-          onToggleSpeech={speechInput.toggle}
-        />
+        <div className="conversationComposerStage">
+          {displayedDockCard ? (
+            <div
+              className={`activeKnowledgeCardDock${displayedDockCardIsArchived ? " shelfTransitionDock" : ""}`}
+              ref={knowledgeCardDockRef}
+              key={`dock-${displayedDockCard.id}`}
+              style={displayedDockCardIsArchived && shelfCardMotion
+                ? {
+                    "--shelf-motion-x": `${shelfCardMotion.x}px`,
+                    "--shelf-motion-y": `${shelfCardMotion.y}px`,
+                    "--shelf-motion-scale-x": shelfCardMotion.scaleX,
+                    "--shelf-motion-scale-y": shelfCardMotion.scaleY
+                  } as CSSProperties
+                : undefined}
+              data-shelf-transition-phase={displayedDockCardIsArchived ? shelfCardTransitionPhase : undefined}
+              inert={displayedDockCardIsArchived && shelfCardTransitionPhase === "closing" ? true : undefined}
+              onAnimationEnd={(event) => {
+                if (event.target !== event.currentTarget || !displayedDockCardIsArchived) return;
+                if (shelfCardTransitionPhase === "opening") {
+                  setShelfCardTransitionPhase("open");
+                } else if (shelfCardTransitionPhase === "closing") {
+                  flushSync(() => setViewingCard(null));
+                  restoreShelfCardFocus();
+                }
+              }}
+            >
+              <StudyCardModal
+                key={displayedDockCard.id}
+                card={displayedDockCard}
+                folders={displayedDockCardIsArchived ? [] : folders}
+                libraryView={displayedDockCardIsArchived}
+                onSave={displayedDockCardIsArchived
+                  ? displayedDockCard.card_type === "knowledge_card"
+                    ? (cardToSave) => void handleArchivedCardSave(cardToSave)
+                    : undefined
+                  : (cardToSave, folderId) => void handleActiveCardSave(cardToSave, folderId)}
+                onDiscard={displayedDockCardIsArchived || displayedDockCard.card_type === "problem_card"
+                  ? undefined
+                  : (cardToDiscard) => void handleActiveCardDiscard(cardToDiscard)}
+                onClose={displayedDockCardIsArchived ? closeShelfCard : undefined}
+                busy={displayedDockCardIsArchived ? viewingCardSaveBusy : cardSaveBusy}
+                editable={displayedDockCard.card_type === "knowledge_card"}
+                appearance="flashcard"
+                themeVariant={displayedDockCardThemeVariant !== undefined && displayedDockCardThemeVariant >= 0
+                  ? displayedDockCardThemeVariant
+                  : undefined}
+              />
+            </div>
+          ) : null}
+
+          <TutorComposer
+            error={error}
+            sessionId={sessionId}
+            pendingImageUrl={pendingComposerImage?.dataUrl ?? null}
+            input={input}
+            composerBlocked={composerBlocked}
+            imageInputRef={imageInputRef}
+            imageBusy={imageBusy}
+            gradeBand={gradeBand}
+            selectedProfileId={selectedProfileId}
+            selectedProfile={selectedProfile}
+            profiles={profiles}
+            deleteBusy={deleteBusy}
+            reasoningBusy={reasoningBusy}
+            streamBusy={streamBusy}
+            stopBusy={stopBusy}
+            startBusy={startBusy}
+            speechPhase={speechInput.phase}
+            speechElapsedSeconds={speechInput.elapsedSeconds}
+            onClearError={runtime.clearError}
+            onRemoveImage={() => {
+              setPendingComposerImage(null);
+              if (imageInputRef.current) imageInputRef.current.value = "";
+              runtime.clearError();
+            }}
+            onInputChange={updateComposerInput}
+            onSend={() => void handleSend()}
+            onImageFile={(file) => void handleImageFile(file)}
+            onPasteImages={handlePastedImages}
+            onGradeBandChange={setGradeBand}
+            onProfileChange={setSelectedProfileId}
+            onAddProfile={openNewProfileDialog}
+            onEditProfile={openSelectedProfileDialog}
+            onDeleteProfiles={deleteProfiles}
+            onReasoningEffortChange={setReasoningEffort}
+            onStop={() => void runtime.stopStream()}
+            onToggleSpeech={speechInput.toggle}
+          />
+        </div>
       </section>
 
       <StudyCardSidebar
@@ -1301,22 +1483,6 @@ export default function Home() {
         onMove={(card, folderId) => void moveCardToFolder(card, folderId)}
       />
     </main>
-    {viewingCard && (
-      <div className="cardViewerLayer">
-        <StudyCardModal
-          key={viewingCard.id}
-          card={viewingCard}
-          displayMode="viewer"
-          libraryView
-          editable={viewingCard.card_type === "knowledge_card"}
-          onSave={viewingCard.card_type === "knowledge_card"
-            ? (card) => void handleArchivedCardSave(card)
-            : undefined}
-          onClose={() => setViewingCard(null)}
-          busy={viewingCardSaveBusy}
-        />
-      </div>
-    )}
     {learningCardPrintJob && (
       <LearningCardPrintView cards={learningCardPrintJob.cards} layout={learningCardPrintJob.layout} />
     )}

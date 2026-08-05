@@ -3,19 +3,20 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  background:
-    radial-gradient(circle at 80% 12%, rgba(221, 232, 210, 0.42), transparent 28%),
-    var(--neutral-25);
+  background: var(--stage-canvas);
+  background-image:
+    radial-gradient(circle at 50% -18%, rgba(208, 238, 185, 0.48), transparent 42%),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.62), transparent 24%);
 }
 
 .messageColumn {
-  width: min(900px, 100%);
+  width: min(920px, 100%);
   min-height: 100%;
   margin: 0 auto;
-  padding: 30px 28px 42px;
+  padding: 32px 32px 44px;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 24px;
 }
 
 .timelineEntry {
@@ -90,12 +91,12 @@
 
 .welcomeState {
   position: relative;
-  min-height: calc(100vh - 365px);
+  min-height: calc(100dvh - 365px);
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(240px, 0.95fr);
   align-items: center;
-  gap: var(--space-8);
-  padding: var(--space-10) 0 var(--space-8);
+  gap: var(--space-10);
+  padding: 52px 0 40px;
   text-align: left;
   isolation: isolate;
 }
@@ -105,35 +106,23 @@
   z-index: 2;
   display: grid;
   justify-items: start;
-  gap: var(--space-3);
+  gap: 14px;
 }
 
 .welcomeState h1 {
-  color: var(--neutral-900);
-  font-size: clamp(28px, 3vw, 40px);
-  font-weight: 680;
-  line-height: 1.25;
+  max-width: 12em;
+  color: var(--stage-ink);
+  font-size: clamp(32px, 3.2vw, 46px);
+  font-weight: 720;
+  line-height: 1.16;
   letter-spacing: -0.035em;
 }
 
 .welcomeState p {
   max-width: 590px;
-  color: var(--neutral-600);
+  color: #526157;
   font-size: 15px;
   line-height: 1.7;
-}
-
-.welcomeEyebrow {
-  display: inline-flex;
-  align-items: center;
-  min-height: 26px;
-  border-radius: var(--radius-full);
-  padding: 0 10px;
-  color: var(--primary-800);
-  background: var(--primary-100);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
 }
 
 .welcomeExamples {
@@ -145,15 +134,15 @@
 }
 
 .welcomeExamples span {
-  min-height: 36px;
+  min-height: 40px;
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  border: 1px solid var(--neutral-100);
-  border-radius: var(--radius-full);
-  padding: 0 12px;
-  color: var(--primary-800);
-  background: rgba(241, 245, 237, 0.9);
+  border: 1px solid rgba(85, 112, 92, 0.14);
+  border-radius: 12px;
+  padding: 0 13px;
+  color: var(--stage-forest);
+  background: rgba(248, 250, 246, 0.78);
   font-size: 12px;
   font-weight: 520;
 }
@@ -161,16 +150,20 @@
 .knowledgeOrbit {
   position: relative;
   width: min(100%, 390px);
-  aspect-ratio: 1.4;
+  aspect-ratio: 1.48;
   justify-self: end;
-  opacity: 0.8;
-  transform: rotate(-4deg);
+  opacity: 0.72;
+  overflow: hidden;
+  border-radius: 46% 46% 16px 16px;
+  background:
+    radial-gradient(ellipse at 50% 76%, rgba(208, 238, 185, 0.82), transparent 58%),
+    linear-gradient(to bottom, rgba(183, 168, 212, 0.3), transparent 48%);
 }
 
 .orbit {
   position: absolute;
-  inset: 18% 2%;
-  border: 1px solid rgba(137, 169, 107, 0.42);
+  inset: 38% -8% 3%;
+  border: 1px solid rgba(99, 173, 80, 0.34);
   border-radius: 50%;
 }
 
@@ -184,11 +177,11 @@
 
 .orbitDot {
   position: absolute;
-  width: 10px;
-  height: 10px;
+  width: 7px;
+  height: 7px;
   border-radius: var(--radius-full);
-  background: var(--primary-500);
-  box-shadow: 0 0 0 5px rgba(232, 240, 224, 0.72);
+  background: var(--stage-sage);
+  box-shadow: 0 0 0 4px rgba(229, 247, 213, 0.72);
 }
 
 .dotOne { left: 15%; top: 55%; }
@@ -201,10 +194,10 @@
   top: 23%;
   width: 112px;
   height: 148px;
-  border: 1px solid rgba(137, 169, 107, 0.24);
-  border-radius: var(--radius-sm);
-  background: linear-gradient(145deg, rgba(232, 240, 224, 0.82), rgba(255, 255, 255, 0.8));
-  box-shadow: var(--shadow-card);
+  border: 1px solid rgba(85, 112, 92, 0.14);
+  border-radius: 10px;
+  background: linear-gradient(145deg, rgba(242, 247, 239, 0.88), rgba(255, 255, 255, 0.72));
+  box-shadow: 0 18px 38px rgba(68, 86, 71, 0.08);
 }
 
 .paperShape::after {
@@ -227,15 +220,19 @@
   gap: 12px;
 }
 
+.chatMessage.avoidsKnowledgeCard {
+  width: var(--knowledge-card-avoidance-width);
+}
+
 .messageAvatar {
   width: 30px;
   height: 30px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(85, 112, 92, 0.16);
   border-radius: 9px;
-  color: var(--accent);
-  background: var(--panel);
+  color: var(--stage-forest);
+  background: rgba(229, 247, 213, 0.9);
   font-size: 11px;
   font-weight: 700;
 }
@@ -245,7 +242,8 @@
   display: grid;
   gap: 9px;
   padding: 4px 0;
-  line-height: 1.75;
+  color: #344238;
+  line-height: 1.78;
 }
 
 .chatMessage.student {
@@ -262,7 +260,8 @@
   max-width: min(650px, 88%);
   border-radius: 16px 16px 4px 16px;
   padding: 11px 14px;
-  background: #f0f0ed;
+  border: 1px solid rgba(85, 112, 92, 0.1);
+  background: rgba(208, 238, 185, 0.72);
 }
 
 .chatMessage.student.checkpointResponseMessage .messageBody {
@@ -299,7 +298,7 @@
   min-width: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-  font-size: 14px;
+  font-size: 14.5px;
 }
 
 .messageImage {
@@ -391,13 +390,101 @@
   white-space: nowrap;
 }
 
+.conversationComposerStage {
+  position: relative;
+  z-index: 7;
+}
+
+.activeKnowledgeCardDock {
+  position: absolute;
+  right: max(24px, calc((100% - 900px) / 2));
+  bottom: calc(100% - 2px);
+  z-index: 9;
+  width: min(560px, calc(100% - 48px));
+  pointer-events: none;
+  transform-origin: right bottom;
+  animation: activeCardDockEnter 420ms cubic-bezier(0.22, 0.82, 0.24, 1) both;
+}
+
+.activeKnowledgeCardDock > .studyCardDialog {
+  pointer-events: auto;
+}
+
+.activeKnowledgeCardDock.shelfTransitionDock {
+  animation: none;
+  transform-origin: top left;
+}
+
+.activeKnowledgeCardDock.shelfTransitionDock[data-shelf-transition-phase="preparing"] {
+  visibility: hidden;
+}
+
+.activeKnowledgeCardDock.shelfTransitionDock[data-shelf-transition-phase="opening"] {
+  animation: shelfCardOpen 480ms cubic-bezier(0.22, 0.82, 0.24, 1) both;
+}
+
+.activeKnowledgeCardDock.shelfTransitionDock[data-shelf-transition-phase="closing"] {
+  pointer-events: none;
+  animation: shelfCardClose 440ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes shelfCardOpen {
+  from {
+    opacity: 0.92;
+    transform: translate3d(var(--shelf-motion-x), var(--shelf-motion-y), 0)
+      scale(var(--shelf-motion-scale-x), var(--shelf-motion-scale-y));
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes shelfCardClose {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    opacity: 0.92;
+    transform: translate3d(var(--shelf-motion-x), var(--shelf-motion-y), 0)
+      scale(var(--shelf-motion-scale-x), var(--shelf-motion-scale-y));
+  }
+}
+
+@keyframes activeCardDockEnter {
+  from {
+    opacity: 1;
+    transform: translate3d(100vw, -18px, 0) rotate(3deg) scale(0.96);
+  }
+  62% {
+    opacity: 1;
+    transform: translate3d(-7px, 0, 0) rotate(-0.4deg) scale(1.01);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activeKnowledgeCardDock {
+    animation: none;
+  }
+
+  .activeKnowledgeCardDock.shelfTransitionDock[data-shelf-transition-phase="opening"],
+  .activeKnowledgeCardDock.shelfTransitionDock[data-shelf-transition-phase="closing"] {
+    animation-duration: 1ms;
+  }
+}
+
 .composerDock {
-  width: min(900px, calc(100% - 48px));
+  width: min(920px, calc(100% - 56px));
   margin: 0 auto;
   padding: 0 0 var(--space-4);
   display: grid;
   gap: 7px;
-  background: linear-gradient(to bottom, rgba(250, 251, 249, 0), var(--neutral-25) 24px);
+  background: linear-gradient(to bottom, rgba(252, 253, 249, 0), var(--stage-canvas) 26px);
   z-index: 2;
 }
 
@@ -405,20 +492,26 @@
   min-height: 136px;
   min-width: 0;
   width: 100%;
-  border: 1px solid var(--neutral-300);
+  border: 1px solid rgba(85, 112, 92, 0.2);
   border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   padding: var(--space-4);
-  background: var(--neutral-0);
-  box-shadow: var(--shadow-float);
+  background: rgba(255, 255, 248, 0.88);
+  box-shadow:
+    0 18px 50px rgba(55, 73, 59, 0.12),
+    0 2px 8px rgba(55, 73, 59, 0.06),
+    inset 0 1px rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(16px);
   transition: border-color 180ms var(--ease-standard), box-shadow 180ms var(--ease-standard), transform 180ms var(--ease-standard);
 }
 
 .composerCard:focus-within {
-  border-color: var(--primary-500);
-  box-shadow: 0 0 0 3px rgba(137, 169, 107, 0.12), var(--shadow-float);
+  border-color: var(--stage-sage);
+  box-shadow:
+    0 0 0 3px rgba(99, 173, 80, 0.18),
+    0 22px 56px rgba(47, 117, 66, 0.16);
 }
 
 .composerCard textarea {
@@ -944,13 +1037,13 @@
   flex: 0 0 44px;
   border-radius: 50%;
   color: #ffffff;
-  background: var(--primary-700);
-  box-shadow: 0 5px 14px rgba(53, 76, 53, 0.22);
+  background: var(--stage-forest);
+  box-shadow: 0 6px 16px rgba(53, 76, 53, 0.24);
   transition: background 150ms var(--ease-standard), transform 150ms var(--ease-standard), box-shadow 150ms var(--ease-standard);
 }
 
 .sendButton:hover:not(:disabled) {
-  background: var(--primary-800);
+  background: var(--stage-ink);
   box-shadow: 0 7px 18px rgba(53, 76, 53, 0.28);
   transform: translateY(-1px);
 }

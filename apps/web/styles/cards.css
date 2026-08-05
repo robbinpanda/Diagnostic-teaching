@@ -3,9 +3,10 @@
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-3) var(--space-3);
-  border-left: 1px solid var(--neutral-200);
-  background: var(--neutral-0);
-  box-shadow: -8px 0 24px rgba(41, 55, 41, 0.035);
+  border-left: 1px solid var(--stage-line);
+  background: var(--stage-wing);
+  box-shadow: -12px 0 30px rgba(54, 70, 57, 0.035);
+  backdrop-filter: blur(10px);
 }
 
 .cardSidebarHeader {
@@ -23,12 +24,12 @@
 }
 
 .cardSidebarHeader strong {
-  color: var(--neutral-900);
+  color: var(--stage-ink);
   font-size: 16px;
 }
 
 .cardSidebarHeader span {
-  color: var(--neutral-500);
+  color: var(--neutral-600);
   font-size: 11px;
 }
 
@@ -38,11 +39,12 @@
   gap: 3px;
   border-radius: 10px;
   padding: 3px;
-  background: #ecece8;
+  border: 1px solid rgba(85, 112, 92, 0.08);
+  background: rgba(208, 238, 185, 0.62);
 }
 
 .cardFilters button {
-  min-height: 29px;
+  min-height: 34px;
   border: 0;
   border-radius: 7px;
   color: var(--muted);
@@ -51,9 +53,9 @@
 }
 
 .cardFilters button.active {
-  color: var(--ink);
-  background: #ffffff;
-  box-shadow: 0 1px 4px rgba(27, 28, 25, 0.08);
+  color: var(--stage-ink);
+  background: rgba(255, 255, 248, 0.96);
+  box-shadow: 0 2px 8px rgba(42, 57, 46, 0.08);
   font-weight: 600;
 }
 
@@ -64,24 +66,24 @@
   display: grid;
   grid-auto-rows: max-content;
   align-content: start;
-  gap: 7px;
+  gap: 8px;
 }
 
 .cardItem {
   position: relative;
-  border: 1px solid var(--neutral-200);
+  border: 1px solid rgba(85, 112, 92, 0.14);
   border-radius: var(--radius-md);
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
-  background: var(--neutral-0);
+  background: rgba(252, 253, 249, 0.78);
   transition: border-color 160ms var(--ease-standard), background 160ms var(--ease-standard), transform 160ms var(--ease-standard), box-shadow 160ms var(--ease-standard);
 }
 
 .cardItem:hover {
-  border-color: var(--primary-500);
-  background: var(--primary-50);
-  box-shadow: var(--shadow-card);
+  border-color: rgba(93, 121, 98, 0.42);
+  background: rgba(244, 248, 241, 0.96);
+  box-shadow: 0 10px 24px rgba(48, 64, 51, 0.08);
   transform: translateY(-1px);
 }
 
@@ -94,31 +96,31 @@
   min-width: 0;
   border: 0;
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
+  grid-template-columns: 36px minmax(0, 1fr);
   align-items: center;
-  gap: 9px;
-  padding: 10px;
-  color: var(--ink);
+  gap: 10px;
+  padding: 11px 12px;
+  color: var(--stage-ink);
   background: transparent;
   text-align: left;
 }
 
 .cardIcon {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
   border-radius: 9px;
 }
 
 .cardIcon.knowledge {
-  color: var(--primary-800);
-  background: var(--primary-100);
+  color: var(--stage-forest);
+  background: var(--stage-sage-soft);
 }
 
 .cardIcon.problem {
-  color: var(--warning);
-  background: var(--warning-soft);
+  color: var(--stage-yellow-ink);
+  background: var(--stage-yellow-soft);
 }
 
 .cardText {
@@ -129,15 +131,15 @@
 
 .cardText strong {
   overflow: hidden;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .cardText small {
-  color: var(--muted);
-  font-size: 9px;
+  color: var(--neutral-600);
+  font-size: 10px;
 }
 
 .cardDeleteButton {
@@ -155,21 +157,21 @@
 }
 
 .cardFileToolbar {
-  min-height: 36px;
+  min-height: 44px;
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) 30px 30px;
+  grid-template-columns: 36px minmax(0, 1fr) 36px 36px;
   align-items: center;
   gap: 4px;
   padding: 3px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--stage-line);
   border-radius: 10px;
-  background: #f6f6f3;
+  background: rgba(229, 247, 213, 0.78);
 }
 
 .cardFolderBack,
 .cardFolderTool {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   border: 0;
   border-radius: 7px;
   display: grid;
@@ -285,10 +287,10 @@
 .cardFolderItem {
   position: relative;
   min-width: 0;
-  border: 1px solid #e5dfcf;
+  border: 1px solid color-mix(in srgb, var(--stage-yellow) 34%, white);
   border-radius: 10px;
   overflow: hidden;
-  background: #fffcf4;
+  background: color-mix(in srgb, var(--stage-yellow-soft) 72%, white);
 }
 
 .cardFolderOpen {
@@ -300,7 +302,7 @@
   align-items: center;
   gap: 7px;
   padding: 9px;
-  color: #8a682b;
+  color: var(--stage-yellow-ink);
   background: transparent;
   text-align: left;
 }
@@ -713,15 +715,15 @@
 .exportFolderTile {
   min-width: 0;
   min-height: 43px;
-  border: 1px solid #e7dfcd;
+  border: 1px solid color-mix(in srgb, var(--stage-yellow) 34%, white);
   border-radius: 9px;
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px;
   padding: 8px 10px;
-  color: #906d2d;
-  background: #fffcf4;
+  color: var(--stage-yellow-ink);
+  background: color-mix(in srgb, var(--stage-yellow-soft) 72%, white);
   text-align: left;
 }
 
