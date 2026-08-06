@@ -79,7 +79,12 @@ class CardDismissalAcceptanceMixin:
                 raise PermissionError(card_id)
             if card_row["card_type"] != "knowledge_card":
                 raise InputValidationError("只有知识卡片关闭后需要继续生成")
-            resolved_folder_id = resolve_card_folder(conn, folder_id, card_row["card_type"])
+            resolved_folder_id = resolve_card_folder(
+                conn,
+                folder_id,
+                card_row["card_type"],
+                preferred_folder_id=card_row["folder_id"],
+            )
             if not save_to_library and card_row["saved_at"] is not None:
                 raise InputStateConflictError(card_id)
             if content is not None and card_row["saved_at"] is not None:

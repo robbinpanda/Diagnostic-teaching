@@ -2,6 +2,7 @@
 
 import {
   ArrowLeft,
+  CheckCircle2,
   ChevronRight,
   Loader2,
   MessageSquarePlus,
@@ -10,7 +11,7 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type Ref } from "react";
 import type { SessionHistoryItem } from "../../lib/api";
 import {
   buildHistoryPaperGroups,
@@ -29,6 +30,7 @@ import { MathText } from "../MathText";
 
 type Props = {
   view: Exclude<HistoryView, null>;
+  workspaceRef?: Ref<HTMLElement>;
   items: SessionHistoryItem[];
   overviewQuery: string;
   sortMode: HistorySortMode;
@@ -36,6 +38,7 @@ type Props = {
   historyBusy: boolean;
   historyLoadError: string;
   actionError: string;
+  notice?: string;
   leftOpen: boolean;
   activeSessionId: string;
   runningSessionIds: string[];
@@ -51,6 +54,7 @@ type Props = {
   onStartNewChat: () => void;
   onRetry: () => void;
   onClearActionError: () => void;
+  onClearNotice?: () => void;
 };
 
 const historyDateFormatter = new Intl.DateTimeFormat("zh-CN", {
@@ -74,6 +78,7 @@ function historyGradeLabel(group: HistoryPaperGroup) {
 
 export function HistoryWorkspace({
   view,
+  workspaceRef,
   items,
   overviewQuery,
   sortMode,
@@ -81,6 +86,7 @@ export function HistoryWorkspace({
   historyBusy,
   historyLoadError,
   actionError,
+  notice = "",
   leftOpen,
   activeSessionId,
   runningSessionIds,
@@ -95,7 +101,8 @@ export function HistoryWorkspace({
   onDeleteSession,
   onStartNewChat,
   onRetry,
-  onClearActionError
+  onClearActionError,
+  onClearNotice
 }: Props) {
   const [paperQuery, setPaperQuery] = useState("");
   const groups = useMemo(() => buildHistoryPaperGroups(items), [items]);
@@ -113,7 +120,7 @@ export function HistoryWorkspace({
   const loadFailedWithoutContent = Boolean(historyLoadError) && items.length === 0;
 
   return (
-    <section className="historyWorkspace" aria-label="历史搜题工作区" aria-busy={historyBusy}>
+    <section ref={workspaceRef} className="historyWorkspace" aria-label="错题合集工作区" aria-busy={historyBusy}>
       <header
         className={`historyWorkspaceHeader${view.mode === "paper" ? " historyWorkspaceHeaderDetail" : ""}`}
       >
@@ -141,10 +148,10 @@ export function HistoryWorkspace({
         ) : null}
 
         <div className="historyWorkspaceTitle">
-          <h1>{view.mode === "overview" ? "历史搜题" : detailPaperName}</h1>
+          <h1>{view.mode === "overview" ? "错题合集" : detailPaperName}</h1>
           <p>
             {view.mode === "overview"
-              ? "按试卷继续你的学习"
+              ? "按试卷回看与整理答疑题目"
               : `${detailQuestionCount} 道题`}
           </p>
         </div>
@@ -168,7 +175,7 @@ export function HistoryWorkspace({
           {view.mode === "overview" ? (
             <select
               className="historyWorkspaceSort"
-              aria-label="历史排序"
+              aria-label="错题合集排序"
               value={sortMode}
               onChange={(event) => onSortModeChange(event.target.value as HistorySortMode)}
             >
@@ -181,6 +188,21 @@ export function HistoryWorkspace({
 
       <div className="historyWorkspaceBody">
         <div className="historyWorkspaceBodyInner">
+          {notice ? (
+            <div className="historyWorkspaceAlert historyWorkspaceNotice" role="status">
+              <span><CheckCircle2 size={16} aria-hidden="true" />{notice}</span>
+              <button
+                className="historyWorkspaceAction"
+                type="button"
+                onClick={onClearNotice}
+                aria-label="关闭提示"
+              >
+                <X size={16} />
+                <span>关闭</span>
+              </button>
+            </div>
+          ) : null}
+
           {actionError ? (
             <div className="historyWorkspaceAlert" role="alert">
               <span>{actionError}</span>
@@ -208,7 +230,7 @@ export function HistoryWorkspace({
 
           {loadFailedWithoutContent ? (
             <div className="historyWorkspaceState" role="alert">
-              <strong>历史答疑加载失败</strong>
+              <strong>错题合集加载失败</strong>
               <p>{historyLoadError}</p>
               <button className="historyWorkspaceAction" type="button" onClick={onRetry}>
                 <RefreshCw size={17} />
@@ -217,15 +239,15 @@ export function HistoryWorkspace({
             </div>
           ) : view.mode === "overview" ? (
             historyBusy && items.length === 0 ? (
-              <div className="historySkeletonGrid" aria-label="正在加载历史试卷">
+              <div className="historySkeletonGrid" aria-label="正在加载错题合集">
                 {historySkeletonIds.map((id) => (
                   <div className="historyPaperSkeleton" key={id} aria-hidden="true" />
                 ))}
               </div>
             ) : items.length === 0 ? (
               <div className="historyWorkspaceState">
-                <strong>还没有历史答疑</strong>
-                <p>从一道题开始，之后可以按试卷继续学习。</p>
+                <strong>还没有收录题目</strong>
+                <p>从一道题开始，之后可以在这里按试卷回看。</p>
                 <button className="historyWorkspaceAction" type="button" onClick={onStartNewChat}>
                   <MessageSquarePlus size={17} />
                   <span>开始答疑</span>
@@ -278,11 +300,11 @@ export function HistoryWorkspace({
           ) : historyBusy && items.length === 0 ? (
             <div className="historyWorkspaceState">
               <Loader2 size={20} className="spin" />
-              <strong>正在加载历史答疑</strong>
+              <strong>正在加载错题合集</strong>
             </div>
           ) : !selectedGroup ? (
             <div className="historyWorkspaceState">
-              <strong>这份试卷暂无历史题目</strong>
+              <strong>这份试卷暂无收录题目</strong>
               <p>它可能刚刚在其他位置被清空。</p>
               <button className="historyWorkspaceAction" type="button" onClick={onBackToOverview}>
                 <ArrowLeft size={17} />

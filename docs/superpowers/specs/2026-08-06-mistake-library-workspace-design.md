@@ -2,7 +2,7 @@
 
 日期：2026-08-06
 
-状态：已确认，待实施
+状态：已实施
 
 目标分支：`codex/mistake-library-workspace`
 

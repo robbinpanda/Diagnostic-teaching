@@ -17,6 +17,7 @@ from app.services.input_acceptance_models import (
     load_json as _load_json,
 )
 from app.storage.database import with_sqlite_busy_retry
+from app.storage.exam_paper_repository import require_exam_paper
 from app.storage.repository_utils import initial_context_status, new_id, now_iso
 
 
@@ -105,6 +106,7 @@ class SessionStartAcceptanceMixin:
                 accepted=False,
             )
 
+        require_exam_paper(conn, payload.paper_id)
         ts = now_iso()
         input_id = new_id("inp")
         message_id = new_id("msg")

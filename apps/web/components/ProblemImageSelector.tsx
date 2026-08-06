@@ -101,11 +101,19 @@ export function ProblemImageSelector({
   const dragRef = useRef<DragState | null>(null);
   const drawRef = useRef<DrawState | null>(null);
   const manualRegionSequenceRef = useRef(1);
-  const paperReady = paperMode === "existing" ? Boolean(paperId) : Boolean(newPaperName.trim());
+  const paperReady = paperMode === "existing"
+    ? papers.some((paper) => paper.id === paperId)
+    : Boolean(newPaperName.trim());
   const onRegionsChangeRef = useRef(onRegionsChange);
 
   useEffect(() => {
-    if (paperMode === "existing" && !paperId && papers[0]) setPaperId(papers[0].id);
+    if (paperMode !== "existing" || papers.some((paper) => paper.id === paperId)) return;
+    if (papers[0]) {
+      setPaperId(papers[0].id);
+      return;
+    }
+    setPaperId("");
+    setPaperMode("new");
   }, [paperId, paperMode, papers]);
 
   useEffect(() => {

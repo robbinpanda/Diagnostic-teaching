@@ -1,8 +1,8 @@
 # 上下文、Session 恢复与诊断日志
 
-版本：v1.6
+版本：v1.7
 
-日期：2026-07-23
+日期：2026-08-06
 
 适用项目：诊断式数学答疑 MVP
 
@@ -14,7 +14,7 @@
 
 | 数据 | 职责 | 是否用于恢复 |
 |---|---|---|
-| SQLite 业务表 | 保存 session、durable `session_inputs`、结构化 messages、checkpoints、层级 `card_folders`、study_cards、`session_runs` 和 action 关联 | 是，唯一快照来源 |
+| SQLite 业务表 | 保存 session、`exam_papers`、durable `session_inputs`、结构化 messages、checkpoints、层级 `card_folders`、study_cards、`session_runs` 和 action 关联 | 是，唯一快照来源 |
 | SQLite `session_events` | 保存稳定业务边界的有序 change feed，供客户端断线补发 | 是，仅用于增量重放 |
 | `<session_id>.jsonl` | 严格的一行一事件机器日志，便于脚本分析和审计 | 否 |
 | `<session_id>.log.md` | 与 JSONL 同步写入、留白充足的人类可读时间线 | 否 |
@@ -341,9 +341,11 @@ source_action_id / source_message_id / created_at / saved_at / deferred_at
 - knowledge card：若学生尚未继续提问，保存或舍弃后立即以无新增 student message 的 `/api/chat/stream` 继续；若已标记为待处理，稍后保存或舍弃只处理卡片，不重复启动生成。
 - problem card：保存后结束，因为来源 action 是终止动作 `SUMMARIZE`。
 
-前端启动时并行调用 `GET /api/cards` 与 `GET /api/card-folders`；右栏按 `parent_id` 浏览文件夹，点击卡片后在右侧无暗色遮罩的浮层中查看或编辑。已归档 knowledge card 通过 `PUT /api/cards/{id}` 提交完整 `content`；待归档卡片和 problem card 不允许走该更新接口。文件夹通过 `POST/PATCH/DELETE /api/card-folders` 管理，卡片可复制、移动和删除。
+卡片生成时即确定默认目录，不能推迟到保存接口才猜测。若来源 session 有 `paper_id`，后端读取活动 `exam_papers.card_folder_id`，并把同一目录 ID 同时写入 `study_cards.folder_id` 与稳定 `card.ready` 事件；没有试卷归属时，仍按 `card_type` 使用“默认知识卡片”或“默认题目卡片”。保存知识卡或题目卡时目录选择优先级统一为：客户端明确提交的目录 → 卡片生成时已写入的目录 → 对应类型系统默认目录。用户在保存弹窗改选其他目录只影响当前卡片，不改变该试卷后续卡片的默认位置。
 
-`card_folders` 以可空 `parent_id` 自关联形成目录树；`0006_card_folders` 创建两个默认根目录，并把旧卡片按类型迁入对应目录。
+前端启动时并行调用 `GET /api/cards` 与 `GET /api/card-folders`；右栏按 `parent_id` 浏览文件夹，知识库与错题库共享完整目录树，但分别过滤 `knowledge_card` 与 `problem_card`。点击卡片后在无暗色遮罩的浮动窗口中查看或编辑；宽度 `>900px` 时窗口可拖动，消息正文不再为它缩窄或绕排。已归档 knowledge card 通过 `PUT /api/cards/{id}` 提交完整 `content`；待归档卡片和 problem card 不允许走该更新接口。文件夹通过 `POST/PATCH/DELETE /api/card-folders` 管理，卡片可复制、移动和删除。
+
+`card_folders` 以可空 `parent_id` 自关联形成目录树；`0006_card_folders` 创建两个默认根目录，并把旧卡片按类型迁入对应目录。`0013_paper_archive_folders` 增加只读的 `managed_kind`/内部稳定 `managed_key`：受管根“按试卷归档”下，每份试卷对应一个稳定的同名受管目录。知识卡与题目卡共用该目录；目录不随 `exam_papers` 删除，同名试卷重建后复用原目录及其中旧卡。受管根和试卷目录不可重命名、移动或删除，但卡片仍可移入、移出、复制和删除。
 
 数据库内部另外使用可空的 `study_cards.live_session_id` 作为真实外键。卡片生成时它与来源 `session_id` 相同；删除会话时，触发器先删除 `saved_at=null` 的待归档卡片，已归档卡片则由 `ON DELETE SET NULL` 解除活动会话关系。不可变的来源 `session_id / source_action_id / source_message_id` 仍保留，因此全局卡片既不会被误删，也不会丢失来源审计文本。
 
@@ -385,9 +387,11 @@ DELETE /api/sessions/{session_id}
 
 这样原始实验记录保持不变，恢复后的新分支也有独立、完整的数据关系。
 
-删除历史会话会删除该 session 的 SQLite 主记录，并由数据库外键级联删除 session_inputs、messages、checkpoints、session_events、session_runs；数据库触发器删除尚未关闭的待归档卡片。对应的 JSONL/Markdown 诊断日志仍由路由层删除。已归档学习卡片解除活动会话外键后继续保留在全局卡片库，来源审计字段不变，模型配置也不受影响。
+删除历史会话会在一个 `BEGIN IMMEDIATE` 写事务内再次检查该 session 没有 queued/running run，读取其准确 `paper_id`，删除 session，并由数据库外键级联删除 session_inputs、messages、checkpoints、session_events、session_runs。数据库触发器删除尚未关闭的待归档卡片，已归档学习卡片只解除 `live_session_id` 外键并继续保留，来源审计字段不变。若被删 session 是原试卷最后一条引用，同一事务同时删除该 `exam_papers` 行；受管卡片目录和其中旧卡不删除。事务提交后路由层再尽力删除对应 JSONL/Markdown 诊断日志，日志失败只记录 warning，不能把已经成功的 SQLite 删除改报失败。
 
-`DELETE /api/sessions` 是批量版本：删除全部 session；外键和触发器同步处理 session_inputs、messages、checkpoints、session_events、session_runs 与待归档卡片；路由层再删除日志目录中的所有 `.jsonl` / `.log.md` session 日志。已归档全局卡片和模型配置保留。若仍有答疑流正在生成，接口返回 409，避免清空后被并发写回。
+`DELETE /api/sessions` 是批量版本：在同一事务内检查全局活动 run，删除全部 session 和全部 `exam_papers`；外键和触发器同步处理 session_inputs、messages、checkpoints、session_events、session_runs 与待归档卡片。事务提交后再尽力删除日志目录中的所有 `.jsonl` / `.log.md` session 日志。已归档全局卡片、受管目录和模型配置保留。若仍有答疑流正在生成，接口返回 409，避免清空后被并发写回。
+
+普通创建、批量创建和显式 restore 都会在自己的写事务内重新验证 `paper_id`。若另一个窗口刚删除了最后会话及其试卷，提交陈旧 paper ID 的创建请求会返回“所选试卷已不存在，请重新选择”，而不是留下悬空外键或暴露 SQLite 500。
 
 ## 7. Run 是可恢复业务态，不是诊断事件流
 

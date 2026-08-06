@@ -4,6 +4,8 @@ import json
 import sqlite3
 
 from app.core.schemas import TutorCheckpoint
+from app.storage.database import with_sqlite_busy_retry
+from app.storage.exam_paper_repository import require_exam_paper
 from app.storage.repository_utils import new_id, now_iso
 
 
@@ -145,6 +147,7 @@ class SessionHistoryRepositoryMixin:
                 """
             ).fetchall()
 
+    @with_sqlite_busy_retry
     def restore(self, source_session_id: str, model_profile_id: str) -> sqlite3.Row:
         """Copy one SQLite session into a new resumable session."""
         source = self.get(source_session_id)
@@ -169,6 +172,8 @@ class SessionHistoryRepositoryMixin:
         card_map = {card["id"]: new_id("card") for card in cards}
 
         with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            require_exam_paper(conn, source["paper_id"])
             conn.execute(
                 """
                 INSERT INTO sessions (
@@ -342,5 +347,11 @@ class SessionHistoryRepositoryMixin:
                     )
                 ],
             )
+            restored_session = conn.execute(
+                "SELECT * FROM sessions WHERE id = ?",
+                (new_session_id,),
+            ).fetchone()
+            if restored_session is None:
+                raise RuntimeError("restored session insert returned no row")
 
-        return self.get(new_session_id)
+        return restored_session

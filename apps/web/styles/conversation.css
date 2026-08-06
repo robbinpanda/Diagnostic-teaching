@@ -220,11 +220,6 @@
   gap: 12px;
 }
 
-.chatMessage.avoidsKnowledgeCard,
-.messageRetryRow.avoidsKnowledgeCard {
-  width: var(--knowledge-card-avoidance-width);
-}
-
 .messageAvatar {
   width: 30px;
   height: 30px;
@@ -435,8 +430,65 @@
   animation: activeCardDockEnter 420ms cubic-bezier(0.22, 0.82, 0.24, 1) both;
 }
 
-.activeKnowledgeCardDock > .studyCardDialog {
+.activeKnowledgeCardDock > .draggableCardWindow {
   pointer-events: auto;
+}
+
+.draggableCardWindow {
+  position: relative;
+  width: 100%;
+  max-height: var(--card-window-max-height, none);
+  transform-origin: right bottom;
+}
+
+.draggableCardWindow[data-dragging="true"] {
+  will-change: transform;
+}
+
+.cardWindowDragHandle {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 4;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--flashcard-accent, var(--primary-700));
+  background: color-mix(in srgb, white 78%, transparent);
+  box-shadow: 0 3px 10px rgba(58, 76, 46, 0.11);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  transition:
+    color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease,
+    opacity 140ms ease;
+}
+
+.cardWindowDragHandle:hover:not(:disabled) {
+  color: var(--flashcard-ink, var(--text));
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 5px 14px rgba(58, 76, 46, 0.15);
+}
+
+.cardWindowDragHandle:focus-visible {
+  outline: 2px solid var(--flashcard-accent, var(--primary-700));
+  outline-offset: 2px;
+}
+
+.draggableCardWindow[data-dragging="true"] .cardWindowDragHandle {
+  cursor: grabbing;
+}
+
+.draggableCardWindow[data-drag-enabled="false"] .cardWindowDragHandle {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .activeKnowledgeCardDock.shelfTransitionDock {
@@ -457,6 +509,11 @@
   animation: shelfCardClose 440ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
+.activeKnowledgeCardDock.shelfTransitionDock[data-shelf-transition-phase="closingFallback"] {
+  pointer-events: none;
+  animation: shelfCardFadeClose 180ms ease-out both;
+}
+
 @keyframes shelfCardOpen {
   from {
     opacity: 0.92;
@@ -472,12 +529,25 @@
 @keyframes shelfCardClose {
   from {
     opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
+    transform: translate3d(
+      var(--shelf-close-start-x, 0px),
+      var(--shelf-close-start-y, 0px),
+      0
+    ) scale(1);
   }
   to {
     opacity: 0.92;
     transform: translate3d(var(--shelf-motion-x), var(--shelf-motion-y), 0)
       scale(var(--shelf-motion-scale-x), var(--shelf-motion-scale-y));
+  }
+}
+
+@keyframes shelfCardFadeClose {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
   }
 }
 
@@ -496,13 +566,22 @@
   }
 }
 
+@keyframes reducedCardDockEnter {
+  from,
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .activeKnowledgeCardDock {
-    animation: none;
+    animation: reducedCardDockEnter 1ms linear both;
   }
 
   .activeKnowledgeCardDock.shelfTransitionDock[data-shelf-transition-phase="opening"],
-  .activeKnowledgeCardDock.shelfTransitionDock[data-shelf-transition-phase="closing"] {
+  .activeKnowledgeCardDock.shelfTransitionDock[data-shelf-transition-phase="closing"],
+  .activeKnowledgeCardDock.shelfTransitionDock[data-shelf-transition-phase="closingFallback"] {
     animation-duration: 1ms;
   }
 }

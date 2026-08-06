@@ -1248,6 +1248,18 @@
     inset 0 1px rgba(255, 255, 255, 0.34);
 }
 
+.draggableCardWindow > .studyCardDialog.flashcardPresentation {
+  max-height: min(460px, var(--card-window-max-height, calc(100vh - 320px)));
+}
+
+.draggableCardWindow .flashcardHeading {
+  padding-inline-start: 48px;
+}
+
+.draggableCardWindow .flashcardPin {
+  display: none;
+}
+
 .flashcardPresentation .studyCardHeader {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

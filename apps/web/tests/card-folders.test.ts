@@ -6,7 +6,8 @@ import {
   countCardsInFolderTree,
   descendantFolderIds,
   flattenCardFolders,
-  folderBreadcrumbs
+  folderBreadcrumbs,
+  isProtectedFolder
 } from "../lib/card-folders";
 import type { CardFolder, StudyCard } from "../lib/api";
 import { cardFixture, knowledgeFolderFixture } from "./fixtures";
@@ -33,4 +34,11 @@ test("folder helpers preserve hierarchy, paths, and recursive counts", () => {
     { id: knowledgeFolderFixture.id, depth: 0, path: "默认知识卡片" },
     { id: child.id, depth: 1, path: "默认知识卡片 / 方程" }
   ]);
+});
+
+test("system and paper-archive folders are protected", () => {
+  assert.equal(isProtectedFolder(knowledgeFolderFixture), true);
+  assert.equal(isProtectedFolder(child), false);
+  assert.equal(isProtectedFolder({ ...child, managed_kind: "paper_archive_root" }), true);
+  assert.equal(isProtectedFolder({ ...child, managed_kind: "paper_archive" }), true);
 });

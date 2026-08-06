@@ -1,11 +1,13 @@
 "use client";
 
 import {
+  Archive,
   BookOpen,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Files,
   Loader2,
   MessageSquarePlus,
   NotebookTabs,
@@ -23,7 +25,9 @@ const historyDateFormatter = new Intl.DateTimeFormat("zh-CN", {
   timeZone: "Asia/Shanghai"
 });
 
-export type WorkspaceNavigation = "start" | "history" | "knowledge" | "mistakes";
+export type WorkspaceContentNavigation = "start" | "history" | "mistake_collection";
+export type CardLibraryNavigation = "knowledge" | "mistakes";
+export type WorkspaceNavigation = WorkspaceContentNavigation | CardLibraryNavigation;
 
 type Props = {
   historyItems: SessionHistoryItem[];
@@ -66,6 +70,7 @@ export function SessionSidebar({
 }: Props) {
   const runningSessions = new Set(runningSessionIds);
   const [historyExpanded, setHistoryExpanded] = useState(true);
+  const [mistakeLibraryExpanded, setMistakeLibraryExpanded] = useState(true);
   const [historyQuery, setHistoryQuery] = useState("");
   const [expandedPaperIds, setExpandedPaperIds] = useState<Set<string>>(new Set());
   const normalizedQuery = historyQuery.trim().toLocaleLowerCase("zh-CN");
@@ -91,6 +96,16 @@ export function SessionSidebar({
     if (navigation === "start") onNewChat();
   }
 
+  function openHistoryCollection() {
+    setHistoryExpanded(true);
+    navigate("mistake_collection");
+  }
+
+  function openMistakeCollection() {
+    setMistakeLibraryExpanded(true);
+    navigate("mistake_collection");
+  }
+
   function togglePaper(paperId: string) {
     setExpandedPaperIds((current) => {
       const next = new Set(current);
@@ -110,13 +125,13 @@ export function SessionSidebar({
       </div>
 
       <nav className="primaryNavigation" aria-label="主要导航">
-        <button className={`primaryNavButton ${activeNavigation === "start" ? "active" : ""}`} type="button" onClick={() => navigate("start")} title="开始答疑">
+        <button className={`primaryNavButton ${activeNavigation === "start" ? "active" : ""}`} type="button" onClick={() => navigate("start")} aria-current={activeNavigation === "start" ? "page" : undefined} title="开始答疑">
           <MessageSquarePlus size={20} />
           <span className="sidebarNavLabel">开始答疑</span>
         </button>
         <div className={`historyNavigationGroup ${historyExpanded ? "expanded" : ""}`}>
           <div className={`historyNavigationRow ${activeNavigation === "history" ? "active" : ""}`}>
-            <button className="primaryNavButton historyNavigationMain" type="button" onClick={() => navigate("history")} title="历史搜题">
+            <button className="primaryNavButton historyNavigationMain" type="button" onClick={openHistoryCollection} title="打开历史搜题合集">
               <Clock3 size={20} />
               <span className="sidebarNavLabel">历史搜题</span>
             </button>
@@ -198,14 +213,53 @@ export function SessionSidebar({
             </section>
           ) : null}
         </div>
-        <button className={`primaryNavButton ${activeNavigation === "knowledge" ? "active" : ""}`} type="button" onClick={() => navigate("knowledge")} title="知识库">
+        <button className={`primaryNavButton ${activeNavigation === "knowledge" ? "active" : ""}`} type="button" onClick={() => navigate("knowledge")} aria-current={activeNavigation === "knowledge" ? "page" : undefined} title="知识库">
           <BookOpen size={20} />
           <span className="sidebarNavLabel">知识库</span>
         </button>
-        <button className={`primaryNavButton ${activeNavigation === "mistakes" ? "active" : ""}`} type="button" onClick={() => navigate("mistakes")} title="错题库">
-          <NotebookTabs size={20} />
-          <span className="sidebarNavLabel">错题库</span>
-        </button>
+        <div className={`mistakeNavigationGroup ${mistakeLibraryExpanded ? "expanded" : ""}`}>
+          <div className="mistakeNavigationRow">
+            <button className="primaryNavButton mistakeNavigationMain" type="button" onClick={openMistakeCollection} aria-label="错题库分组" title="打开错题合集">
+              <Archive size={20} />
+              <span className="sidebarNavLabel">错题库</span>
+            </button>
+            <button
+              className="mistakeTreeToggle"
+              type="button"
+              onClick={() => setMistakeLibraryExpanded((value) => !value)}
+              aria-expanded={mistakeLibraryExpanded}
+              aria-label={mistakeLibraryExpanded ? "收起错题库下级" : "展开错题库下级"}
+              title={mistakeLibraryExpanded ? "收起错题库下级" : "展开错题库下级"}
+            >
+              {mistakeLibraryExpanded ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
+            </button>
+          </div>
+          {mistakeLibraryExpanded ? (
+            <div className="mistakeNavigationChildren">
+              <button
+                className={`primaryNavButton mistakeChildNavButton ${activeNavigation === "mistake_collection" ? "active" : ""}`}
+                type="button"
+                onClick={() => navigate("mistake_collection")}
+                aria-current={activeNavigation === "mistake_collection" ? "page" : undefined}
+                title="错题合集"
+              >
+                <Files size={18} />
+                <span className="sidebarNavLabel">错题合集</span>
+              </button>
+              <button
+                className={`primaryNavButton mistakeChildNavButton ${activeNavigation === "mistakes" ? "active" : ""}`}
+                type="button"
+                onClick={() => navigate("mistakes")}
+                aria-current={activeNavigation === "mistakes" ? "page" : undefined}
+                aria-label="打开错题库"
+                title="打开错题库"
+              >
+                <NotebookTabs size={18} />
+                <span className="sidebarNavLabel">错题库</span>
+              </button>
+            </div>
+          ) : null}
+        </div>
       </nav>
 
       <div className="sidebarFooterNote">

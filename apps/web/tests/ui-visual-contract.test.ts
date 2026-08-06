@@ -13,9 +13,9 @@ const sha256 = (path: string) => createHash("sha256")
 
 const frozenFiles = new Map([
   ["components/StudyCardModal.tsx", "402310A5E188AF80806CD6627BC8E79F76607177F2B6567B2217C2DCF2090718"],
-  ["components/workspace/CardShelfTabs.tsx", "C08002FDF3A7D714CDDC115BB0DF60C66F3BAD758E4AEF53717C9BAFA4872B9B"],
-  ["components/workspace/StudyCardSidebar.tsx", "2785AAFA07648E5E11EFD2F7B4E42A8C7440BD31E8C38FDB9EB0A678F7FF59A0"],
-  ["hooks/useStudyCards.ts", "757676B985C123E0B48FF3A058A8A0810192720BBEEABD9621E53C83647A59DD"],
+  ["components/workspace/CardShelfTabs.tsx", "977F00E8C48617D094E2388E3413337B97398A225202F00A32901CF491EFC063"],
+  ["components/workspace/StudyCardSidebar.tsx", "32EF1C14C81C6E9877E36DA24B432A149B6D4F6ACF353DB7B7EA5114EF003AB6"],
+  ["hooks/useStudyCards.ts", "CBD75FD8B7932D9406F0B5131644E02F9114C345A7788640E33E7E3C0F85593C"],
   ["hooks/useSessionRuntime.ts", "8C96D17076D1840158ED4D51B52C5E0EE18F6F4B99F350D080D3335F32960697"]
 ]);
 
@@ -134,6 +134,7 @@ test("medium widths use full drawers and preserve responsive card flow", () => {
   const css = text("styles/responsive.css");
   const page = text("app/page.tsx");
   const timeline = text("components/workspace/MessageTimeline.tsx");
+  const draggableCard = text("components/workspace/DraggableCardWindow.tsx");
 
   assert.match(css, /@media \(max-width: 1319px\) and \(min-width: 761px\)/);
   assert.match(
@@ -154,7 +155,8 @@ test("medium widths use full drawers and preserve responsive card flow", () => {
     css,
     /@media \(min-width: 761px\) and \(max-width: 900px\)[\s\S]*?\.activeKnowledgeCardDock\s*\{[\s\S]*?position:\s*relative/
   );
-  assert.match(timeline, /matchMedia\("\(max-width: 900px\)"\)/);
+  assert.match(draggableCard, /matchMedia\("\(min-width: 901px\)"\)/);
+  assert.doesNotMatch(timeline, /floatingObstacle|avoidsKnowledgeCard/);
 });
 
 test("shelf card state machine transfers focus and restores the source trigger", () => {
@@ -162,7 +164,7 @@ test("shelf card state machine transfers focus and restores the source trigger",
 
   assert.match(
     page,
-    /type ShelfCardTransitionPhase = "idle" \| "preparing" \| "opening" \| "open" \| "closing"/
+    /type ShelfCardTransitionPhase =[\s\S]*?\| "closing"[\s\S]*?\| "closingFallback";/
   );
   assert.match(
     page,
@@ -173,12 +175,18 @@ test("shelf card state machine transfers focus and restores the source trigger",
   assert.match(page, /setShelfCardTransitionPhase\("opening"\)/);
   assert.match(page, /setShelfCardTransitionPhase\("open"\)/);
   assert.match(page, /setShelfCardTransitionPhase\("closing"\)/);
+  assert.match(page, /setShelfCardTransitionPhase\("closingFallback"\)/);
   assert.match(page, /setShelfCardTransitionPhase\("idle"\)/);
   assert.match(page, /event\.target !== event\.currentTarget/);
+  assert.match(page, /event\.animationName === "shelfCardOpen"/);
+  assert.match(page, /event\.animationName === "shelfCardClose"/);
+  assert.match(page, /event\.animationName === "shelfCardFadeClose"/);
   assert.match(page, /shelfCardTriggerRef/);
-  assert.match(page, /querySelector<HTMLElement>\('\[aria-label="关闭卡片"\]'\)/);
+  assert.match(page, /cardWindowRef\.current\?\.focusHandle\(\)/);
+  assert.match(page, /consumeOffsetAndReset\(\)/);
+  assert.match(page, /cardPanelToggleRef/);
   assert.match(page, /restoreShelfCardFocus\(\)/);
-  assert.match(page, /inert=\{displayedDockCardIsArchived && shelfCardTransitionPhase === "closing"/);
+  assert.match(page, /inert=\{displayedDockCardIsArchived && \(/);
 });
 
 test("production build keeps the direction contract injector wired", () => {
@@ -267,7 +275,7 @@ test("history workspace reuses C4 tokens and responsive paper grids", () => {
   );
   assert.match(
     shell,
-    /\.historyTreeToggle\s*\{[\s\S]*?width:\s*44px;[\s\S]*?height:\s*44px/
+    /\.historyTreeToggle,\s*\.mistakeTreeToggle\s*\{[\s\S]*?width:\s*44px;[\s\S]*?height:\s*44px/
   );
   assert.match(
     shell,

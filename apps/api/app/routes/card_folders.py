@@ -24,6 +24,7 @@ def folder_from_row(row) -> CardFolderPublic:
         parent_id=row["parent_id"],
         is_system=bool(row["is_system"]),
         default_card_type=row["default_card_type"],
+        managed_kind=row["managed_kind"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -47,6 +48,8 @@ def create_card_folder(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="上级文件夹不存在") from exc
+    except CardFolderProtectedError as exc:
+        raise HTTPException(status_code=409, detail="受管归档根目录不允许新建普通文件夹") from exc
     except CardFolderConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return folder_from_row(row)
@@ -70,7 +73,7 @@ def update_card_folder(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="文件夹或上级文件夹不存在") from exc
     except CardFolderProtectedError as exc:
-        raise HTTPException(status_code=409, detail="默认文件夹不能重命名或移动") from exc
+        raise HTTPException(status_code=409, detail="受保护文件夹不能重命名或移动") from exc
     except CardFolderConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return folder_from_row(row)
@@ -83,7 +86,7 @@ def delete_card_folder(folder_id: str, request: Request) -> Response:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="文件夹不存在") from exc
     except CardFolderProtectedError as exc:
-        raise HTTPException(status_code=409, detail="默认文件夹不能删除") from exc
+        raise HTTPException(status_code=409, detail="受保护文件夹不能删除") from exc
     except CardFolderNotEmptyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(status_code=204)

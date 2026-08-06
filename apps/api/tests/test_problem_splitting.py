@@ -202,7 +202,7 @@ def test_image_batch_requires_an_existing_exam_paper(tmp_path: Path):
 
     assert missing.status_code == 422
     assert unknown.status_code == 400
-    assert unknown.json()["detail"] == "所选试卷不存在"
+    assert unknown.json()["detail"] == "所选试卷已不存在，请重新选择"
     assert client.get("/api/sessions/history").json()["sessions"] == []
 
 

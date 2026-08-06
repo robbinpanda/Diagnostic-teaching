@@ -98,6 +98,7 @@ export type CardFolder = {
   parent_id?: string | null;
   is_system: boolean;
   default_card_type?: "knowledge_card" | "problem_card" | null;
+  managed_kind?: "paper_archive_root" | "paper_archive" | null;
   created_at: string;
   updated_at: string;
 };
@@ -191,6 +192,7 @@ export type SessionStartInput = {
 export type ExamPaper = {
   id: string;
   name: string;
+  card_folder_id: string;
   session_count: number;
   created_at: string;
   updated_at: string;

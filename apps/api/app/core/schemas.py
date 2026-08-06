@@ -370,6 +370,7 @@ class ExamPaperCreateRequest(BaseModel):
 class ExamPaperPublic(BaseModel):
     id: str
     name: str
+    card_folder_id: str
     session_count: int = 0
     created_at: str
     updated_at: str
@@ -556,6 +557,7 @@ class CardFolderPublic(BaseModel):
     parent_id: str | None = None
     is_system: bool = False
     default_card_type: Literal["knowledge_card", "problem_card"] | None = None
+    managed_kind: Literal["paper_archive_root", "paper_archive"] | None = None
     created_at: str
     updated_at: str
 

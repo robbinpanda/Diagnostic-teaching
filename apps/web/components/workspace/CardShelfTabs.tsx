@@ -8,7 +8,11 @@ type Props = {
   cards: StudyCard[];
   sessionId: string;
   activeCardId?: string | null;
-  onOpenCard: (card: StudyCard, origin: DOMRectReadOnly) => void;
+  onOpenCard: (
+    card: StudyCard,
+    origin: DOMRectReadOnly,
+    trigger: HTMLButtonElement
+  ) => void;
 };
 
 export function CardShelfTabs({ cards, sessionId, activeCardId, onOpenCard }: Props) {
@@ -45,7 +49,7 @@ export function CardShelfTabs({ cards, sessionId, activeCardId, onOpenCard }: Pr
             type="button"
             style={style}
             data-shelf-card-id={card.id}
-            onClick={(event) => onOpenCard(card, event.currentTarget.getBoundingClientRect())}
+            onClick={(event) => onOpenCard(card, event.currentTarget.getBoundingClientRect(), event.currentTarget)}
             title={`查看${knowledge ? "知识" : "题目"}卡片：${card.content.title}`}
             aria-label={`查看${knowledge ? "知识" : "题目"}卡片：${card.content.title}`}
           >

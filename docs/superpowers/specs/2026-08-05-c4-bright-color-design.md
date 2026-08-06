@@ -1,6 +1,8 @@
 # C4 明亮高彩色彩调整设计
 
-状态：用户确认（2026-08-05）
+状态：用户确认（2026-08-05；交互冻结仅适用于本次调色任务）
+
+> **后续规格说明（2026-08-06）：** [`2026-08-06-mistake-library-workspace-design.md`](./2026-08-06-mistake-library-workspace-design.md) 继续使用本文 C4 色彩与视觉令牌，但已获准修改卡片状态、测量和动画接线以增加可拖动窗口。本文“不改交互/冻结哈希”只记录调色任务本身的边界，不是现行全局禁令。
 
 ## 1. 目标
 
@@ -132,11 +134,11 @@ linear-gradient(122deg, #c6edc3 0%, #fffce9 51%, #eae4f5 100%)
 - `apps/web/tests/workspace-components.test.tsx`
 - `DESIGN.md`
 
-不得为了调色改写 `StudyCardModal.tsx`、`CardShelfTabs.tsx`、`StudyCardSidebar.tsx`、`useStudyCards.ts`、`useSessionRuntime.ts` 或 `page.tsx` 的卡片状态、测量、动画、翻面和焦点逻辑。
+不得为了本次调色改写 `StudyCardModal.tsx`、`CardShelfTabs.tsx`、`StudyCardSidebar.tsx`、`useStudyCards.ts`、`useSessionRuntime.ts` 或 `page.tsx` 的卡片状态、测量、动画、翻面和焦点逻辑。后续可拖动窗口规格已明确替代这一任务级冻结边界。
 
 ## 6. 验证与完成标准
 
-1. 冻结的卡片行为源文件哈希、卡签几何和 `480ms / 440ms` 时序测试继续通过。
+1. 本次调色提交要求冻结的卡片行为源文件哈希、卡签几何和 `480ms / 440ms` 时序测试通过；后续任务可更新哈希与交互接线，但继续保留卡签几何和 `480ms / 440ms` 动效语义。
 2. 色彩合同测试覆盖 C4 工作台令牌、环境渐变、向日葵题目卡和明亮薰衣草知识卡。
 3. `npm.cmd run lint`、`npm.cmd run typecheck`、`npm.cmd test` 和 `npm.cmd run build` 全部通过。
 4. 浏览器检查 `1440 × 900`、`1024 × 768`、`768 × 900`、`390 × 844`、`375 × 812`，页面不得横向溢出。
