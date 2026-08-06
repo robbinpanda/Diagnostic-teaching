@@ -29,6 +29,7 @@ type Props = {
   card: StudyCard | null;
   folders?: CardFolder[];
   onSave?: (card: StudyCard, folderId?: string) => void;
+  onCreatePaperFolder?: (name: string) => Promise<string | null>;
   onDiscard?: (card: StudyCard) => void;
   onClose?: () => void;
   busy?: boolean;
@@ -243,6 +244,7 @@ export function StudyCardModal({
   card,
   folders = [],
   onSave,
+  onCreatePaperFolder,
   onDiscard,
   onClose,
   busy = false,
@@ -268,9 +270,10 @@ export function StudyCardModal({
   const [showBack, setShowBack] = useState(false);
 
   useEffect(() => {
-    if (card && folders.length) {
-      setFolderId(card.folder_id || defaultFolderForCard(folders, card));
-    }
+    if (!card || !folders.length) return;
+    setFolderId((current) => current && folders.some((folder) => folder.id === current)
+      ? current
+      : card.folder_id || defaultFolderForCard(folders, card));
   }, [card, folders]);
 
   useEffect(() => {
@@ -378,7 +381,13 @@ export function StudyCardModal({
                 disabled={busy || (folders.length > 0 && !folderId)}
               >
                 {busy ? <Loader2 size={15} className="spin" /> : <Save size={15} />}
-                {busy ? "处理中" : isKnowledge ? "保存为知识卡片" : "保存为题目卡片"}
+                {busy
+                  ? "处理中"
+                  : libraryView
+                    ? (isKnowledge ? "保存修改" : "保存位置")
+                    : isKnowledge
+                      ? "保存为知识卡片"
+                      : "保存为题目卡片"}
               </button>
             ) : null}
             {onClose ? (
@@ -471,6 +480,18 @@ export function StudyCardModal({
       </header>
 
       {!collapsed && <>
+      {flashcard && onSave && folders.length > 0 ? (
+        <div className="flashcardFolderPlacement">
+          <FolderLocationSelect
+            folders={folders}
+            value={folderId}
+            onChange={setFolderId}
+            disabled={busy}
+            label={libraryView ? "重新归档到" : "保存到"}
+            onCreatePaperFolder={onCreatePaperFolder}
+          />
+        </div>
+      ) : null}
       {isKnowledge && knowledgeContent ? (
         editing && editable ? (
           <KnowledgeCardEditor content={knowledgeContent} onChange={(content) => {
@@ -608,7 +629,7 @@ export function StudyCardModal({
         <footer className="studyCardFooter">
           <div>
             <strong>{libraryView
-              ? "修改会直接更新这张已归档知识卡片"
+              ? (isKnowledge ? "修改会直接更新这张已归档知识卡片" : "可以重新选择这张题目卡片的归档试卷")
               : (isKnowledge ? "确认后才会进入知识卡片库" : "确认后才会进入题目卡片库")}</strong>
             <span>{libraryView
               ? "保存修改不会改变当前对话内容。"
@@ -617,12 +638,13 @@ export function StudyCardModal({
                 : (isKnowledge ? "保存或舍弃后，AI 都会接着当前对话继续讲解。" : "保存后，本轮答疑完成。")}</span>
             {validationError && <span className="cardValidationError" role="alert">{validationError}</span>}
           </div>
-          {!libraryView && onSave && folders.length > 0 && (
+          {onSave && folders.length > 0 && (
             <FolderLocationSelect
               folders={folders}
               value={folderId}
               onChange={setFolderId}
               disabled={busy}
+              onCreatePaperFolder={onCreatePaperFolder}
             />
           )}
           <div className="studyCardFooterActions">

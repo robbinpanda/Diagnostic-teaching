@@ -218,7 +218,7 @@ scripts\inspect-session.cmd sess_c4052d2538a6
 
 该脚本会自动定位 `ai4edu-tutor` Conda 环境，并读取 `.env` 中自定义的 `DATABASE_URL` 与 `SESSION_LOG_DIR`。
 
-你重点看八张表：
+你重点看十张表：
 
 1. `sessions`：`context_status`、当前教学阶段、题目/思路语义摘要、模型与可选原图。
 2. `session_inputs`：已可靠接纳的普通消息、checkpoint answer、卡片关闭继续命令，以及幂等键和首次结果。
@@ -226,8 +226,10 @@ scripts\inspect-session.cmd sess_c4052d2538a6
 4. `checkpoints`：每个检查点的问题、选项、正确答案、学生选择，以及产生它的 `source_action_id`。
 5. `card_folders`：卡片目录名称、父目录、系统默认目录标记与默认卡片类型。
 6. `study_cards`：全局知识/题目卡片内容、来源 session/action/message、`folder_id`，以及是否已由学生保存归档的 `saved_at`。
-7. `session_events`：按 session 严格递增的 durable change feed，用于有限历史、SSE 断线补发和事件顺序排查；它与 JSONL 诊断日志无关。
-8. `session_runs`：每次生成的 `run_id / client_run_id / attempt / status`、开始结束时间、最后提交 action 下标和结构化错误；`session_id + client_run_id` 唯一，防止响应丢失后重复启动 run。
+7. `mistake_sets`：用户保存或打印过的错题集名称与时间。
+8. `mistake_set_items`：错题集内按顺序保存的题目文字、题图和来源试卷快照；来源 session 删除后快照仍保留。
+9. `session_events`：按 session 严格递增的 durable change feed，用于有限历史、SSE 断线补发和事件顺序排查；它与 JSONL 诊断日志无关。
+10. `session_runs`：每次生成的 `run_id / client_run_id / attempt / status`、开始结束时间、最后提交 action 下标和结构化错误；`session_id + client_run_id` 唯一，防止响应丢失后重复启动 run。
 
 生成过程中可查询或显式停止当前 session：
 
@@ -240,7 +242,7 @@ POST /api/sessions/<session_id>/interrupt
 
 页面左侧会话栏直接读取 SQLite。点击一条会话会打开原 session，并恢复其 messages、待答 checkpoint 和待归档 card，不会因为查看而复制记录；需要显式创建实验分支时仍可调用 `POST /api/sessions/restore`。
 
-右侧卡片库点击已归档卡片后，会打开无暗色遮罩的浮动窗口；视口宽度 `>900px` 时可用专用把手拖动，`≤900px` 使用全宽安全位置，窗口外的对话仍可滚动和操作。知识卡片可点“修改内容”编辑，再点“保存修改”通过 `PUT /api/cards/<card_id>` 持久化；题目卡片只读。待归档知识卡片的“舍弃”需要连续点击“舍弃”和“确认舍弃”两次才会生效。
+右侧卡片库点击已归档卡片后，会打开无暗色遮罩的浮动窗口；视口宽度 `>900px` 时可拖动整张卡片的非交互区域，`≤900px` 使用全宽安全位置，窗口外的对话仍可滚动和操作。待归档和已归档卡片都可重新选择保存试卷，也可直接新建试卷文件夹；知识卡片还能点“修改”编辑内容，再通过 `PUT /api/cards/<card_id>` 持久化，题目卡片内容只读。待归档知识卡片的“舍弃”需要连续点击“舍弃”和“确认舍弃”两次才会生效。
 
 需要重置测试数据时：
 

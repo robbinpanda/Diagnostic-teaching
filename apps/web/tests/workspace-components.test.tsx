@@ -272,8 +272,11 @@ test("history bootstrap restoration yields to explicit navigation", () => {
   assert.ok(openHistorySource.indexOf("invalidateBootstrapNavigation();") < openHistorySource.indexOf("setHistoryView(null)"));
   assert.ok(startNewChatSource.indexOf("invalidateBootstrapNavigation();") < startNewChatSource.indexOf("setHistoryView(null)"));
   assert.ok(onNavigateSource.indexOf("invalidateBootstrapNavigation();") < onNavigateSource.indexOf('navigation === "mistake_collection"'));
-  assert.match(onNavigateSource, /setCardLibraryNavigation\(navigation\)/);
-  assert.match(onNavigateSource, /setContentNavigation\("mistake_collection"\)/);
+  assert.match(onNavigateSource, /setContentNavigation\(navigation\)/);
+  assert.match(onNavigateSource, /navigation === "mistake_collection"[\s\S]*?setHistoryView\(\{ mode: "overview" \}\)/);
+  assert.match(onNavigateSource, /navigation === "mistake_sets"[\s\S]*?setMistakeSetView\(\{ mode: "overview" \}\)/);
+  assert.match(onNavigateSource, /navigation === "knowledge"[\s\S]*?setKnowledgeView\(\{ mode: "overview" \}\)/);
+  assert.doesNotMatch(onNavigateSource, /setCardLibraryNavigation/);
 
   const refreshHistoryStart = pageSource.indexOf("async function refreshHistory()");
   const refreshHistoryEnd = pageSource.indexOf("async function refreshExamPapers()", refreshHistoryStart);
@@ -898,7 +901,7 @@ test("clearing sessions keeps collection ownership or returns a history session 
   assert.match(clearSource, /const clearingFromCollection = historyView !== null/);
   assert.match(clearSource, /setHistoryView\(clearingFromCollection \? \{ mode: "overview" \} : null\)/);
   assert.match(clearSource, /setContentNavigation\(clearingFromCollection \? "mistake_collection" : "start"\)/);
-  assert.match(clearSource, /setCardLibraryNavigation\(null\)/);
+  assert.doesNotMatch(clearSource, /setCardLibraryNavigation/);
   assert.match(clearSource, /setRightOpen\(false\)/);
 });
 
@@ -925,7 +928,10 @@ test("history quick tree remains while mistake library exposes two canonical chi
   assert.match(markup, /历史搜题/);
   assert.match(markup, /错题合集/);
   assert.match(markup, /aria-label="错题库分组"/);
-  assert.match(markup, /aria-label="打开错题库"/);
+  assert.match(markup, /aria-label="打开错题集"/);
+  assert.match(markup, /<div class="primaryNavButton historyNavigationMain" aria-label="历史搜题导航">/);
+  assert.doesNotMatch(markup, /<button[^>]*historyNavigationMain/);
+  assert.doesNotMatch(markup, /aria-label="打开错题库"/);
   assert.equal((markup.match(/aria-current="page"/g) ?? []).length, 1);
 });
 

@@ -955,7 +955,7 @@
   gap: 5px;
 }
 
-.folderLocationSelect > span {
+.folderLocationSelect > label {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -973,6 +973,76 @@
   color: var(--ink);
   background: #ffffff;
   font-size: 12px;
+}
+
+.folderLocationControl {
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 7px;
+}
+
+.folderLocationCreateToggle {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--accent-strong);
+  background: #f7faf8;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.folderLocationCreateToggle:hover:not(:disabled),
+.folderLocationCreateToggle:focus-visible:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.folderLocationCreateRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+}
+
+.folderLocationCreateRow input {
+  min-width: 0;
+  height: 38px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  outline: none;
+  padding: 0 10px;
+  color: var(--ink);
+  background: #ffffff;
+  font-size: 12px;
+}
+
+.folderLocationCreateRow input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.flashcardFolderPlacement {
+  padding: 0 18px 10px;
+}
+
+.flashcardFolderPlacement .folderLocationSelect {
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.flashcardFolderPlacement .folderLocationControl {
+  flex-wrap: wrap;
+}
+
+.flashcardFolderPlacement .folderLocationControl select {
+  flex: 1 1 190px;
 }
 
 .cardMoveBackdrop {
@@ -1017,6 +1087,14 @@
 
 .cardMoveDialog .folderLocationSelect select {
   width: 100%;
+}
+
+.cardMoveDialog .folderLocationControl {
+  flex-wrap: wrap;
+}
+
+.cardMoveDialog .folderLocationControl select {
+  flex: 1 1 220px;
 }
 
 .cardMoveDialog > footer {

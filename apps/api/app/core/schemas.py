@@ -380,6 +380,36 @@ class ExamPaperListResponse(BaseModel):
     papers: list[ExamPaperPublic]
 
 
+class MistakeSetCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80, pattern=r".*\S.*")
+    session_ids: list[str] = Field(min_length=1)
+
+
+class MistakeSetItemPublic(BaseModel):
+    id: str
+    source_session_id: str | None = None
+    source_paper_name: str | None = None
+    title: str
+    problem_text: str
+    problem_image_data_url: str | None = None
+    position: int
+    created_at: str
+
+
+class MistakeSetPublic(BaseModel):
+    id: str
+    name: str
+    items: list[MistakeSetItemPublic]
+    created_at: str
+    updated_at: str
+
+
+class MistakeSetListResponse(BaseModel):
+    mistake_sets: list[MistakeSetPublic]
+
+
 RunStatus = Literal["queued", "running", "completed", "failed", "interrupted"]
 
 

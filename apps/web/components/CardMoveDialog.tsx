@@ -13,9 +13,10 @@ type Props = {
   busy?: boolean;
   onClose: () => void;
   onMove: (card: StudyCard, folderId: string) => void;
+  onCreatePaperFolder?: (name: string) => Promise<string | null>;
 };
 
-export function CardMoveDialog({ card, folders, busy = false, onClose, onMove }: Props) {
+export function CardMoveDialog({ card, folders, busy = false, onClose, onMove, onCreatePaperFolder }: Props) {
   const [folderId, setFolderId] = useState("");
 
   useEffect(() => {
@@ -37,7 +38,14 @@ export function CardMoveDialog({ card, folders, busy = false, onClose, onMove }:
           </button>
         </header>
         <p>选择目标文件夹，卡片内容和来源记录不会改变。</p>
-        <FolderLocationSelect folders={folders} value={folderId} onChange={setFolderId} disabled={busy} label="移动到" />
+        <FolderLocationSelect
+          folders={folders}
+          value={folderId}
+          onChange={setFolderId}
+          disabled={busy}
+          label="移动到"
+          onCreatePaperFolder={onCreatePaperFolder}
+        />
         <footer>
           <button className="secondaryButton" type="button" onClick={onClose} disabled={busy}>取消</button>
           <button className="primaryButton" type="button" onClick={() => onMove(card, folderId)} disabled={busy || !folderId || folderId === card.folder_id}>

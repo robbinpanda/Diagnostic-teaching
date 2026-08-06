@@ -94,13 +94,6 @@
     transform: none !important;
   }
 
-  .cardWindowDragHandle {
-    display: none;
-  }
-
-  .draggableCardWindow .flashcardHeading {
-    padding-inline-start: 0;
-  }
 }
 
 @media (max-width: 760px) {
@@ -485,6 +478,7 @@
   .historyWorkspaceToolbar {
     width: 100%;
     margin-left: 0;
+    flex-wrap: wrap;
   }
 
   .historyWorkspaceSearch {
@@ -506,6 +500,15 @@
   .historyWorkspaceToolbar {
     width: 100%;
     margin-left: 0;
+    flex-wrap: wrap;
+  }
+
+  .historySelectionActions {
+    width: 100%;
+  }
+
+  .historySelectionActions .historyWorkspaceAction {
+    flex: 1;
   }
 
   .historyWorkspaceSearch {
@@ -531,6 +534,37 @@
   .historyQuestionRow {
     grid-template-columns: minmax(0, 1fr) 44px;
   }
+
+  .historyQuestionRow.selectionMode {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+  }
+
+  .mistakeSetPreviewToolbar {
+    align-items: stretch;
+    flex-wrap: wrap;
+    padding: var(--space-4);
+  }
+
+  .mistakeSetPreviewTitle {
+    flex-basis: calc(100% - 60px);
+  }
+
+  .mistakeSetPreviewActions {
+    width: 100%;
+  }
+
+  .mistakeSetPreviewActions button {
+    flex: 1;
+  }
+
+  .mistakeSetPreviewCanvas {
+    padding: var(--space-4);
+  }
+
+  .mistakeSetPreviewSheet {
+    min-height: 0;
+    padding: 28px 24px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -541,6 +575,18 @@
 
   .historyWorkspaceToolbar {
     flex-direction: column;
+  }
+
+  .folderLocationControl,
+  .folderLocationCreateRow {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .folderLocationControl select,
+  .folderLocationCreateToggle,
+  .folderLocationCreateRow .secondaryButton {
+    width: 100%;
   }
 
   .historyWorkspaceSearch,

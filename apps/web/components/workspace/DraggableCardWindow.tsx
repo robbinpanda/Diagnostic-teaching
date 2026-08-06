@@ -1,6 +1,5 @@
 "use client";
 
-import { GripVertical } from "lucide-react";
 import {
   forwardRef,
   useCallback,
@@ -70,7 +69,6 @@ export const DraggableCardWindow = forwardRef<DraggableCardWindowHandle, Props>(
     forwardedRef
   ) {
     const rootRef = useRef<HTMLDivElement>(null);
-    const handleRef = useRef<HTMLButtonElement>(null);
     const offsetRef = useRef<CardWindowPoint>(ZERO_OFFSET);
     const appliedOffsetRef = useRef<CardWindowPoint>(ZERO_OFFSET);
     const pendingOffsetRef = useRef<CardWindowPoint>(ZERO_OFFSET);
@@ -89,9 +87,9 @@ export const DraggableCardWindow = forwardRef<DraggableCardWindowHandle, Props>(
 
     const releaseActivePointer = useCallback(() => {
       const pointerId = dragSessionRef.current?.pointerId;
-      const handle = handleRef.current;
-      if (pointerId !== undefined && handle?.hasPointerCapture(pointerId)) {
-        handle.releasePointerCapture(pointerId);
+      const root = rootRef.current;
+      if (pointerId !== undefined && root?.hasPointerCapture(pointerId)) {
+        root.releasePointerCapture(pointerId);
       }
       dragSessionRef.current = null;
       rootRef.current?.removeAttribute("data-dragging");
@@ -122,7 +120,7 @@ export const DraggableCardWindow = forwardRef<DraggableCardWindowHandle, Props>(
 
     const focusHandle = useCallback(() => {
       const target = canDrag
-        ? handleRef.current
+        ? rootRef.current
         : rootRef.current?.querySelector<HTMLElement>(
             'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
           );
@@ -227,8 +225,12 @@ export const DraggableCardWindow = forwardRef<DraggableCardWindowHandle, Props>(
       }
     }, [cancelTransformFrame, releaseActivePointer]);
 
-    function handlePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
       if (!canDrag || !event.isPrimary || event.button !== 0) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest(
+        "button, input, select, textarea, a, [contenteditable='true'], [data-no-card-drag]"
+      )) return;
       dragSessionRef.current = {
         pointerId: event.pointerId,
         startClientX: event.clientX,
@@ -241,7 +243,7 @@ export const DraggableCardWindow = forwardRef<DraggableCardWindowHandle, Props>(
       event.preventDefault();
     }
 
-    function handlePointerMove(event: ReactPointerEvent<HTMLButtonElement>) {
+    function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
       const dragSession = dragSessionRef.current;
       if (!canDrag || !dragSession || dragSession.pointerId !== event.pointerId) return;
       scheduleOffset(clampedOffset({
@@ -251,14 +253,15 @@ export const DraggableCardWindow = forwardRef<DraggableCardWindowHandle, Props>(
       event.preventDefault();
     }
 
-    function finishPointerDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    function finishPointerDrag(event: ReactPointerEvent<HTMLDivElement>) {
       if (dragSessionRef.current?.pointerId !== event.pointerId) return;
       releaseActivePointer();
       scheduleReclamp();
     }
 
-    function handleHandleKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    function handleWindowMoveKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
       if (!canDrag) return;
+      if (event.target !== event.currentTarget) return;
       const command = cardWindowKeyboardCommand(event.key, event.shiftKey);
       if (!command) return;
       event.preventDefault();
@@ -273,18 +276,21 @@ export const DraggableCardWindow = forwardRef<DraggableCardWindowHandle, Props>(
     }
 
     function handleWindowKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-      if (event.key !== "Escape") return;
-      if (mode === "archived") {
-        if (!onArchivedEscape) return;
+      if (event.key === "Escape") {
+        if (mode === "archived") {
+          if (!onArchivedEscape) return;
+          event.preventDefault();
+          event.stopPropagation();
+          onArchivedEscape();
+          return;
+        }
+        if (!canDrag) return;
         event.preventDefault();
         event.stopPropagation();
-        onArchivedEscape?.();
+        reset({ focusHandle: true });
         return;
       }
-      if (!canDrag) return;
-      event.preventDefault();
-      event.stopPropagation();
-      reset({ focusHandle: true });
+      handleWindowMoveKeyDown(event);
     }
 
     return (
@@ -294,29 +300,22 @@ export const DraggableCardWindow = forwardRef<DraggableCardWindowHandle, Props>(
         data-card-id={cardId}
         data-card-window-mode={mode}
         data-drag-enabled={canDrag ? "true" : "false"}
-        onKeyDownCapture={handleWindowKeyDown}
+        tabIndex={canDrag ? 0 : undefined}
+        role="region"
+        aria-label={canDrag ? "可移动卡片窗口" : "卡片窗口"}
+        aria-describedby={canDrag ? instructionsId : undefined}
+        aria-keyshortcuts={canDrag
+          ? "ArrowUp ArrowDown ArrowLeft ArrowRight Shift+ArrowUp Shift+ArrowDown Shift+ArrowLeft Shift+ArrowRight Home"
+          : undefined}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={finishPointerDrag}
+        onPointerCancel={finishPointerDrag}
+        onLostPointerCapture={finishPointerDrag}
+        onKeyDown={handleWindowKeyDown}
       >
-        <button
-          ref={handleRef}
-          className="cardWindowDragHandle"
-          type="button"
-          disabled={!canDrag}
-          aria-hidden={canDrag ? undefined : true}
-          aria-label="移动卡片窗口"
-          aria-describedby={instructionsId}
-          aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Shift+ArrowUp Shift+ArrowDown Shift+ArrowLeft Shift+ArrowRight Home"
-          title="拖动卡片；方向键移动，Shift + 方向键微调，Home 复位"
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={finishPointerDrag}
-          onPointerCancel={finishPointerDrag}
-          onLostPointerCapture={finishPointerDrag}
-          onKeyDown={handleHandleKeyDown}
-        >
-          <GripVertical size={18} aria-hidden="true" />
-        </button>
         <span id={instructionsId} className="srOnly">
-          使用方向键移动卡片窗口，每次移动 16 像素；按住 Shift 使用方向键时每次移动 4 像素；按 Home 回到初始位置。
+          拖动卡片的非交互区域可以移动窗口。使用方向键每次移动 16 像素；按住 Shift 使用方向键时每次移动 4 像素；按 Home 回到初始位置。
         </span>
         {children}
       </div>

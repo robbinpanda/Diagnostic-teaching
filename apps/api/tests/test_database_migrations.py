@@ -282,7 +282,7 @@ def test_fresh_database_uses_alembic_and_sqlite_reliability_pragmas(tmp_path: Pa
         assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == SQLITE_BUSY_TIMEOUT_MS
         assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1
         assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == (
-            "0013_paper_archive_folders"
+            "0014_mistake_sets"
         )
         run_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(session_runs)")
@@ -323,6 +323,17 @@ def test_fresh_database_uses_alembic_and_sqlite_reliability_pragmas(tmp_path: Pa
             row["name"] for row in conn.execute("PRAGMA table_info(study_cards)")
         }
         assert "deferred_at" in card_columns
+        mistake_item_fks = {
+            (row["from"], row["table"], row["on_delete"])
+            for row in conn.execute("PRAGMA foreign_key_list(mistake_set_items)")
+        }
+        assert ("mistake_set_id", "mistake_sets", "CASCADE") in mistake_item_fks
+        assert ("source_session_id", "sessions", "SET NULL") in mistake_item_fks
+        mistake_item_indexes = {
+            row["name"] for row in conn.execute("PRAGMA index_list(mistake_set_items)")
+        }
+        assert "idx_mistake_set_items_set" in mistake_item_indexes
+        assert "idx_mistake_set_items_source" in mistake_item_indexes
         defaults = conn.execute(
             """
             SELECT name, default_card_type FROM card_folders
@@ -356,7 +367,7 @@ def test_paper_archive_migration_adopts_folders_and_backfills_cards_and_events(
     conn.execute("PRAGMA foreign_keys = ON")
     try:
         assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == (
-            "0013_paper_archive_folders"
+            "0014_mistake_sets"
         )
         folder_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(card_folders)")

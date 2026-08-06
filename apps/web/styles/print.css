@@ -30,6 +30,64 @@
     line-height: 1.58;
   }
 
+  .mistakeSetPrintRoot .mistakeSetDocumentQuestions {
+    display: grid;
+    gap: 6mm;
+    margin-top: 6mm;
+  }
+
+  .mistakeSetPrintRoot .mistakeSetDocumentQuestion {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .mistakeSetPrintRoot .mistakeSetDocumentQuestion > header {
+    display: grid;
+    grid-template-columns: 8mm minmax(0, 1fr);
+    align-items: start;
+    gap: 3mm;
+  }
+
+  .mistakeSetPrintRoot .mistakeSetDocumentQuestion > header > span {
+    width: 8mm;
+    height: 8mm;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: #ffffff;
+    background: #167f80;
+    font-size: 7.5pt;
+    font-weight: 800;
+  }
+
+  .mistakeSetPrintRoot .mistakeSetDocumentQuestion small {
+    display: block;
+    color: #167f80;
+    font-size: 7pt;
+    font-weight: 800;
+  }
+
+  .mistakeSetPrintRoot .mistakeSetDocumentQuestion h2 {
+    margin: 0.8mm 0 0;
+    color: #17272d;
+    font-size: 11pt;
+    line-height: 1.48;
+  }
+
+  .mistakeSetPrintRoot .mistakeSetQuestionText {
+    margin: 2.5mm 0 0 11mm;
+    font-size: 9pt;
+    line-height: 1.65;
+  }
+
+  .mistakeSetPrintRoot .mistakeSetDocumentQuestion img {
+    display: block;
+    max-width: calc(100% - 11mm);
+    max-height: 112mm;
+    margin: 3mm 0 0 11mm;
+    object-fit: contain;
+  }
+
   .knowledgeCardPrintHeader {
     display: flex;
     align-items: flex-end;

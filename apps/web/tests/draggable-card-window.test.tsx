@@ -11,7 +11,7 @@ import { cardFixture, knowledgeFolderFixture } from "./fixtures";
 
 const source = (path: string) => readFileSync(resolve(__dirname, `../../../${path}`), "utf8");
 
-test("draggable card window renders one dedicated accessible drag handle", () => {
+test("draggable card window makes the whole non-interactive card surface draggable", () => {
   const markup = renderToStaticMarkup(
     <DraggableCardWindow
       cardId={cardFixture.id}
@@ -24,12 +24,14 @@ test("draggable card window renders one dedicated accessible drag handle", () =>
     </DraggableCardWindow>
   );
 
-  assert.equal((markup.match(/cardWindowDragHandle/g) ?? []).length, 1);
+  assert.equal((markup.match(/cardWindowDragHandle/g) ?? []).length, 0);
   assert.match(markup, /data-card-window-mode="pending"/);
-  assert.match(markup, /aria-label="移动卡片窗口"/);
-  assert.match(markup, /aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Shift\+ArrowUp Shift\+ArrowDown Shift\+ArrowLeft Shift\+ArrowRight Home"/);
-  assert.match(markup, /使用方向键移动卡片窗口/);
+  assert.match(markup, /role="region"/);
+  assert.match(markup, /aria-label="卡片窗口"/);
+  assert.doesNotMatch(markup, /移动卡片窗口/);
+  assert.match(markup, /使用方向键每次移动 16 像素/);
   assert.match(markup, /卡片内容/);
+  assert.match(source("components/workspace/DraggableCardWindow.tsx"), /aria-keyshortcuts=\{canDrag/);
 });
 
 test("draggable card window isolates pointer motion and escape semantics", () => {
@@ -44,7 +46,7 @@ test("draggable card window isolates pointer motion and escape semantics", () =>
   assert.match(component, /\[boundsKey, boundsRef,/);
   assert.match(component, /removeProperty\("--card-window-max-height"\)/);
   assert.match(component, /mode === "archived"/);
-  assert.match(component, /onArchivedEscape\?\.\(\)/);
+  assert.match(component, /onArchivedEscape\(\)/);
   assert.match(component, /focusHandle: true/);
   assert.match(component, /button:not\(:disabled\)/);
 });
@@ -54,10 +56,8 @@ test("drag styles preserve outer FLIP and collapse safely at 900px", () => {
   const dialogs = source("styles/dialogs.css");
   const responsive = source("styles/responsive.css");
 
-  assert.match(
-    conversation,
-    /\.cardWindowDragHandle\s*\{[\s\S]*?width:\s*44px;[\s\S]*?height:\s*44px;[\s\S]*?touch-action:\s*none;/
-  );
+  assert.match(conversation, /\.draggableCardWindow\s*\{[\s\S]*?cursor:\s*grab;[\s\S]*?touch-action:\s*none;/);
+  assert.doesNotMatch(conversation, /\.cardWindowDragHandle\b/);
   assert.match(
     conversation,
     /@keyframes shelfCardClose[\s\S]*?var\(--shelf-close-start-x, 0px\)[\s\S]*?var\(--shelf-motion-x\)/
@@ -65,12 +65,14 @@ test("drag styles preserve outer FLIP and collapse safely at 900px", () => {
   assert.match(conversation, /@keyframes shelfCardFadeClose[\s\S]*?opacity:\s*0;/);
   assert.match(conversation, /@keyframes reducedCardDockEnter[\s\S]*?transform:\s*none;/);
   assert.match(conversation, /\.activeKnowledgeCardDock > \.draggableCardWindow\s*\{[\s\S]*?pointer-events:\s*auto;/);
-  assert.match(dialogs, /\.draggableCardWindow \.flashcardPin\s*\{[\s\S]*?display:\s*none;/);
+  assert.match(dialogs, /\.flashcardPin\s*\{[\s\S]*?background:\s*rgba\(70, 79, 74, 0\.34\)/);
+  assert.doesNotMatch(dialogs, /\.draggableCardWindow \.flashcardPin\s*\{[\s\S]*?display:\s*none;/);
   assert.match(dialogs, /--card-window-max-height/);
   assert.match(
     responsive,
-    /@media \(max-width: 900px\)[\s\S]*?\.draggableCardWindow\s*\{[\s\S]*?transform:\s*none !important;[\s\S]*?\.cardWindowDragHandle\s*\{[\s\S]*?display:\s*none;/
+    /@media \(max-width: 900px\)[\s\S]*?\.draggableCardWindow\s*\{[\s\S]*?transform:\s*none !important;/
   );
+  assert.doesNotMatch(responsive, /\.cardWindowDragHandle\b/);
 });
 
 test("card launchers expose their exact trigger and origin rectangle", () => {

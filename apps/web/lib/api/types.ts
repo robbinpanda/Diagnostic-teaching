@@ -198,6 +198,25 @@ export type ExamPaper = {
   updated_at: string;
 };
 
+export type MistakeSetItem = {
+  id: string;
+  source_session_id?: string | null;
+  source_paper_name?: string | null;
+  title: string;
+  problem_text: string;
+  problem_image_data_url?: string | null;
+  position: number;
+  created_at: string;
+};
+
+export type MistakeSet = {
+  id: string;
+  name: string;
+  items: MistakeSetItem[];
+  created_at: string;
+  updated_at: string;
+};
+
 export type SessionInputAcceptance = {
   input_id: string;
   kind: "STUDENT_MESSAGE" | "CARD_DISMISSED_CONTINUE";

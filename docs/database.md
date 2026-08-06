@@ -68,6 +68,11 @@ python -m alembic -c alembic.ini upgrade head
 `0013_paper_archive_folders` 在 `0012_merge_exam_run_heads` 之后增加受管试卷归档：
 
 - `card_folders.managed_kind` 与 `managed_key` 必须同时为空或同时非空；受管类型仅有 `paper_archive_root` 和 `paper_archive`，非空 key 使用大小写不敏感的条件唯一索引。
+
+`0014_mistake_sets` 在受管试卷归档之后增加可打印错题集快照：
+
+- `mistake_sets` 保存集合名称与创建/更新时间；`mistake_set_items` 按 `position` 保存题目文字、题图和来源试卷名称。
+- `source_session_id` 使用 `ON DELETE SET NULL`，因此清理历史 session 不会破坏已经保存或打印过的错题集。
 - 根目录显示名为“按试卷归档”，稳定身份是 `paper-archive-root:v1`；每份试卷子目录的 key 为 `paper-archive:v1:` 加清理后的试卷名，仅把 ASCII `A-Z` 映射为 `a-z`，与 `exam_papers(name COLLATE NOCASE)` 的身份语义一致。运行时代码按 key 查找，不依赖固定 folder ID。
 - 若升级前已有同名普通根或根下同名普通子目录，迁移原位认领并保留其 ID、卡片和子目录。受管根/子目录不可重命名、移动或删除，但卡片仍可移入、移出、复制和删除；删除试卷不清理受管目录。
 - `exam_papers.card_folder_id` 是非空外键并带唯一索引。同名试卷删除后重建会获得新的 paper ID，但复用原 card folder ID 和其中旧卡；并发创建同名试卷仍只产生一个活动试卷与一个受管目录。
@@ -116,4 +121,4 @@ foreign keys 是连接级开关，因此不能只在建库时设置。WAL 是数
 python -m alembic -c alembic.ini revision -m "describe change"
 ```
 
-编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。当前迁移链在层级 `card_folders` 后分为两条兼容分支：checkpoint free text → nonblocking cards，以及 reasoning effort → reasoning effort levels → protocol probe；`0010_merge_feature_heads` 先将这两条迁移头合并。其后并行产生 `0011_exam_papers`（新增试卷归属）与 `0011_client_run_id`（为 `session_runs` 增加稳定客户端生成身份和 `(session_id, client_run_id)` 唯一索引），再由 `0012_merge_exam_run_heads` 合并二者；`0013_paper_archive_folders` 在此基础上增加稳定受管目录和 `exam_papers.card_folder_id`。后续 schema 应以 `0013_paper_archive_folders` 为 `down_revision`。
+编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。当前迁移链在层级 `card_folders` 后分为两条兼容分支：checkpoint free text → nonblocking cards，以及 reasoning effort → reasoning effort levels → protocol probe；`0010_merge_feature_heads` 先将这两条迁移头合并。其后并行产生 `0011_exam_papers`（新增试卷归属）与 `0011_client_run_id`（为 `session_runs` 增加稳定客户端生成身份和 `(session_id, client_run_id)` 唯一索引），再由 `0012_merge_exam_run_heads` 合并二者；`0013_paper_archive_folders` 增加稳定受管目录和 `exam_papers.card_folder_id`，`0014_mistake_sets` 再增加可独立恢复的打印错题集快照。后续 schema 应以 `0014_mistake_sets` 为 `down_revision`。
