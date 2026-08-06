@@ -1366,7 +1366,7 @@
 
 .studyCardDialog.knowledgeFlashcard.flashcardPresentation {
   max-height: min(430px, calc(100vh - 320px));
-  background-color: color-mix(in srgb, var(--flashcard-bg, #8fce77) 64%, rgba(247, 252, 243, 0.58));
+  background-color: color-mix(in srgb, var(--flashcard-bg, #8fce77) 64%, rgba(247, 252, 243, 0.72));
   background-image:
     radial-gradient(circle at 16% -10%, rgba(255, 255, 255, 0.38), transparent 45%),
     linear-gradient(145deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.04) 48%, rgba(30, 91, 39, 0.1) 100%);
