@@ -253,11 +253,22 @@ test("history bootstrap restoration yields to explicit navigation", () => {
   const openHistoryStart = pageSource.indexOf("function handleOpenHistorySession(");
   const startNewChatStart = pageSource.indexOf("function handleStartNewChat()", openHistoryStart);
   const deleteSessionStart = pageSource.indexOf("async function handleDeleteSession", startNewChatStart);
+  const openSessionStart = pageSource.indexOf("async function handleOpenSession(");
+  const openSessionEnd = pageSource.indexOf("function handleOpenHistoryPaper(", openSessionStart);
   const onNavigateStart = pageSource.indexOf("onNavigate={(navigation) => {");
   const onNavigateEnd = pageSource.indexOf("onOpenSession={handleOpenHistorySession}", onNavigateStart);
+  assert.ok(openSessionStart >= 0);
+  assert.ok(openSessionEnd > openSessionStart);
   const openHistorySource = pageSource.slice(openHistoryStart, startNewChatStart);
+  const openSessionSource = pageSource.slice(openSessionStart, openSessionEnd);
   const startNewChatSource = pageSource.slice(startNewChatStart, deleteSessionStart);
   const onNavigateSource = pageSource.slice(onNavigateStart, onNavigateEnd);
+  assert.match(
+    openHistorySource,
+    /setHistoryView\(null\);[\s\S]*?setActiveNavigation\("start"\);[\s\S]*?void handleOpenSession\(targetSessionId\);/
+  );
+  assert.doesNotMatch(openHistorySource, /handleStartNewChat\(/);
+  assert.doesNotMatch(openSessionSource, /setActiveNavigation\(/);
   assert.ok(openHistorySource.indexOf("invalidateBootstrapNavigation();") < openHistorySource.indexOf("setHistoryView(null)"));
   assert.ok(startNewChatSource.indexOf("invalidateBootstrapNavigation();") < startNewChatSource.indexOf("setHistoryView(null)"));
   assert.ok(onNavigateSource.indexOf("invalidateBootstrapNavigation();") < onNavigateSource.indexOf("setActiveNavigation(navigation)"));

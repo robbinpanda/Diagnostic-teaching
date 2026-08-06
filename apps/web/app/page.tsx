@@ -731,7 +731,6 @@ export default function Home() {
       const opened = await fetchSession(nextSessionId);
       if (openSessionRequestRef.current !== requestId) return;
       runtime.loadSession(opened);
-      setActiveNavigation("history");
       setSelectedProfileId(opened.model_profile_id);
       setGradeBand(opened.grade_band);
       saveActiveSessionId(window.localStorage, opened.session_id);
@@ -765,7 +764,7 @@ export default function Home() {
   function handleOpenHistorySession(targetSessionId: string) {
     invalidateBootstrapNavigation();
     setHistoryView(null);
-    setActiveNavigation("history");
+    setActiveNavigation("start");
     setRightOpen(false);
     void handleOpenSession(targetSessionId);
   }
