@@ -1,4 +1,7 @@
 import base64
+import hashlib
+import json
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
 
@@ -8,6 +11,7 @@ from PIL import Image
 from app.core.schemas import ModelProfileCreate
 from app.llm.provider import IMAGE_PROBLEM_DETECTION_PROMPT
 from app.main import create_app
+from app.services.input_acceptance_models import canonical_json
 from app.storage.database import Database
 from app.storage.repositories import ModelProfileRepository, SessionRepository
 from app.storage.security import SecretBox
@@ -108,12 +112,16 @@ def test_image_detection_returns_editable_normalized_region(tmp_path: Path):
 
 def test_confirmed_image_regions_are_cropped_into_equal_number_of_sessions(tmp_path: Path):
     client, profile_id = _client_and_profile(tmp_path)
+    paper_response = client.post("/api/exam-papers", json={"name": "高一期中模拟卷"})
+    assert paper_response.status_code == 201
+    paper = paper_response.json()
     response = client.post(
         "/api/sessions/image-batch-start",
         json={
             "grade_band": "senior",
             "subject": "math",
             "model_profile_id": profile_id,
+            "paper_id": paper["id"],
             "source_image_data_url": _image_data_url(),
             "items": [
                 {
@@ -132,7 +140,32 @@ def test_confirmed_image_regions_are_cropped_into_equal_number_of_sessions(tmp_p
 
     assert response.status_code == 200
     assert len(response.json()["sessions"]) == 2
-    assert len(client.get("/api/sessions/history").json()["sessions"]) == 2
+    history = client.get("/api/sessions/history").json()["sessions"]
+    assert len(history) == 2
+    assert {item["paper_id"] for item in history} == {paper["id"]}
+    assert {item["paper_name"] for item in history} == {"高一期中模拟卷"}
+    duplicate_paper = client.post("/api/exam-papers", json={"name": "高一期中模拟卷"})
+    assert duplicate_paper.status_code == 201
+    assert duplicate_paper.json()["id"] == paper["id"]
+    assert duplicate_paper.json()["session_count"] == 2
+    listed_paper = next(
+        item
+        for item in client.get("/api/exam-papers").json()["papers"]
+        if item["id"] == paper["id"]
+    )
+    assert listed_paper["session_count"] == 2
+
+    restored = client.post(
+        "/api/sessions/restore",
+        json={
+            "session_id": "sess_11111111111111111111111111111111",
+            "model_profile_id": profile_id,
+        },
+    )
+    assert restored.status_code == 200
+    assert restored.json()["paper_id"] == paper["id"]
+    assert restored.json()["paper_name"] == "高一期中模拟卷"
+
     crop_sizes = []
     for session_id in (
         "sess_11111111111111111111111111111111",
@@ -143,6 +176,50 @@ def test_confirmed_image_regions_are_cropped_into_equal_number_of_sessions(tmp_p
         with Image.open(BytesIO(base64.b64decode(encoded))) as image:
             crop_sizes.append(image.size)
     assert crop_sizes == [(50, 40), (50, 50)]
+
+
+def test_image_batch_requires_an_existing_exam_paper(tmp_path: Path):
+    client, profile_id = _client_and_profile(tmp_path)
+    request = {
+        "grade_band": "senior",
+        "subject": "math",
+        "model_profile_id": profile_id,
+        "source_image_data_url": _image_data_url(),
+        "items": [
+            {
+                "session_id": "sess_77777777777777777777777777777777",
+                "client_message_id": "image-paper-required",
+                "bbox": {"x": 0, "y": 0, "width": 0.5, "height": 0.5},
+            }
+        ],
+    }
+
+    missing = client.post("/api/sessions/image-batch-start", json=request)
+    unknown = client.post(
+        "/api/sessions/image-batch-start",
+        json={**request, "paper_id": "paper_aaaaaaaaaaaa"},
+    )
+
+    assert missing.status_code == 422
+    assert unknown.status_code == 400
+    assert unknown.json()["detail"] == "所选试卷不存在"
+    assert client.get("/api/sessions/history").json()["sessions"] == []
+
+
+def test_concurrent_same_name_exam_paper_creation_returns_one_paper(tmp_path: Path):
+    client, _ = _client_and_profile(tmp_path)
+
+    def create_paper(_: int):
+        return client.app.state.sessions.create_exam_paper("并发期中卷")
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        papers = list(executor.map(create_paper, range(16)))
+
+    assert len({paper["id"] for paper in papers}) == 1
+    listed = client.get("/api/exam-papers").json()["papers"]
+    assert [(paper["name"], paper["session_count"]) for paper in listed] == [
+        ("并发期中卷", 0)
+    ]
 
 
 def test_text_batch_start_is_grouped_and_idempotent(tmp_path: Path):
@@ -171,6 +248,45 @@ def test_text_batch_start_is_grouped_and_idempotent(tmp_path: Path):
     assert [item["status"] for item in first.json()["sessions"]] == ["accepted", "accepted"]
     assert [item["status"] for item in second.json()["sessions"]] == ["duplicate", "duplicate"]
     assert len(client.get("/api/sessions/history").json()["sessions"]) == 2
+
+
+def test_paperless_start_retry_accepts_legacy_fingerprint(tmp_path: Path):
+    client, profile_id = _client_and_profile(tmp_path)
+    request = _start_payload(
+        profile_id,
+        "sess_88888888888888888888888888888888",
+        "legacy-paperless-start",
+        "求 $x+2=3$ 的解。",
+    )
+    first = client.post("/api/sessions/start", json=request)
+    assert first.status_code == 200
+
+    legacy_fingerprint_payload = {
+        "grade_band": request["grade_band"],
+        "subject": request["subject"],
+        "model_profile_id": request["model_profile_id"],
+        "problem_text": request["problem_text"],
+        "student_initial_thought": request["student_initial_thought"],
+        "problem_image_sha256": hashlib.sha256(b"").hexdigest(),
+    }
+    legacy_fingerprint = hashlib.sha256(
+        canonical_json(legacy_fingerprint_payload).encode("utf-8")
+    ).hexdigest()
+    with client.app.state.db.connect() as conn:
+        row = conn.execute(
+            "SELECT result_json FROM session_inputs WHERE session_id = ?",
+            (request["session_id"],),
+        ).fetchone()
+        result = json.loads(row["result_json"])
+        result["start_fingerprint"] = legacy_fingerprint
+        conn.execute(
+            "UPDATE session_inputs SET result_json = ? WHERE session_id = ?",
+            (canonical_json(result), request["session_id"]),
+        )
+
+    retried = client.post("/api/sessions/start", json=request)
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "duplicate"
 
 
 def test_batch_start_rolls_back_new_sessions_when_a_later_item_conflicts(tmp_path: Path):

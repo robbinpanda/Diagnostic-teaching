@@ -4,6 +4,12 @@
 
 ## 未发布
 
+### 试卷分组历史与会话卡片隔离
+
+- 新增 `exam_papers`、`sessions.paper_id` 与 Alembic `0011_exam_papers`；提供 `GET/POST /api/exam-papers`，图片框选确认时可选择已有试卷或创建新试卷，同批裁剪题目共享该归属。
+- 历史搜题改为可折叠、可滚动的“试卷 → 题目”树；旧会话统一显示在“未分类题目”，会话历史与显式恢复响应同时返回 `paper_id/paper_name`。
+- 会话顶部已收纳卡片标签按来源 `session_id` 过滤，首页和其他题目不再显示不属于当前题目的卡片。
+
 ### SQLite 关键写事务有限重放
 
 - 连接原有 5 秒 `busy_timeout` 之后，关键输入接纳、run 生命周期、session event 和完整 assistant action 写入对 `SQLITE_BUSY/LOCKED` 再执行两次有限重放（50ms、150ms）。

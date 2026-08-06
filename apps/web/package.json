@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && node scripts/inject-design-contract.mjs",
     "test": "node -e \"require('node:fs').rmSync('dist/test',{recursive:true,force:true})\" && tsc -p tsconfig.test.json && node --test dist/test/tests/*.test.js",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",

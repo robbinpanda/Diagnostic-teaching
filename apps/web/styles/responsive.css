@@ -2,37 +2,108 @@
   to { transform: rotate(360deg); }
 }
 
-@media (max-width: 1120px) {
+@media (max-width: 1319px) and (min-width: 761px) {
   .appShell,
-  .appShell.rightClosed {
-    grid-template-columns: 238px minmax(0, 1fr);
+  .appShell.leftClosed,
+  .appShell.rightClosed,
+  .appShell.leftClosed.rightClosed {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .appShell.leftClosed,
-  .appShell.leftClosed.rightClosed {
-    grid-template-columns: 0 minmax(0, 1fr);
+  .conversationPanel {
+    grid-column: 1;
+  }
+
+  .appShell:not(.responsiveReady) .sessionSidebar,
+  .appShell:not(.responsiveReady) .cardSidebar {
+    visibility: hidden;
+    opacity: 0;
+  }
+
+  .appShell:not(.responsiveReady) .mobileScrim {
+    display: none;
+  }
+
+  .mobileScrim {
+    position: fixed;
+    inset: calc(var(--shell-inset) + var(--shell-topbar)) var(--shell-inset) var(--shell-inset);
+    z-index: 11;
+    display: block;
+    border: 0;
+    border-radius: 0 0 calc(var(--shell-radius) - 1px) calc(var(--shell-radius) - 1px);
+    background: rgba(32, 43, 35, 0.2);
+    backdrop-filter: blur(2px);
+  }
+
+  .sessionSidebar {
+    position: fixed;
+    inset: calc(var(--shell-inset) + var(--shell-topbar)) auto var(--shell-inset) var(--shell-inset);
+    z-index: 13;
+    height: auto;
+    width: min(292px, 88vw);
+    border-radius: 0 0 0 calc(var(--shell-radius) - 1px);
+    box-shadow: 14px 0 36px rgba(42, 57, 46, 0.14);
+    transform: translateX(0);
+  }
+
+  .leftClosed .sessionSidebar {
+    transform: translateX(-105%);
   }
 
   .cardSidebar {
     position: fixed;
-    inset: 0 0 0 auto;
+    inset: calc(var(--shell-inset) + var(--shell-topbar)) var(--shell-inset) var(--shell-inset) auto;
     z-index: 12;
-    width: min(310px, 88vw);
-    box-shadow: -12px 0 32px rgba(28, 29, 26, 0.12);
+    height: auto;
+    width: min(330px, 88vw);
+    border-radius: 0 0 calc(var(--shell-radius) - 1px) 0;
+    box-shadow: -14px 0 36px rgba(42, 57, 46, 0.14);
     transform: translateX(0);
-    transition: transform 180ms ease;
   }
 
   .rightClosed .cardSidebar {
-    visibility: visible;
-    opacity: 1;
     transform: translateX(105%);
   }
 }
 
+@media (min-width: 761px) and (max-width: 900px) {
+  .activeKnowledgeCardDock {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    width: min(560px, calc(100% - 28px));
+    margin: 0 auto 10px;
+  }
+}
+
 @media (max-width: 760px) {
+  .cardShelfTabs {
+    display: none;
+  }
+
+  .appShell:not(.responsiveReady) .sessionSidebar,
+  .appShell:not(.responsiveReady) .cardSidebar {
+    visibility: hidden;
+    opacity: 0;
+    transform: translateX(-105%);
+  }
+
+  .appShell:not(.responsiveReady) .mobileScrim {
+    display: none;
+  }
+
+  .mobileScrim {
+    position: fixed;
+    inset: calc(60px + var(--safe-top, 0px)) 0 var(--safe-bottom, 0px);
+    z-index: 11;
+    display: block;
+    border: 0;
+    background: rgba(29, 36, 29, 0.22);
+    backdrop-filter: blur(2px);
+  }
+
   .cardViewerLayer {
-    inset: 60px 0 8px;
+    inset: calc(60px + var(--safe-top, 0px)) 0 calc(8px + var(--safe-bottom, 0px));
     padding-right: 8px;
   }
 
@@ -44,32 +115,119 @@
   .appShell.leftClosed,
   .appShell.rightClosed,
   .appShell.leftClosed.rightClosed {
+    --shell-inset: 0px;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: calc(60px + var(--safe-top)) minmax(0, 1fr);
+    box-shadow: none;
+  }
+
+  .appTopbar {
+    height: calc(60px + var(--safe-top));
+    padding: var(--safe-top) 14px 0;
+  }
+
+  .appBrand {
+    gap: 8px;
+  }
+
+  .appBrand strong {
+    font-size: 17px;
+  }
+
+  .pandaMark {
+    width: 31px;
+    height: 31px;
+  }
+
+  .topbarUtility,
+  .topbarDivider,
+  .accountName {
+    display: none;
+  }
+
+  .conversationPanel {
+    grid-column: 1;
+    grid-row: 2;
+    width: 100%;
+    max-width: 100vw;
+  }
+
+  .sessionSidebar,
+  .cardSidebar {
+    grid-column: 1;
+    grid-row: 2;
+    height: auto;
   }
 
   .sessionSidebar {
     position: fixed;
-    inset: 0 auto 0 0;
+    inset: calc(60px + var(--safe-top)) auto var(--safe-bottom) 0;
     z-index: 13;
-    width: min(270px, 88vw);
+    width: min(280px, 88vw);
     box-shadow: 12px 0 32px rgba(28, 29, 26, 0.12);
     transform: translateX(0);
-    transition: transform 180ms ease;
   }
 
   .leftClosed .sessionSidebar {
-    visibility: visible;
-    opacity: 1;
     transform: translateX(-105%);
+  }
+
+  .cardSidebar {
+    position: fixed;
+    inset: calc(60px + var(--safe-top)) 0 var(--safe-bottom) auto;
+    z-index: 12;
+    width: min(330px, 92vw);
+    box-shadow: -12px 0 32px rgba(28, 29, 26, 0.12);
+    transform: translateX(0);
+  }
+
+  .rightClosed .cardSidebar {
+    transform: translateX(105%);
   }
 
   .messageColumn {
     padding: 24px 16px 34px;
   }
 
+  .messageViewport {
+    width: 100%;
+    max-width: 100vw;
+  }
+
+  .welcomeState {
+    min-height: calc(100dvh - 350px);
+    grid-template-columns: 1fr;
+    padding: 24px 0;
+  }
+
+  .knowledgeOrbit {
+    position: absolute;
+    inset: 8% -12% auto auto;
+    width: 260px;
+    opacity: 0.28;
+    z-index: -1;
+  }
+
   .composerDock {
     width: calc(100% - 20px);
-    padding-bottom: 8px;
+    max-width: calc(100vw - 20px);
+    padding-bottom: calc(8px + var(--safe-bottom));
+  }
+
+  .activeKnowledgeCardDock {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    width: calc(100% - 20px);
+    margin: 0 auto 8px;
   }
 
   .composerActions select {
@@ -126,6 +284,54 @@
     padding-right: 15px;
     padding-left: 15px;
   }
+
+  .exportDialogBackdrop {
+    padding: 12px;
+  }
+
+  .knowledgeExportDialog {
+    max-height: calc(100dvh - 24px);
+  }
+
+  .knowledgeExportCardList,
+  .knowledgeExportLayouts,
+  .exportFileBrowser {
+    grid-template-columns: 1fr;
+  }
+
+  .exportFolderTree {
+    max-height: 130px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .studyCardFooter .folderLocationSelect,
+  .studyCardFooter select,
+  .studyCardSaveButton {
+    width: 100%;
+  }
+
+  .knowledgeExportFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .knowledgeExportFooter > div {
+    justify-content: flex-end;
+  }
+}
+
+@media (max-height: 760px) {
+  .appShell {
+    --shell-inset: 0px;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
 }
 
 @media (max-width: 480px) {
@@ -139,7 +345,7 @@
   }
 
   .viewProblemButton {
-    width: 34px;
+    width: 40px;
     padding: 0;
     justify-content: center;
   }
@@ -169,7 +375,46 @@
   }
 
   .welcomeState {
-    min-height: calc(100vh - 330px);
+    min-height: calc(100dvh - 390px);
+    align-content: center;
+  }
+
+  .welcomeState h1 {
+    font-size: 27px;
+  }
+
+  .welcomeState p {
+    font-size: 14px;
+  }
+
+  .welcomeExamples {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .welcomeExamples span:last-child {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+
+  .composerCard {
+    min-height: 118px;
+    padding: 12px;
+  }
+
+  .composerActions {
+    width: 100%;
+    max-width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .composerToolbar {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 8px;
   }
 
   .chatMessage.student .messageBody {
@@ -194,47 +439,126 @@
   }
 }
 
-@media (max-width: 760px) {
-  .exportDialogBackdrop {
-    padding: 12px;
+@media (max-width: 1100px) and (min-width: 761px) {
+  .historyPaperGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .knowledgeExportDialog {
-    max-height: calc(100vh - 24px);
+  .historySkeletonGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
 
-  .knowledgeExportCardList,
-  .knowledgeExportLayouts {
-    grid-template-columns: 1fr;
-  }
-
-  .exportFileBrowser {
-    grid-template-columns: 1fr;
-  }
-
-  .exportFolderTree {
-    max-height: 130px;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .studyCardFooter {
+@media (max-width: 900px) and (min-width: 761px) {
+  .historyWorkspaceHeader {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .studyCardFooter .folderLocationSelect,
-  .studyCardFooter select,
-  .studyCardSaveButton {
+  .historyWorkspaceToolbar {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .historyWorkspaceSearch {
+    flex: 1;
+  }
+
+  .historyWorkspaceSearch input {
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .historyWorkspaceHeader {
+    align-items: stretch;
+    flex-direction: column;
+    padding: var(--space-4);
+  }
+
+  .historyWorkspaceToolbar {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .historyWorkspaceSearch {
+    flex: 1;
+  }
+
+  .historyWorkspaceSearch input {
     width: 100%;
   }
 
-  .knowledgeExportFooter {
+  .historyWorkspaceBody {
+    padding: 0 var(--space-4) var(--space-6);
+  }
+
+  .historyPaperGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .historySkeletonGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .historyQuestionRow {
+    grid-template-columns: minmax(0, 1fr) 44px;
+  }
+}
+
+@media (max-width: 480px) {
+  .historyWorkspaceHeader,
+  .historyWorkspaceBody {
+    padding-inline: var(--space-3);
+  }
+
+  .historyWorkspaceToolbar {
+    flex-direction: column;
+  }
+
+  .historyWorkspaceSearch,
+  .historyWorkspaceSort {
+    width: 100%;
+  }
+
+  .historyPaperPreview {
+    padding: var(--space-4);
+  }
+
+  .historyPaperTab {
+    right: var(--space-4);
+  }
+
+  .historyWorkspaceAlert {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .knowledgeExportFooter > div {
-    justify-content: flex-end;
+  .historyWorkspaceAlert .historyWorkspaceAction {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .historyWorkspaceBodyInner {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .historyPaperCard {
+    transform: none !important;
+  }
+
+  .historySkeletonGrid {
+    animation: none !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

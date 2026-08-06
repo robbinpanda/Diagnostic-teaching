@@ -5,6 +5,7 @@ import sqlite3
 from app.core.schemas import SessionCreate, TutorTurn
 from app.storage.card_folder_repository import CardFolderRepositoryMixin
 from app.storage.database import Database
+from app.storage.exam_paper_repository import ExamPaperRepositoryMixin
 from app.storage.model_profiles import ModelProfileRepository
 from app.storage.repository_utils import (
     host_from_url,
@@ -36,6 +37,7 @@ class SessionRepository(
     SessionRunRepositoryMixin,
     StudyCardRepositoryMixin,
     CardFolderRepositoryMixin,
+    ExamPaperRepositoryMixin,
     SessionHistoryRepositoryMixin,
 ):
     def __init__(self, db: Database):
@@ -53,16 +55,17 @@ class SessionRepository(
             conn.execute(
                 """
                 INSERT INTO sessions (
-                  id, grade_band, subject, model_profile_id, problem_text,
+                  id, grade_band, subject, model_profile_id, paper_id, problem_text,
                   problem_image_data_url, student_initial_thought, phase,
                   context_status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'diagnosing', ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'diagnosing', ?, ?, ?)
                 """,
                 (
                     session_id,
                     payload.grade_band,
                     payload.subject,
                     payload.model_profile_id,
+                    payload.paper_id,
                     payload.problem_text.strip(),
                     payload.problem_image_data_url,
                     payload.student_initial_thought.strip(),

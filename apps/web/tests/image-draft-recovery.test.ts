@@ -44,6 +44,7 @@ function draft(): PersistedImageDraft {
       client_message_id: "message-stable",
       bbox: { x: 0.1, y: 0.2, width: 0.7, height: 0.5 }
     }],
+    paperId: "paper_123456789abc",
     createdAt: "2026-08-05T00:00:00Z"
   };
 }
@@ -59,6 +60,7 @@ test("image draft recovery preserves blob, edited regions, and stable start ids"
   assert.equal(restored?.imageBlob.size, 5);
   assert.deepEqual(restored?.regions, pending.regions);
   assert.deepEqual(restored?.startItems, pending.startItems);
+  assert.equal(restored?.paperId, pending.paperId);
   await recovery.clear();
   assert.equal(await recovery.load(), null);
 });

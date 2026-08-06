@@ -152,7 +152,7 @@ function createWindow() {
     minHeight: 700,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: "#f6f7fb",
+    backgroundColor: "#eef3ec",
     title: "诊断式数学答疑",
     webPreferences: {
       contextIsolation: true,

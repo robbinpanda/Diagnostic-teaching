@@ -180,7 +180,7 @@ def test_fresh_database_uses_alembic_and_sqlite_reliability_pragmas(tmp_path: Pa
         assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == SQLITE_BUSY_TIMEOUT_MS
         assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1
         assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == (
-            "0011_client_run_id"
+            "0012_merge_exam_run_heads"
         )
         run_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(session_runs)")
@@ -208,6 +208,7 @@ def test_fresh_database_uses_alembic_and_sqlite_reliability_pragmas(tmp_path: Pa
             for row in conn.execute("PRAGMA foreign_key_list(study_cards)")
         }
         assert ("model_profile_id", "model_profiles", "RESTRICT") in session_fks
+        assert ("paper_id", "exam_papers", "SET NULL") in session_fks
         assert ("session_id", "sessions", "CASCADE") in message_fks
         assert ("session_id", "sessions", "CASCADE") in checkpoint_fks
         assert ("live_session_id", "sessions", "SET NULL") in card_fks

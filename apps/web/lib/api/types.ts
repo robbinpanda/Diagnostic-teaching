@@ -121,6 +121,8 @@ export type SseEvent = SseEventPayload & { id?: string };
 export type SessionHistoryItem = {
   session_id: string;
   restored_from?: string | null;
+  paper_id?: string | null;
+  paper_name?: string | null;
   title: string;
   grade_band: "junior" | "senior";
   model_profile_id: string;
@@ -136,6 +138,8 @@ export type SessionHistoryItem = {
 export type RestoredSession = {
   session_id: string;
   restored_from?: string | null;
+  paper_id?: string | null;
+  paper_name?: string | null;
   state_hint: string;
   context_status: "need_problem" | "need_thought" | "ready";
   breakpoint_description?: string | null;
@@ -177,10 +181,19 @@ export type SessionStartInput = {
   grade_band: "junior" | "senior";
   subject: "math";
   model_profile_id: string;
+  paper_id?: string | null;
   message: string;
   problem_text: string;
   student_initial_thought: string;
   problem_image_data_url?: string | null;
+};
+
+export type ExamPaper = {
+  id: string;
+  name: string;
+  session_count: number;
+  created_at: string;
+  updated_at: string;
 };
 
 export type SessionInputAcceptance = {

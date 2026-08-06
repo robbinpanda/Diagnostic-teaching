@@ -157,6 +157,7 @@ Write-Host "[2/4] Building the static web app..."
 Push-Location $webDirectory
 try {
     Invoke-Checked $node @((Join-Path $webDirectory "node_modules\next\dist\bin\next"), "build")
+    Invoke-Checked $node @((Join-Path $webDirectory "scripts\inject-design-contract.mjs"))
 }
 finally {
     Pop-Location

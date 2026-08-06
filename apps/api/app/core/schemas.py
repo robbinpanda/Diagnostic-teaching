@@ -218,6 +218,7 @@ class SessionCreate(BaseModel):
     grade_band: Literal["junior", "senior"]
     subject: Literal["math"] = "math"
     model_profile_id: str
+    paper_id: str | None = Field(default=None, pattern=r"^paper_[0-9a-f]{12}$")
     problem_text: str = Field(default="", max_length=20_000)
     student_initial_thought: str = Field(default="", max_length=20_000)
     problem_image_data_url: str | None = Field(default=None, max_length=17_000_000)
@@ -273,6 +274,7 @@ class ImageSessionBatchStartRequest(BaseModel):
     grade_band: Literal["junior", "senior"]
     subject: Literal["math"] = "math"
     model_profile_id: str
+    paper_id: str = Field(pattern=r"^paper_[0-9a-f]{12}$")
     source_image_data_url: str = Field(min_length=1, max_length=17_000_000)
     items: list[ImageSessionStartItem] = Field(min_length=1, max_length=20)
 
@@ -280,6 +282,8 @@ class ImageSessionBatchStartRequest(BaseModel):
 class SessionHistoryItem(BaseModel):
     session_id: str
     restored_from: str | None = None
+    paper_id: str | None = None
+    paper_name: str | None = None
     title: str
     grade_band: Literal["junior", "senior"]
     model_profile_id: str
@@ -341,6 +345,8 @@ class SessionRestoredMessage(BaseModel):
 class SessionRestoreResponse(BaseModel):
     session_id: str
     restored_from: str | None = None
+    paper_id: str | None = None
+    paper_name: str | None = None
     state_hint: str
     context_status: ContextStatus
     breakpoint_description: str | None = None
@@ -353,6 +359,24 @@ class SessionRestoreResponse(BaseModel):
     pending_checkpoint: dict[str, Any] | None = None
     pending_card: dict[str, Any] | None = None
     pending_cards: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ExamPaperCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80, pattern=r".*\S.*")
+
+
+class ExamPaperPublic(BaseModel):
+    id: str
+    name: str
+    session_count: int = 0
+    created_at: str
+    updated_at: str
+
+
+class ExamPaperListResponse(BaseModel):
+    papers: list[ExamPaperPublic]
 
 
 RunStatus = Literal["queued", "running", "completed", "failed", "interrupted"]

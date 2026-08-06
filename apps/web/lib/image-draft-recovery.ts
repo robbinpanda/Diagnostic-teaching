@@ -22,6 +22,7 @@ export type PersistedImageDraft = {
   gradeBand: "junior" | "senior";
   regions: DetectedProblemRegion[];
   startItems?: PersistedImageStartItem[];
+  paperId?: string;
   createdAt: string;
 };
 
@@ -71,6 +72,7 @@ export function isPersistedImageDraft(value: unknown): value is PersistedImageDr
     && draft.regions.every(isRegion)
     && (draft.startItems === undefined
       || (Array.isArray(draft.startItems) && draft.startItems.every(isStartItem)))
+    && (draft.paperId === undefined || typeof draft.paperId === "string")
     && typeof draft.createdAt === "string";
 }
 

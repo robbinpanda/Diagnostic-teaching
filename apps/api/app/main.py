@@ -14,6 +14,7 @@ from app.routes import (
     cards,
     chat,
     checkpoints,
+    exam_papers,
     inputs,
     model_profiles,
     problem_images,
@@ -119,6 +120,7 @@ def create_app() -> FastAPI:
     app.include_router(session_events.router)
     app.include_router(chat.router)
     app.include_router(checkpoints.router)
+    app.include_router(exam_papers.router)
     app.include_router(card_folders.router)
     app.include_router(cards.router)
     app.include_router(speech.router)

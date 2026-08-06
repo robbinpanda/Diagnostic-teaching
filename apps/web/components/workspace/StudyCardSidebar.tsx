@@ -40,6 +40,7 @@ type Props = {
   pasteBusy: boolean;
   deleteAllCardsBusy: boolean;
   composerBlocked: boolean;
+  libraryMode?: "all" | "knowledge" | "problem";
   onCollapse: () => void;
   onOpenFolder: (folderId: string | null) => void;
   onCreateFolder: (name: string) => Promise<boolean>;
@@ -70,6 +71,7 @@ export function StudyCardSidebar({
   pasteBusy,
   deleteAllCardsBusy,
   composerBlocked,
+  libraryMode = "all",
   onCollapse,
   onOpenFolder,
   onCreateFolder,
@@ -91,6 +93,14 @@ export function StudyCardSidebar({
   const currentFolder = currentFolderId
     ? folders.find((folder) => folder.id === currentFolderId)
     : null;
+  const libraryCards = libraryMode === "all"
+    ? cards
+    : cards.filter((card) => card.card_type === (libraryMode === "knowledge" ? "knowledge_card" : "problem_card"));
+  const displayedCards = libraryMode === "all"
+    ? visibleCards
+    : visibleCards.filter((card) => card.card_type === (libraryMode === "knowledge" ? "knowledge_card" : "problem_card"));
+  const displayedCardTotal = libraryCards.length;
+  const libraryTitle = libraryMode === "knowledge" ? "知识库" : libraryMode === "problem" ? "错题库" : "学习卡片";
 
   async function submitFolder() {
     const name = folderName.trim();
@@ -112,7 +122,7 @@ export function StudyCardSidebar({
   return (
     <aside className="cardSidebar">
       <div className="cardSidebarHeader">
-        <div><strong>学习卡片</strong><span>{cards.length} 张已归档 · {folders.length} 个文件夹</span></div>
+        <div><strong>{libraryTitle}</strong><span>{displayedCardTotal} 张已归档 · {folders.length} 个文件夹</span></div>
         <button className="plainIconButton" type="button" onClick={onCollapse} aria-label="收起卡片栏"><ChevronRight size={18} /></button>
       </div>
 
@@ -188,7 +198,7 @@ export function StudyCardSidebar({
           <div className="cardFolderItem" key={folder.id}>
             <button className="cardFolderOpen" type="button" onClick={() => onOpenFolder(folder.id)}>
               <Folder size={19} />
-              <span><strong>{folder.name}</strong><small>{countCardsInFolderTree(cards, folders, folder.id)} 张卡片</small></span>
+              <span><strong>{folder.name}</strong><small>{countCardsInFolderTree(libraryCards, folders, folder.id)} 张卡片</small></span>
               <ChevronRight size={14} />
             </button>
             {!folder.is_system && (
@@ -210,7 +220,7 @@ export function StudyCardSidebar({
           </div>
         ))}
 
-        {visibleCards.map((card) => (
+        {displayedCards.map((card) => (
           <div className={`cardItem${clipboard?.mode === "cut" && clipboard.card.id === card.id ? " cut" : ""}`} key={card.id}>
             <button className="cardOpenButton" type="button" onClick={() => onOpenCard(card)}>
               <span className={`cardIcon ${card.card_type === "knowledge_card" ? "knowledge" : "problem"}`}>
@@ -229,10 +239,10 @@ export function StudyCardSidebar({
           </div>
         ))}
 
-        {visibleFolders.length === 0 && visibleCards.length === 0 && (
+        {visibleFolders.length === 0 && displayedCards.length === 0 && (
           <div className="cardEmpty">
             {currentFolderId ? <FolderOpen size={23} /> : <Folder size={23} />}
-            <span>{currentFolderId ? "这个文件夹还是空的" : "从一个文件夹开始整理卡片"}</span>
+            <span>{currentFolderId ? "这个文件夹里还没有此类卡片" : `还没有${libraryMode === "problem" ? "题目" : libraryMode === "knowledge" ? "知识" : "学习"}卡片`}</span>
           </div>
         )}
       </div>

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { flushSync } from "react-dom";
 import { CardMoveDialog } from "../components/CardMoveDialog";
 import { CheckpointModal } from "../components/CheckpointModal";
 import { ModelConfigDialog } from "../components/ModelConfigDialog";
-import { ProblemImageSelector } from "../components/ProblemImageSelector";
+import { ProblemImageSelector, type PaperSelection } from "../components/ProblemImageSelector";
 import { ProblemImageViewer } from "../components/ProblemImageViewer";
 import { StudyCardModal } from "../components/StudyCardModal";
 import {
@@ -12,9 +13,12 @@ import {
   type LearningCardExportLayout
 } from "../components/LearningCardExportDialog";
 import { LearningCardPrintView } from "../components/LearningCardPrintView";
+import { AppTopbar } from "../components/workspace/AppTopbar";
+import { CardShelfTabs } from "../components/workspace/CardShelfTabs";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
+import { HistoryWorkspace } from "../components/workspace/HistoryWorkspace";
 import { MessageTimeline } from "../components/workspace/MessageTimeline";
-import { SessionSidebar } from "../components/workspace/SessionSidebar";
+import { SessionSidebar, type WorkspaceNavigation } from "../components/workspace/SessionSidebar";
 import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
 import { TutorComposer } from "../components/workspace/TutorComposer";
 import { useModelProfiles } from "../hooks/useModelProfiles";
@@ -27,21 +31,25 @@ import {
   answerCheckpoint,
   batchStartImageSessions,
   batchStartSessions,
+  createExamPaper,
   deleteAllSessions,
   deleteSession,
   detectProblemImageRegions,
   dismissKnowledgeCardAndContinue,
+  fetchExamPapers,
   fetchSession,
   fetchSessionHistory,
   fetchSessionRunStatus,
   isApiResponseError,
   saveCard,
   DetectedProblemRegion,
+  ExamPaper,
   SessionHistoryItem,
   SessionStartResult,
   StudyCard,
   updateKnowledgeCard
 } from "../lib/api";
+import type { HistoryPaperGroup, HistorySortMode, HistoryView } from "../lib/history-view";
 import {
   clearAllRequestRecovery,
   clearComposerDraft,
@@ -68,6 +76,15 @@ import {
   type PersistedImageStartItem
 } from "../lib/image-draft-recovery";
 
+type ShelfCardTransitionPhase = "idle" | "preparing" | "opening" | "open" | "closing";
+
+type ShelfCardMotion = {
+  x: number;
+  y: number;
+  scaleX: number;
+  scaleY: number;
+};
+
 type LearningCardPrintJob = {
   cards: StudyCard[];
   layout: LearningCardExportLayout;
@@ -85,6 +102,7 @@ type PendingImageSelection = {
   viewToken: number;
   regions: DetectedProblemRegion[];
   startItems?: PersistedImageStartItem[];
+  paperId?: string;
 };
 
 type PendingComposerImage = {
@@ -133,6 +151,7 @@ function persistedSelection(
     gradeBand: selection.gradeBand,
     regions: selection.regions,
     startItems: selection.startItems,
+    paperId: selection.paperId,
     createdAt: selection.createdAt
   };
 }
@@ -141,12 +160,21 @@ export default function Home() {
   const [gradeBand, setGradeBand] = useState<"junior" | "senior">("junior");
   const [input, setInput] = useState("");
   const [historyItems, setHistoryItems] = useState<SessionHistoryItem[]>([]);
-  const [historyBusy, setHistoryBusy] = useState(false);
+  const [examPapers, setExamPapers] = useState<ExamPaper[]>([]);
+  const [historyView, setHistoryView] = useState<HistoryView>(null);
+  const [historyOverviewQuery, setHistoryOverviewQuery] = useState("");
+  const [historySortMode, setHistorySortMode] = useState<HistorySortMode>("recent");
+  const [historySelectedPaperName, setHistorySelectedPaperName] = useState("");
+  const [historyLoadError, setHistoryLoadError] = useState("");
+  const [historyBusy, setHistoryBusy] = useState(true);
   const [openSessionBusyId, setOpenSessionBusyId] = useState("");
   const [deleteSessionBusyId, setDeleteSessionBusyId] = useState("");
   const [deleteAllSessionsBusy, setDeleteAllSessionsBusy] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
-  const [rightOpen, setRightOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(false);
+  const [responsiveReady, setResponsiveReady] = useState(false);
+  const [activeNavigation, setActiveNavigation] = useState<WorkspaceNavigation>("start");
+  const [cardLibraryMode, setCardLibraryMode] = useState<"all" | "knowledge" | "problem">("all");
   const [learningCardExportOpen, setLearningCardExportOpen] = useState(false);
   const [learningCardPrintJob, setLearningCardPrintJob] = useState<LearningCardPrintJob | null>(null);
   const [imageSelection, setImageSelection] = useState<PendingImageSelection | null>(null);
@@ -154,15 +182,22 @@ export default function Home() {
   const [pendingComposerImage, setPendingComposerImage] = useState<PendingComposerImage | null>(null);
   const [imageConfirmBusy, setImageConfirmBusy] = useState(false);
   const [viewingCardSaveBusy, setViewingCardSaveBusy] = useState(false);
+  const [shelfCardTransitionPhase, setShelfCardTransitionPhase] = useState<ShelfCardTransitionPhase>("idle");
+  const [shelfCardMotion, setShelfCardMotion] = useState<ShelfCardMotion | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const knowledgeCardDockRef = useRef<HTMLDivElement | null>(null);
+  const shelfCardOriginRef = useRef<DOMRectReadOnly | null>(null);
+  const shelfCardTriggerRef = useRef<HTMLElement | null>(null);
   const sendInFlightKeysRef = useRef(new Set<string>());
   const pendingStudentMessagesRef = useRef(new Map<string, PendingStudentRequest>());
   const queuedInterjectionsRef = useRef(new Map<string, PendingStudentRequest[]>());
   const flushingInterjectionsRef = useRef(new Set<string>());
   const pendingSessionBatchesRef = useRef(new Map<number, PendingSessionBatch>());
+  const bootstrapNavigationRef = useRef(0);
   const openSessionRequestRef = useRef(0);
   const historyRequestRef = useRef(0);
+  const examPapersRequestRef = useRef(0);
   const viewTokenRef = useRef(0);
   const speechBaseInputRef = useRef("");
   const runtime = useSessionRuntime({ onRunSettled: handleRunSettled });
@@ -184,6 +219,29 @@ export default function Home() {
   const retryableMessageId = runtime.timeline.lastError && !streamBusy
     ? messages.findLast((message) => message.role === "student")?.id ?? null
     : null;
+
+  useEffect(() => {
+    const compact = window.matchMedia("(max-width: 1319px)");
+    const syncCompactState = (matches: boolean) => {
+      if (matches) {
+        setLeftOpen(false);
+        setRightOpen(false);
+      }
+      setResponsiveReady(true);
+    };
+    syncCompactState(compact.matches);
+    const onChange = (event: MediaQueryListEvent) => syncCompactState(event.matches);
+    compact.addEventListener("change", onChange);
+    return () => compact.removeEventListener("change", onChange);
+  }, []);
+
+  function closeNavigationOnMobile() {
+    if (window.matchMedia("(max-width: 760px)").matches) setLeftOpen(false);
+  }
+
+  function invalidateBootstrapNavigation() {
+    bootstrapNavigationRef.current += 1;
+  }
 
   function handleRunSettled(targetSessionId: string) {
     void refreshHistory();
@@ -299,11 +357,111 @@ export default function Home() {
     () => historyItems.find((item) => item.session_id === sessionId),
     [historyItems, sessionId]
   );
+  const dockedActiveCard = useMemo(
+    () => [...activeCards].reverse().find((card) => (
+      card.card_type === "knowledge_card" || card.card_type === "problem_card"
+    )) ?? null,
+    [activeCards]
+  );
+  const viewedShelfCard = viewingCard;
+  const displayedDockCard = viewedShelfCard ?? dockedActiveCard;
+  const displayedDockCardIsArchived = Boolean(
+    displayedDockCard && viewedShelfCard?.id === displayedDockCard.id
+  );
+  const displayedDockCardThemeVariant = useMemo(() => {
+    if (!displayedDockCard || displayedDockCard.card_type !== "knowledge_card" || !displayedDockCard.saved_at) {
+      return undefined;
+    }
+    return [...cards]
+      .filter((card) => card.session_id === displayedDockCard.session_id
+        && card.card_type === "knowledge_card"
+        && Boolean(card.saved_at))
+      .sort((left, right) => (right.saved_at || "").localeCompare(left.saved_at || ""))
+      .findIndex((card) => card.id === displayedDockCard.id);
+  }, [cards, displayedDockCard]);
+  const anchoredActiveCards = useMemo(
+    () => activeCards.filter((card) => card.id !== dockedActiveCard?.id),
+    [activeCards, dockedActiveCard?.id]
+  );
+
+  function openShelfCard(nextCard: StudyCard, origin: DOMRectReadOnly) {
+    shelfCardOriginRef.current = origin;
+    shelfCardTriggerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    flushSync(() => {
+      setShelfCardMotion(null);
+      setShelfCardTransitionPhase("preparing");
+      setViewingCard(nextCard);
+    });
+  }
+
+  function focusShelfCard() {
+    window.requestAnimationFrame(() => {
+      knowledgeCardDockRef.current
+        ?.querySelector<HTMLElement>('[aria-label="关闭卡片"]')
+        ?.focus({ preventScroll: true });
+    });
+  }
+
+  function restoreShelfCardFocus() {
+    window.requestAnimationFrame(() => {
+      shelfCardTriggerRef.current?.focus({ preventScroll: true });
+      shelfCardTriggerRef.current = null;
+    });
+  }
+
+  function closeShelfCard() {
+    if (!viewedShelfCard || !knowledgeCardDockRef.current) {
+      setViewingCard(null);
+      restoreShelfCardFocus();
+      return;
+    }
+    const source = document.querySelector<HTMLElement>(`[data-shelf-card-id="${CSS.escape(viewedShelfCard.id)}"]`);
+    if (!source) {
+      setViewingCard(null);
+      restoreShelfCardFocus();
+      return;
+    }
+    const origin = source.getBoundingClientRect();
+    const target = knowledgeCardDockRef.current.getBoundingClientRect();
+    setShelfCardMotion({
+      x: origin.left - target.left,
+      y: origin.top - target.top,
+      scaleX: origin.width / target.width,
+      scaleY: origin.height / target.height
+    });
+    setShelfCardTransitionPhase("closing");
+  }
+
+  useLayoutEffect(() => {
+    if (shelfCardTransitionPhase !== "preparing" || !viewedShelfCard) return;
+    const origin = shelfCardOriginRef.current;
+    const target = knowledgeCardDockRef.current?.getBoundingClientRect();
+    if (!origin || !target) return;
+    setShelfCardMotion({
+      x: origin.left - target.left,
+      y: origin.top - target.top,
+      scaleX: origin.width / target.width,
+      scaleY: origin.height / target.height
+    });
+    setShelfCardTransitionPhase("opening");
+    focusShelfCard();
+  }, [shelfCardTransitionPhase, viewedShelfCard]);
 
   useEffect(() => {
+    if (viewedShelfCard) return;
+    shelfCardOriginRef.current = null;
+    setShelfCardMotion(null);
+    setShelfCardTransitionPhase("idle");
+  }, [viewedShelfCard]);
+
+  useEffect(() => {
+    const bootstrapNavigationToken = bootstrapNavigationRef.current;
     refreshProfiles();
     refreshCards();
-    void restoreWorkspaceAfterRefresh();
+    void refreshExamPapers();
+    void restoreWorkspaceAfterRefresh(bootstrapNavigationToken);
     if (window.innerWidth <= 1120) setRightOpen(false);
     if (window.innerWidth <= 760) setLeftOpen(false);
     // Initial bootstrap only; later refreshes are triggered by explicit mutations.
@@ -382,9 +540,12 @@ export default function Home() {
     }
   }
 
-  async function restoreSessionAfterRefresh(targetSessionId: string) {
+  async function restoreSessionAfterRefresh(targetSessionId: string, bootstrapNavigationToken: number) {
     const opened = await fetchSession(targetSessionId);
+    if (bootstrapNavigationRef.current !== bootstrapNavigationToken) return;
     runtime.loadSession(opened);
+    setHistoryView(null);
+    setActiveNavigation("history");
     setSelectedProfileId(opened.model_profile_id);
     setGradeBand(opened.grade_band);
     saveActiveSessionId(window.localStorage, opened.session_id);
@@ -495,12 +656,14 @@ export default function Home() {
     await finishSessionBatchStart(result.sessions, originatingViewToken);
   }
 
-  async function restoreImageDraftAfterRefresh() {
-    const draft = await loadImageDraft();
-    if (!draft) return false;
-    const token = viewTokenRef.current;
+  async function restoreImageDraftAfterRefresh(bootstrapNavigationToken: number) {
     try {
+      const draft = await loadImageDraft();
+      if (!draft) return false;
+      if (bootstrapNavigationRef.current !== bootstrapNavigationToken) return true;
+      const token = viewTokenRef.current;
       const dataUrl = await blobToDataUrl(draft.imageBlob);
+      if (bootstrapNavigationRef.current !== bootstrapNavigationToken) return true;
       const file = new File([draft.imageBlob], draft.filename, {
         type: draft.contentType || draft.imageBlob.type || "image/png"
       });
@@ -522,7 +685,8 @@ export default function Home() {
         await handlePendingImageSend(pending, {
           profileId: draft.profileId,
           gradeBand: draft.gradeBand,
-          viewToken: token
+          viewToken: token,
+          bootstrapNavigationToken
         });
         return true;
       }
@@ -538,11 +702,12 @@ export default function Home() {
         createdAt: draft.createdAt,
         viewToken: token,
         regions: draft.regions,
-        startItems: draft.startItems
+        startItems: draft.startItems,
+        paperId: draft.paperId
       };
       setImageSelection(selection);
-      if (draft.stage === "starting" && draft.startItems?.length) {
-        await submitImageSelection(selection, draft.regions);
+      if (draft.stage === "starting" && draft.startItems?.length && draft.paperId) {
+        await submitImageSelection(selection, draft.regions, draft.paperId);
       }
       return true;
     } catch (nextError) {
@@ -553,9 +718,9 @@ export default function Home() {
     }
   }
 
-  async function restoreWorkspaceAfterRefresh() {
+  async function restoreWorkspaceAfterRefresh(bootstrapNavigationToken: number) {
     const recoveredSessionIds: string[] = [];
-    const recoveredImageDraft = await restoreImageDraftAfterRefresh();
+    const recoveredImageDraft = await restoreImageDraftAfterRefresh(bootstrapNavigationToken);
     const pendingBatch = recoveredImageDraft
       ? null
       : loadPendingSessionBatch(window.localStorage);
@@ -606,16 +771,18 @@ export default function Home() {
         || "";
       if (activeSessionId) {
         try {
-          await restoreSessionAfterRefresh(activeSessionId);
+          await restoreSessionAfterRefresh(activeSessionId, bootstrapNavigationToken);
         } catch (nextError) {
-          saveActiveSessionId(window.localStorage, "");
-          setInput(loadComposerDraft(window.localStorage, DRAFT_SCOPE));
-          if (isApiResponseError(nextError, 404)) {
-            clearPendingStudentRequestsForSession(window.localStorage, activeSessionId);
-            runtime.clearSession();
-            runtime.clearError();
-          } else {
-            runtime.setError(nextError instanceof Error ? nextError.message : "恢复当前会话失败");
+          if (bootstrapNavigationRef.current === bootstrapNavigationToken) {
+            saveActiveSessionId(window.localStorage, "");
+            setInput(loadComposerDraft(window.localStorage, DRAFT_SCOPE));
+            if (isApiResponseError(nextError, 404)) {
+              clearPendingStudentRequestsForSession(window.localStorage, activeSessionId);
+              runtime.clearSession();
+              runtime.clearError();
+            } else {
+              runtime.setError(nextError instanceof Error ? nextError.message : "恢复当前会话失败");
+            }
           }
         }
       } else {
@@ -635,15 +802,29 @@ export default function Home() {
     const requestId = historyRequestRef.current + 1;
     historyRequestRef.current = requestId;
     setHistoryBusy(true);
+    setHistoryLoadError("");
     try {
       const nextItems = await fetchSessionHistory();
       if (historyRequestRef.current === requestId) setHistoryItems(nextItems);
     } catch (nextError) {
       if (historyRequestRef.current === requestId) {
-        runtime.setError(nextError instanceof Error ? nextError.message : "历史会话加载失败");
+        setHistoryLoadError(nextError instanceof Error ? nextError.message : "历史会话加载失败");
       }
     } finally {
       if (historyRequestRef.current === requestId) setHistoryBusy(false);
+    }
+  }
+
+  async function refreshExamPapers() {
+    const requestId = examPapersRequestRef.current + 1;
+    examPapersRequestRef.current = requestId;
+    try {
+      const nextPapers = await fetchExamPapers();
+      if (examPapersRequestRef.current === requestId) setExamPapers(nextPapers);
+    } catch (nextError) {
+      if (examPapersRequestRef.current === requestId) {
+        runtime.setError(nextError instanceof Error ? nextError.message : "试卷列表加载失败");
+      }
     }
   }
 
@@ -670,6 +851,7 @@ export default function Home() {
     const requestId = openSessionRequestRef.current + 1;
     openSessionRequestRef.current = requestId;
     viewTokenRef.current += 1;
+    setViewingCard(null);
     void clearImageDraft();
     setImageSelection(null);
     setViewerImageUrl(null);
@@ -684,7 +866,6 @@ export default function Home() {
       setGradeBand(opened.grade_band);
       saveActiveSessionId(window.localStorage, opened.session_id);
       setInput(loadComposerDraft(window.localStorage, draftScope(opened.session_id)));
-      setViewingCard(null);
       await recoverSessionRun(opened.session_id, true);
     } catch (nextError) {
       if (openSessionRequestRef.current !== requestId) return;
@@ -706,7 +887,34 @@ export default function Home() {
     }
   }
 
+  function handleOpenHistoryPaper(group: HistoryPaperGroup) {
+    setHistorySelectedPaperName(group.name);
+    setHistoryView({ mode: "paper", paperId: group.id });
+  }
+
+  function handleOpenHistorySession(targetSessionId: string) {
+    invalidateBootstrapNavigation();
+    setHistoryView(null);
+    setActiveNavigation("start");
+    setRightOpen(false);
+    void handleOpenSession(targetSessionId);
+  }
+
+  function handleStartNewChat() {
+    invalidateBootstrapNavigation();
+    setHistoryView(null);
+    setActiveNavigation("start");
+    clearCurrentSessionState();
+    closeNavigationOnMobile();
+  }
+
   async function handleDeleteSession(item: SessionHistoryItem) {
+    if (
+      item.session_id === sessionId
+      || runningSessionIds.includes(item.session_id)
+      || Boolean(openSessionBusyId)
+      || Boolean(deleteSessionBusyId)
+    ) return;
     if (!window.confirm(`删除会话“${item.title || "未命名题目"}”？已归档卡片会保留。`)) return;
     setDeleteSessionBusyId(item.session_id);
     runtime.clearError();
@@ -1000,6 +1208,7 @@ export default function Home() {
       profileId: string;
       gradeBand: "junior" | "senior";
       viewToken: number;
+      bootstrapNavigationToken?: number;
     }
   ) {
     if (sessionId) return;
@@ -1015,8 +1224,11 @@ export default function Home() {
     const originatingViewToken = recovery?.viewToken ?? viewTokenRef.current;
     const operationKey = `draft:${originatingViewToken}`;
     if (sendInFlightKeysRef.current.has(operationKey)) return;
-    sendInFlightKeysRef.current.add(operationKey);
     const targetGradeBand = recovery?.gradeBand ?? gradeBand;
+    const bootstrapNavigationIsCurrent = () => recovery?.bootstrapNavigationToken === undefined
+      || bootstrapNavigationRef.current === recovery.bootstrapNavigationToken;
+    if (!bootstrapNavigationIsCurrent()) return;
+    sendInFlightKeysRef.current.add(operationKey);
     const operationId = pendingImage.operationId ?? crypto.randomUUID();
     const createdAt = pendingImage.createdAt ?? new Date().toISOString();
     const detectingDraft: PersistedImageDraft = {
@@ -1041,7 +1253,11 @@ export default function Home() {
         content_type: pendingImage.file.type || "image/png",
         filename: pendingImage.file.name || "clipboard-image.png"
       });
-      if (viewTokenRef.current === originatingViewToken && runtime.isDraftActive()) {
+      if (
+        viewTokenRef.current === originatingViewToken
+        && runtime.isDraftActive()
+        && bootstrapNavigationIsCurrent()
+      ) {
         const selection: PendingImageSelection = {
           operationId,
           imageBlob: pendingImage.file,
@@ -1058,15 +1274,25 @@ export default function Home() {
         setImageSelection(selection);
         setPendingComposerImage(null);
         runtime.finishComposerTask();
+      } else if (!bootstrapNavigationIsCurrent() && runtime.isDraftActive()) {
+        setPendingComposerImage(null);
+        runtime.finishComposerTask();
       }
     } catch (nextError) {
-      if (viewTokenRef.current === originatingViewToken && runtime.isDraftActive()) {
+      if (
+        viewTokenRef.current === originatingViewToken
+        && runtime.isDraftActive()
+        && bootstrapNavigationIsCurrent()
+      ) {
         try {
           await saveImageDraft({ ...detectingDraft, stage: "pending" });
         } catch {
           // Keep the original detection error visible.
         }
         runtime.failComposerTask(nextError instanceof Error ? nextError.message : "题目框检测失败");
+      } else if (!bootstrapNavigationIsCurrent() && runtime.isDraftActive()) {
+        setPendingComposerImage(null);
+        runtime.finishComposerTask();
       }
     } finally {
       sendInFlightKeysRef.current.delete(operationKey);
@@ -1075,11 +1301,12 @@ export default function Home() {
 
   async function submitImageSelection(
     selection: PendingImageSelection,
-    regions: DetectedProblemRegion[]
+    regions: DetectedProblemRegion[],
+    paperId: string
   ) {
-    if (imageConfirmBusy || !regions.length) return;
+    if (!regions.length) return;
     const startItems = stableImageStartItems(regions, selection.startItems);
-    const startingSelection = { ...selection, regions, startItems };
+    const startingSelection = { ...selection, regions, startItems, paperId };
     setImageSelection(startingSelection);
     setImageConfirmBusy(true);
     runtime.clearError();
@@ -1089,6 +1316,7 @@ export default function Home() {
         grade_band: selection.gradeBand,
         subject: "math",
         model_profile_id: selection.profileId,
+        paper_id: paperId,
         source_image_data_url: selection.imageUrl,
         items: startItems.map((item) => ({
           session_id: item.session_id,
@@ -1102,6 +1330,7 @@ export default function Home() {
         // Session ids are durable and idempotent; stale browser cleanup must not hide success.
       }
       setImageSelection(null);
+      await refreshExamPapers();
       if (imageInputRef.current) imageInputRef.current.value = "";
       await finishSessionBatchStart(result.sessions, selection.viewToken);
     } catch (nextError) {
@@ -1111,9 +1340,23 @@ export default function Home() {
     }
   }
 
-  async function handleConfirmImageRegions(regions: DetectedProblemRegion[]) {
-    if (!imageSelection) return;
-    await submitImageSelection(imageSelection, regions);
+  async function handleConfirmImageRegions(
+    regions: DetectedProblemRegion[],
+    paperSelection: PaperSelection
+  ) {
+    if (!imageSelection || imageConfirmBusy || !regions.length) return;
+    setImageConfirmBusy(true);
+    runtime.clearError();
+    try {
+      const paper = paperSelection.mode === "existing"
+        ? examPapers.find((item) => item.id === paperSelection.paperId)
+        : await createExamPaper(paperSelection.name);
+      if (!paper) throw new Error("所选试卷不存在，请重新选择");
+      await submitImageSelection(imageSelection, regions, paper.id);
+    } catch (nextError) {
+      runtime.setError(nextError instanceof Error ? nextError.message : "创建或选择试卷失败");
+      setImageConfirmBusy(false);
+    }
   }
 
   function handleImageRegionsChange(regions: DetectedProblemRegion[]) {
@@ -1285,7 +1528,16 @@ export default function Home() {
 
   return (
     <>
-    <main className={`appShell ${leftOpen ? "leftOpen" : "leftClosed"} ${rightOpen ? "rightOpen" : "rightClosed"}`}>
+    <main className={`appShell ${responsiveReady ? "responsiveReady" : ""} ${leftOpen ? "leftOpen" : "leftClosed"} ${rightOpen ? "rightOpen" : "rightClosed"}`}>
+      <AppTopbar />
+      {(leftOpen || rightOpen) && (
+        <button
+          className="mobileScrim"
+          type="button"
+          aria-label="关闭侧栏"
+          onClick={() => { setLeftOpen(false); setRightOpen(false); }}
+        />
+      )}
       <SessionSidebar
         historyItems={historyItems}
         activeSessionId={sessionId}
@@ -1294,14 +1546,61 @@ export default function Home() {
         deleteSessionBusyId={deleteSessionBusyId}
         deleteAllSessionsBusy={deleteAllSessionsBusy}
         runningSessionIds={runningSessionIds}
+        activeNavigation={activeNavigation}
         onCollapse={() => setLeftOpen(false)}
-        onNewChat={clearCurrentSessionState}
-        onOpenSession={handleOpenSession}
+        onNewChat={handleStartNewChat}
+        onNavigate={(navigation) => {
+          invalidateBootstrapNavigation();
+          setActiveNavigation(navigation);
+          if (navigation === "history") {
+            setHistoryView({ mode: "overview" });
+            setRightOpen(false);
+            closeNavigationOnMobile();
+          } else if (navigation === "knowledge" || navigation === "mistakes") {
+            setHistoryView(null);
+            setCardLibraryMode(navigation === "knowledge" ? "knowledge" : "problem");
+            setRightOpen(true);
+            closeNavigationOnMobile();
+          } else {
+            setHistoryView(null);
+            setRightOpen(false);
+          }
+        }}
+        onOpenSession={handleOpenHistorySession}
         onDeleteSession={handleDeleteSession}
         onDeleteAllSessions={handleDeleteAllSessions}
       />
 
       <section className="conversationPanel">
+        {historyView ? (
+          <HistoryWorkspace
+            key={historyView.mode === "paper" ? historyView.paperId : "overview"}
+            view={historyView}
+            items={historyItems}
+            overviewQuery={historyOverviewQuery}
+            sortMode={historySortMode}
+            selectedPaperName={historySelectedPaperName}
+            historyBusy={historyBusy}
+            historyLoadError={historyLoadError}
+            actionError={error ?? ""}
+            leftOpen={leftOpen}
+            activeSessionId={sessionId}
+            runningSessionIds={runningSessionIds}
+            openSessionBusyId={openSessionBusyId}
+            deleteSessionBusyId={deleteSessionBusyId}
+            onExpandLeft={() => setLeftOpen(true)}
+            onOverviewQueryChange={setHistoryOverviewQuery}
+            onSortModeChange={setHistorySortMode}
+            onOpenPaper={handleOpenHistoryPaper}
+            onBackToOverview={() => setHistoryView({ mode: "overview" })}
+            onOpenSession={handleOpenHistorySession}
+            onDeleteSession={(item) => void handleDeleteSession(item)}
+            onStartNewChat={handleStartNewChat}
+            onRetry={() => void refreshHistory()}
+            onClearActionError={runtime.clearError}
+          />
+        ) : (
+          <>
         <ConversationHeader
           leftOpen={leftOpen}
           title={activeHistory?.title || "新答疑"}
@@ -1314,20 +1613,32 @@ export default function Home() {
             ? runtime.timeline.run.progress?.label
             : undefined}
           onExpandLeft={() => setLeftOpen(true)}
-          onToggleCards={() => setRightOpen((value) => !value)}
+          onToggleCards={() => {
+            setCardLibraryMode("all");
+            setRightOpen((value) => !value);
+          }}
           onViewProblemImage={() => {
             if (originalProblemImage) setViewerImageUrl(originalProblemImage);
           }}
+        />
+
+        <CardShelfTabs
+          cards={cards}
+          sessionId={sessionId}
+          activeCardId={viewedShelfCard?.id}
+          onOpenCard={openShelfCard}
         />
 
         <MessageTimeline
           messages={messages}
           messageEndRef={messageEndRef}
           onOpenImage={setViewerImageUrl}
+          floatingObstacleRef={knowledgeCardDockRef}
+          floatingObstacleActive={Boolean(displayedDockCard)}
           retryableMessageId={retryableMessageId}
           retryBusy={streamBusy}
           onRetryMessage={() => void runtime.retryRun(sessionId)}
-          anchoredInteractions={activeCards.map((card) => ({
+          anchoredInteractions={anchoredActiveCards.map((card) => ({
             id: card.id,
             sourceActionId: card.source_action_id,
             title: card.content.title,
@@ -1343,6 +1654,7 @@ export default function Home() {
                   : undefined}
                 busy={cardSaveBusy}
                 editable={card.card_type === "knowledge_card"}
+                appearance="flashcard"
                 autoCollapsed={autoCollapsed}
                 forceExpanded={forceExpanded}
                 onExpandCollapsed={returnToAnchor}
@@ -1360,45 +1672,98 @@ export default function Home() {
           ) : null}
         />
 
-        <TutorComposer
-          error={error}
-          sessionId={sessionId}
-          pendingImageUrl={pendingComposerImage?.dataUrl ?? null}
-          input={input}
-          composerBlocked={composerBlocked}
-          imageInputRef={imageInputRef}
-          imageBusy={imageBusy}
-          gradeBand={gradeBand}
-          selectedProfileId={selectedProfileId}
-          selectedProfile={selectedProfile}
-          profiles={profiles}
-          deleteBusy={deleteBusy}
-          reasoningBusy={reasoningBusy}
-          streamBusy={streamBusy}
-          stopBusy={stopBusy}
-          startBusy={startBusy}
-          speechPhase={speechInput.phase}
-          speechElapsedSeconds={speechInput.elapsedSeconds}
-          onClearError={runtime.clearError}
-          onRemoveImage={() => {
-            if (pendingComposerImage?.operationId) void clearImageDraft();
-            setPendingComposerImage(null);
-            if (imageInputRef.current) imageInputRef.current.value = "";
-            runtime.clearError();
-          }}
-          onInputChange={updateComposerInput}
-          onSend={() => void handleSend()}
-          onImageFile={(file) => void handleImageFile(file)}
-          onPasteImages={handlePastedImages}
-          onGradeBandChange={setGradeBand}
-          onProfileChange={setSelectedProfileId}
-          onAddProfile={openNewProfileDialog}
-          onEditProfile={openSelectedProfileDialog}
-          onDeleteProfiles={deleteProfiles}
-          onReasoningEffortChange={setReasoningEffort}
-          onStop={() => void runtime.stopStream()}
-          onToggleSpeech={speechInput.toggle}
-        />
+        <div className="conversationComposerStage">
+          {displayedDockCard ? (
+            <div
+              className={`activeKnowledgeCardDock${displayedDockCardIsArchived ? " shelfTransitionDock" : ""}`}
+              ref={knowledgeCardDockRef}
+              key={`dock-${displayedDockCard.id}`}
+              style={displayedDockCardIsArchived && shelfCardMotion
+                ? {
+                    "--shelf-motion-x": `${shelfCardMotion.x}px`,
+                    "--shelf-motion-y": `${shelfCardMotion.y}px`,
+                    "--shelf-motion-scale-x": shelfCardMotion.scaleX,
+                    "--shelf-motion-scale-y": shelfCardMotion.scaleY
+                  } as CSSProperties
+                : undefined}
+              data-shelf-transition-phase={displayedDockCardIsArchived ? shelfCardTransitionPhase : undefined}
+              inert={displayedDockCardIsArchived && shelfCardTransitionPhase === "closing" ? true : undefined}
+              onAnimationEnd={(event) => {
+                if (event.target !== event.currentTarget || !displayedDockCardIsArchived) return;
+                if (shelfCardTransitionPhase === "opening") {
+                  setShelfCardTransitionPhase("open");
+                } else if (shelfCardTransitionPhase === "closing") {
+                  flushSync(() => setViewingCard(null));
+                  restoreShelfCardFocus();
+                }
+              }}
+            >
+              <StudyCardModal
+                key={displayedDockCard.id}
+                card={displayedDockCard}
+                folders={displayedDockCardIsArchived ? [] : folders}
+                libraryView={displayedDockCardIsArchived}
+                onSave={displayedDockCardIsArchived
+                  ? displayedDockCard.card_type === "knowledge_card"
+                    ? (cardToSave) => void handleArchivedCardSave(cardToSave)
+                    : undefined
+                  : (cardToSave, folderId) => void handleActiveCardSave(cardToSave, folderId)}
+                onDiscard={displayedDockCardIsArchived || displayedDockCard.card_type === "problem_card"
+                  ? undefined
+                  : (cardToDiscard) => void handleActiveCardDiscard(cardToDiscard)}
+                onClose={displayedDockCardIsArchived ? closeShelfCard : undefined}
+                busy={displayedDockCardIsArchived ? viewingCardSaveBusy : cardSaveBusy}
+                editable={displayedDockCard.card_type === "knowledge_card"}
+                appearance="flashcard"
+                themeVariant={displayedDockCardThemeVariant !== undefined && displayedDockCardThemeVariant >= 0
+                  ? displayedDockCardThemeVariant
+                  : undefined}
+              />
+            </div>
+          ) : null}
+
+          <TutorComposer
+            error={error}
+            sessionId={sessionId}
+            pendingImageUrl={pendingComposerImage?.dataUrl ?? null}
+            input={input}
+            composerBlocked={composerBlocked}
+            imageInputRef={imageInputRef}
+            imageBusy={imageBusy}
+            gradeBand={gradeBand}
+            selectedProfileId={selectedProfileId}
+            selectedProfile={selectedProfile}
+            profiles={profiles}
+            deleteBusy={deleteBusy}
+            reasoningBusy={reasoningBusy}
+            streamBusy={streamBusy}
+            stopBusy={stopBusy}
+            startBusy={startBusy}
+            speechPhase={speechInput.phase}
+            speechElapsedSeconds={speechInput.elapsedSeconds}
+            onClearError={runtime.clearError}
+            onRemoveImage={() => {
+              if (pendingComposerImage?.operationId) void clearImageDraft();
+              setPendingComposerImage(null);
+              if (imageInputRef.current) imageInputRef.current.value = "";
+              runtime.clearError();
+            }}
+            onInputChange={updateComposerInput}
+            onSend={() => void handleSend()}
+            onImageFile={(file) => void handleImageFile(file)}
+            onPasteImages={handlePastedImages}
+            onGradeBandChange={setGradeBand}
+            onProfileChange={setSelectedProfileId}
+            onAddProfile={openNewProfileDialog}
+            onEditProfile={openSelectedProfileDialog}
+            onDeleteProfiles={deleteProfiles}
+            onReasoningEffortChange={setReasoningEffort}
+            onStop={() => void runtime.stopStream()}
+            onToggleSpeech={speechInput.toggle}
+          />
+        </div>
+          </>
+        )}
       </section>
 
       <StudyCardSidebar
@@ -1413,6 +1778,7 @@ export default function Home() {
         pasteBusy={pasteBusy}
         deleteAllCardsBusy={deleteAllCardsBusy}
         composerBlocked={composerBlocked || anySessionRunning}
+        libraryMode={cardLibraryMode}
         onCollapse={() => setRightOpen(false)}
         onOpenFolder={setCurrentFolderId}
         onCreateFolder={createFolder}
@@ -1439,6 +1805,7 @@ export default function Home() {
         <ProblemImageSelector
           imageUrl={imageSelection.imageUrl}
           initialRegions={imageSelection.regions}
+          papers={examPapers}
           busy={imageConfirmBusy}
           onCancel={() => {
             if (imageConfirmBusy) return;
@@ -1447,7 +1814,7 @@ export default function Home() {
             if (imageInputRef.current) imageInputRef.current.value = "";
           }}
           onRegionsChange={handleImageRegionsChange}
-          onConfirm={(regions) => void handleConfirmImageRegions(regions)}
+          onConfirm={(regions, paper) => void handleConfirmImageRegions(regions, paper)}
         />
       )}
       {viewerImageUrl && (
@@ -1468,22 +1835,6 @@ export default function Home() {
         onMove={(card, folderId) => void moveCardToFolder(card, folderId)}
       />
     </main>
-    {viewingCard && !activeCard && !checkpoint && (
-      <div className="cardViewerLayer">
-        <StudyCardModal
-          key={viewingCard.id}
-          card={viewingCard}
-          displayMode="viewer"
-          libraryView
-          editable={viewingCard.card_type === "knowledge_card"}
-          onSave={viewingCard.card_type === "knowledge_card"
-            ? (card) => void handleArchivedCardSave(card)
-            : undefined}
-          onClose={() => setViewingCard(null)}
-          busy={viewingCardSaveBusy}
-        />
-      </div>
-    )}
     {learningCardPrintJob && (
       <LearningCardPrintView cards={learningCardPrintJob.cards} layout={learningCardPrintJob.layout} />
     )}

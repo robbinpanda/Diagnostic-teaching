@@ -1,5 +1,6 @@
 export * from "./api/cards";
 export * from "./api/chat";
+export * from "./api/exam-papers";
 export { API_BASE, ApiResponseError, isApiResponseError } from "./api/http";
 export * from "./api/model-profiles";
 export * from "./api/problem-images";
