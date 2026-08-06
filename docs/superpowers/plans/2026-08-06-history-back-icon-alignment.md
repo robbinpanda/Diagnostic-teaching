@@ -4,7 +4,7 @@
 
 **Goal:** Align and distill the history detail back control, then return restored history sessions to the existing answer-page navigation state.
 
-**Architecture:** Keep the existing `onBackToOverview` interaction and introduce only a detail-header modifier class. The modifier widens the capped header by its two existing `32px` paddings, while the icon button remains a normal flex item; this creates exact wide-screen alignment without negative margins or absolute positioning. When a history question opens, keep the existing `handleOpenSession` data flow but set the main navigation to `"start"`; `SessionSidebar` retains its local history-tree expansion state and no new page or route is introduced.
+**Architecture:** Keep the existing `onBackToOverview` interaction and introduce only a detail-header modifier class. The modifier widens the capped header by its two existing `32px` paddings, while the icon button remains a normal flex item; this creates exact wide-screen alignment without negative margins or absolute positioning. When a history question opens, keep the existing `handleOpenSession` data flow but let `handleOpenHistorySession` own the main-navigation transition to `"start"`; remove the asynchronous helper's stale `"history"` write so it cannot override that explicit choice. `SessionSidebar` retains its local history-tree expansion state and no new page or route is introduced.
 
 **Tech Stack:** React 19, Next.js 15, TypeScript, Lucide React, CSS, Node test runner with server-rendered markup contracts.
 
@@ -183,7 +183,7 @@ git commit -m "fix(web): align history back icon"
 
 - [ ] **Step 1: Write the failing navigation source contract**
 
-After `openHistorySource` is created in the existing bootstrap/navigation test, add:
+After `openHistorySource` is created in the existing bootstrap/navigation test, also slice `handleOpenSession` from its declaration through `handleOpenHistoryPaper` as `openSessionSource`, then add:
 
 ```ts
 assert.match(
@@ -191,6 +191,7 @@ assert.match(
   /setHistoryView\(null\);[\s\S]*?setActiveNavigation\("start"\);[\s\S]*?void handleOpenSession\(targetSessionId\);/
 );
 assert.doesNotMatch(openHistorySource, /handleStartNewChat\(/);
+assert.doesNotMatch(openSessionSource, /setActiveNavigation\(/);
 ```
 
 - [ ] **Step 2: Run the full frontend test command and confirm red state**
@@ -201,11 +202,11 @@ Run from `apps/web`:
 npm.cmd test
 ```
 
-Expected: exit code `1`; the new contract sees `setActiveNavigation("history")` instead of `setActiveNavigation("start")`.
+Expected: exit code `1`; the wrapper contract sees `setActiveNavigation("history")` instead of `setActiveNavigation("start")`, and the helper contract detects the asynchronous `"history"` override.
 
-- [ ] **Step 3: Implement the one-state navigation change**
+- [ ] **Step 3: Make the history entry own navigation state**
 
-Change only the navigation assignment inside `handleOpenHistorySession`:
+Change the navigation assignment inside `handleOpenHistorySession`:
 
 ```ts
 function handleOpenHistorySession(targetSessionId: string) {
@@ -216,6 +217,8 @@ function handleOpenHistorySession(targetSessionId: string) {
   void handleOpenSession(targetSessionId);
 }
 ```
+
+Remove the `setActiveNavigation("history")` call from the successful `handleOpenSession` branch. Keep its session loading, request-staleness guard, model/grade restoration, draft restoration, and run recovery unchanged. The separate refresh-bootstrap path continues to own its existing `"history"` restoration state.
 
 Do not call `handleStartNewChat`, do not change `SessionSidebar`, and do not reset its `historyExpanded` or `expandedPaperIds` state.
 
