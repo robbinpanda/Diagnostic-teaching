@@ -114,7 +114,9 @@ export function HistoryWorkspace({
 
   return (
     <section className="historyWorkspace" aria-label="历史搜题工作区" aria-busy={historyBusy}>
-      <header className="historyWorkspaceHeader">
+      <header
+        className={`historyWorkspaceHeader${view.mode === "paper" ? " historyWorkspaceHeaderDetail" : ""}`}
+      >
         {leftOpen ? null : (
           <button
             className="historyWorkspaceNav"
@@ -127,9 +129,14 @@ export function HistoryWorkspace({
         )}
 
         {view.mode === "paper" ? (
-          <button className="historyWorkspaceBack" type="button" onClick={onBackToOverview}>
-            <ArrowLeft size={17} />
-            <span>返回全部试卷</span>
+          <button
+            className="historyWorkspaceBack"
+            type="button"
+            onClick={onBackToOverview}
+            aria-label="返回全部试卷"
+            title="返回全部试卷"
+          >
+            <ArrowLeft size={18} aria-hidden="true" />
           </button>
         ) : null}
 

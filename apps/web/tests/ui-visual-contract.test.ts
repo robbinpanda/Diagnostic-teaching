@@ -217,6 +217,14 @@ test("history workspace reuses C4 tokens and responsive paper grids", () => {
   assert.match(history, /\.historyPaperPreview\s*\{[\s\S]*?aspect-ratio:\s*8\s*\/\s*5/);
   assert.match(
     history,
+    /\.historyWorkspaceHeader\.historyWorkspaceHeaderDetail\s*\{[\s\S]*?width:\s*min\(1184px,\s*100%\)/
+  );
+  assert.match(
+    history,
+    /\.historyWorkspaceBack\s*\{[\s\S]*?width:\s*44px;[\s\S]*?min-width:\s*44px;[\s\S]*?flex:\s*0 0 44px;[\s\S]*?padding:\s*0;/
+  );
+  assert.match(
+    history,
     /\.historyWorkspaceSearch input:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--primary-700\);[\s\S]*?outline-offset:\s*-?\d+px;/
   );
   assert.match(

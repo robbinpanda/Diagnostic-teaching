@@ -25,6 +25,10 @@
   background: var(--stage-canvas);
 }
 
+.historyWorkspaceHeader.historyWorkspaceHeaderDetail {
+  width: min(1184px, 100%);
+}
+
 .historyWorkspaceTitle {
   min-width: 0;
   flex: 1 1 auto;
@@ -93,10 +97,13 @@
 }
 
 .historyWorkspaceBack {
+  width: 44px;
+  min-width: 44px;
+  flex: 0 0 44px;
   align-self: flex-start;
+  padding: 0;
 }
 
-.historyWorkspaceBack,
 .historyWorkspaceAction {
   padding: 0 var(--space-3);
   font-size: 13px;

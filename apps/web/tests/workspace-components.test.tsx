@@ -277,6 +277,9 @@ test("history workspace renders overview and paper detail from real session meta
   const detail = renderToStaticMarkup(
     <HistoryWorkspace {...historyWorkspaceProps} view={{ mode: "paper", paperId: "paper-a" }} />
   );
+  const backButton = detail.match(
+    /<button class="historyWorkspaceBack"[\s\S]*?<\/button>/
+  )?.[0] ?? "";
 
   assert.match(overview, /历史搜题/);
   assert.match(overview, /按试卷继续你的学习/);
@@ -285,6 +288,11 @@ test("history workspace renders overview and paper detail from real session meta
   assert.match(overview, /名称排序/);
   assert.doesNotMatch(overview, /<img/);
   assert.doesNotMatch(overview, /historyQuestionDelete/);
+  assert.match(detail, /historyWorkspaceHeader historyWorkspaceHeaderDetail/);
+  assert.match(backButton, /aria-label="返回全部试卷"/);
+  assert.match(backButton, /title="返回全部试卷"/);
+  assert.match(backButton, /<svg/);
+  assert.doesNotMatch(backButton, /<span>/);
   assert.match(detail, /返回全部试卷/);
   assert.match(detail, /正在思考/);
   assert.match(detail, /3 条消息/);
