@@ -49,6 +49,8 @@ test("draggable card window isolates pointer motion and escape semantics", () =>
   assert.match(component, /onArchivedEscape\(\)/);
   assert.match(component, /focusHandle: true/);
   assert.match(component, /button:not\(:disabled\)/);
+  assert.match(component, /document\.activeElement === event\.currentTarget/);
+  assert.doesNotMatch(component, /event\.currentTarget\.focus\(\{ preventScroll: true \}\)/);
 });
 
 test("drag styles preserve outer FLIP and collapse safely at 900px", () => {
@@ -65,6 +67,8 @@ test("drag styles preserve outer FLIP and collapse safely at 900px", () => {
   assert.match(conversation, /@keyframes shelfCardFadeClose[\s\S]*?opacity:\s*0;/);
   assert.match(conversation, /@keyframes reducedCardDockEnter[\s\S]*?transform:\s*none;/);
   assert.match(conversation, /\.activeKnowledgeCardDock > \.draggableCardWindow\s*\{[\s\S]*?pointer-events:\s*auto;/);
+  assert.match(conversation, /\.draggableCardWindow\[data-dragging="true"\]\s*\{[^}]*outline:\s*none;/);
+  assert.match(conversation, /\.draggableCardWindow:focus-visible\s*\{[^}]*border-radius:\s*18px;/);
   assert.match(dialogs, /\.flashcardPin\s*\{[\s\S]*?background:\s*rgba\(70, 79, 74, 0\.34\)/);
   assert.doesNotMatch(dialogs, /\.draggableCardWindow \.flashcardPin\s*\{[\s\S]*?display:\s*none;/);
   assert.match(dialogs, /--card-window-max-height/);

@@ -156,6 +156,8 @@
 }
 
 .problemSelectorHeader {
+  position: relative;
+  z-index: 3;
   align-items: flex-start;
   border-bottom: 1px solid var(--line);
 }
@@ -192,6 +194,8 @@
   overflow: auto;
   display: grid;
   place-items: center;
+  margin: 12px;
+  border-radius: 14px;
   padding: 24px;
   background: #282a27;
 }
@@ -1248,14 +1252,119 @@
     inset 0 1px rgba(255, 255, 255, 0.34);
 }
 
+.roundedSelect {
+  position: relative;
+  min-width: 0;
+}
+
+.roundedSelectTrigger {
+  width: 100%;
+  min-width: 150px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: #ffffff;
+  font-size: 12px;
+}
+
+.roundedSelectValue {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roundedSelectTrigger svg,
+.roundedSelectOption svg {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.roundedSelectChevron {
+  transition: transform 160ms var(--ease-standard);
+}
+
+.roundedSelect.open .roundedSelectChevron {
+  transform: rotate(180deg);
+}
+
+.roundedSelectTrigger:focus-visible,
+.roundedSelect.open .roundedSelectTrigger {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.roundedSelectMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 6;
+  width: max(100%, 190px);
+  max-height: min(260px, 42vh);
+  overflow: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 5px;
+  background: #ffffff;
+  box-shadow: 0 16px 36px rgba(28, 29, 26, 0.16), 0 3px 10px rgba(28, 29, 26, 0.08);
+}
+
+.roundedSelectMenu[hidden] {
+  display: none;
+}
+
+.roundedSelectOption {
+  width: 100%;
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+}
+
+.roundedSelectOption > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roundedSelectOption:hover,
+.roundedSelectOption:focus-visible {
+  outline: none;
+  background: var(--accent-soft);
+}
+
+.roundedSelectOption.selected {
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.paperAssignmentControls .roundedSelectTrigger {
+  height: 36px;
+}
+
 .studyCardDialog.knowledgeFlashcard.flashcardPresentation {
   max-height: min(430px, calc(100vh - 320px));
-  background-color: color-mix(in srgb, var(--flashcard-bg, #8fce77) 68%, transparent);
-  background-image:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.1), transparent 54%),
-    url("/ambient-grain.webp");
-  backdrop-filter: blur(22px) saturate(1.18);
-  -webkit-backdrop-filter: blur(22px) saturate(1.18);
+  background-color: color-mix(in srgb, var(--flashcard-bg, #8fce77) 46%, transparent);
+  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.08), transparent 54%);
+  backdrop-filter: blur(12px) saturate(1.12);
+  -webkit-backdrop-filter: blur(12px) saturate(1.12);
 }
 
 .draggableCardWindow > .studyCardDialog.flashcardPresentation {
@@ -1534,7 +1643,7 @@
 .knowledgeFlashcard.flashcardPresentation .studyCardBody section {
   border-color: rgba(255, 255, 255, 0.52);
   color: color-mix(in srgb, var(--flashcard-ink, #173820) 86%, transparent);
-  background: color-mix(in srgb, var(--flashcard-panel, #d9f1cb) 58%, transparent);
+  background: color-mix(in srgb, var(--flashcard-panel, #d9f1cb) 38%, transparent);
 }
 
 .knowledgeFlashcard.flashcardPresentation .studyCardBody section h3,
@@ -1567,7 +1676,7 @@
 .knowledgeFlashcard.flashcardPresentation .cardStepList li,
 .knowledgeFlashcard.flashcardPresentation .studyCardBody .cardConnection {
   border-color: color-mix(in srgb, var(--flashcard-accent, #3d8138) 42%, transparent);
-  background: color-mix(in srgb, var(--flashcard-panel-strong, #f7fcf3) 64%, transparent);
+  background: color-mix(in srgb, var(--flashcard-panel-strong, #f7fcf3) 44%, transparent);
 }
 
 .knowledgeFlashcard.flashcardPresentation .flashcardFlipBar {

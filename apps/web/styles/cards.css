@@ -955,7 +955,8 @@
   gap: 5px;
 }
 
-.folderLocationSelect > label {
+.folderLocationLabel {
+  min-height: 18px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -964,15 +965,16 @@
   font-weight: 700;
 }
 
-.folderLocationSelect select {
-  min-width: 220px;
-  height: 38px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  padding: 0 34px 0 10px;
-  color: var(--ink);
-  background: #ffffff;
-  font-size: 12px;
+.folderLocationLabel svg,
+.folderLocationCreateToggle svg,
+.folderLocationCreateRow button svg {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.folderLocationLabel span,
+.folderLocationCreateToggle {
+  line-height: 1;
 }
 
 .folderLocationControl {
@@ -982,6 +984,11 @@
   gap: 7px;
 }
 
+.folderLocationPicker {
+  min-width: 220px;
+  flex: 1 1 220px;
+}
+
 .folderLocationCreateToggle {
   min-height: 38px;
   display: inline-flex;
@@ -989,7 +996,7 @@
   justify-content: center;
   gap: 5px;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 0 10px;
   color: var(--accent-strong);
   background: #f7faf8;
@@ -1032,6 +1039,8 @@
 }
 
 .cardSaveLocation {
+  position: relative;
+  z-index: 3;
   animation: cardSaveLocationReveal 240ms cubic-bezier(0.22, 0.82, 0.24, 1) both;
 }
 
@@ -1070,8 +1079,25 @@
   flex-wrap: wrap;
 }
 
-.flashcardFolderPlacement .folderLocationControl select {
+.flashcardFolderPlacement .folderLocationPicker {
   flex: 1 1 190px;
+}
+
+.knowledgeFlashcard .folderLocationPicker .roundedSelectTrigger {
+  border-color: rgba(255, 255, 255, 0.56);
+  background: rgba(255, 255, 255, 0.44);
+  backdrop-filter: blur(12px) saturate(1.08);
+}
+
+.knowledgeFlashcard .folderLocationPicker .roundedSelectMenu {
+  border-color: rgba(255, 255, 255, 0.62);
+  background: color-mix(in srgb, var(--flashcard-panel-strong, #f7fcf3) 92%, transparent);
+  backdrop-filter: blur(20px) saturate(1.12);
+}
+
+.knowledgeFlashcard .folderLocationPicker .roundedSelectOption:hover,
+.knowledgeFlashcard .folderLocationPicker .roundedSelectOption:focus-visible {
+  background: rgba(255, 255, 255, 0.42);
 }
 
 .cardMoveBackdrop {
@@ -1114,7 +1140,7 @@
   font-size: 12px;
 }
 
-.cardMoveDialog .folderLocationSelect select {
+.cardMoveDialog .folderLocationPicker {
   width: 100%;
 }
 
@@ -1122,7 +1148,7 @@
   flex-wrap: wrap;
 }
 
-.cardMoveDialog .folderLocationControl select {
+.cardMoveDialog .folderLocationPicker {
   flex: 1 1 220px;
 }
 

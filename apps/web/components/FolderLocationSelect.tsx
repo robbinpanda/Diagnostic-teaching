@@ -1,10 +1,11 @@
 "use client";
 
 import { FolderOpen, Loader2, Plus, X } from "lucide-react";
-import { useId, useState } from "react";
+import { useState } from "react";
 
 import type { CardFolder } from "../lib/api";
 import { flattenCardFolders } from "../lib/card-folders";
+import { RoundedSelect } from "./RoundedSelect";
 
 type Props = {
   folders: CardFolder[];
@@ -24,7 +25,6 @@ export function FolderLocationSelect({
   onCreatePaperFolder
 }: Props) {
   const options = flattenCardFolders(folders);
-  const selectId = useId();
   const [creating, setCreating] = useState(false);
   const [paperName, setPaperName] = useState("");
   const [createBusy, setCreateBusy] = useState(false);
@@ -46,21 +46,20 @@ export function FolderLocationSelect({
 
   return (
     <div className="folderLocationSelect">
-      <label htmlFor={selectId}><FolderOpen size={15} />{label}</label>
+      <div className="folderLocationLabel"><FolderOpen size={15} aria-hidden="true" /><span>{label}</span></div>
       <div className="folderLocationControl">
-        <select
-          id={selectId}
-          aria-label={label}
+        <RoundedSelect
+          className="folderLocationPicker"
+          label={label}
           value={value}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={onChange}
           disabled={disabled || options.length === 0}
-        >
-          {options.map((folder) => (
-            <option key={folder.id} value={folder.id}>
-              {`${"　".repeat(folder.depth)}${folder.depth ? "└ " : ""}${folder.name}`}
-            </option>
-          ))}
-        </select>
+          options={options.map((folder) => ({
+            value: folder.id,
+            label: folder.name,
+            depth: folder.depth
+          }))}
+        />
         {onCreatePaperFolder ? (
           <button
             className="folderLocationCreateToggle"

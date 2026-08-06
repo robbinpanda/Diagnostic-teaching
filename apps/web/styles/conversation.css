@@ -451,11 +451,13 @@
   will-change: transform;
   cursor: grabbing;
   user-select: none;
+  outline: none;
 }
 
 .draggableCardWindow:focus-visible {
   outline: 2px solid var(--flashcard-accent, var(--primary-700));
   outline-offset: 4px;
+  border-radius: 18px;
 }
 
 .draggableCardWindow :is(button, input, select, textarea, a, [contenteditable="true"]) {

@@ -238,7 +238,7 @@ export const DraggableCardWindow = forwardRef<DraggableCardWindowHandle, Props>(
         startOffset: { ...offsetRef.current }
       };
       event.currentTarget.setPointerCapture(event.pointerId);
-      event.currentTarget.focus({ preventScroll: true });
+      if (document.activeElement === event.currentTarget) event.currentTarget.blur();
       rootRef.current?.setAttribute("data-dragging", "true");
       event.preventDefault();
     }
