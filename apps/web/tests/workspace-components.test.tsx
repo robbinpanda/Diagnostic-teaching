@@ -651,9 +651,14 @@ test("checkpoint and pending card interactions render inside the conversation wi
 
   const cardSource = readFileSync(resolve(__dirname, "../../../components/StudyCardModal.tsx"), "utf8");
   const dialogStyles = readFileSync(resolve(__dirname, "../../../styles/dialogs.css"), "utf8");
+  const conversationStyles = readFileSync(resolve(__dirname, "../../../styles/conversation.css"), "utf8");
   assert.match(cardSource, /discardConfirmation \? "确认舍弃" : "舍弃"/);
+  assert.match(cardSource, /folders\.length > 0 && !saveLocationExpanded/);
+  assert.match(cardSource, /folders\.length > 0 && saveLocationExpanded \? \(/);
   assert.match(dialogStyles, /\.cardViewerLayer\s*\{[^}]*justify-content:\s*flex-end;[^}]*pointer-events:\s*none;/);
   assert.match(dialogStyles, /\.studyCardDialog\.cardViewerDialog\s*\{[^}]*overflow-y:\s*auto;[^}]*pointer-events:\s*auto;/);
+  assert.match(dialogStyles, /\.studyCardDialog\.knowledgeFlashcard\.flashcardPresentation\s*\{[^}]*max-height:\s*min\(430px,[^}]*background-color:\s*color-mix\([^}]*backdrop-filter:\s*blur\(18px\) saturate\(1\.14\);/);
+  assert.match(conversationStyles, /\.activeKnowledgeCardDock:has\(\.knowledgeFlashcard\)\s*\{[^}]*width:\s*min\(520px,/);
   assert.match(dialogStyles, /\.flashcardHeading h2,[^}]*font-size:\s*22px;/);
   assert.match(dialogStyles, /\.flashcardPresentation \.studyCardBody section\s*\{[^}]*color:\s*var\(--flashcard-ink,[^;]+;[^}]*font-size:\s*14px;/);
   assert.match(dialogStyles, /\.flashcardPresentation \.cardStepList li\s*\{[^}]*border:\s*1px solid color-mix\(in srgb, var\(--flashcard-accent,/);
@@ -1123,8 +1128,9 @@ test("card save and export dialogs expose folder-based navigation", () => {
       onSave={() => {}}
     />
   );
-  assert.match(saveDialog, /保存位置/);
-  assert.match(saveDialog, /默认知识卡片/);
+  assert.match(saveDialog, /aria-expanded="false"/);
+  assert.doesNotMatch(saveDialog, /保存位置/);
+  assert.doesNotMatch(saveDialog, /默认知识卡片/);
 
   const exportDialog = renderToStaticMarkup(
     <LearningCardExportDialog

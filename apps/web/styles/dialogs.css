@@ -1248,8 +1248,27 @@
     inset 0 1px rgba(255, 255, 255, 0.34);
 }
 
+.studyCardDialog.knowledgeFlashcard.flashcardPresentation {
+  max-height: min(430px, calc(100vh - 320px));
+  background-color: color-mix(in srgb, var(--flashcard-bg, #8fce77) 82%, transparent);
+  backdrop-filter: blur(18px) saturate(1.14);
+  -webkit-backdrop-filter: blur(18px) saturate(1.14);
+}
+
 .draggableCardWindow > .studyCardDialog.flashcardPresentation {
   max-height: min(460px, var(--card-window-max-height, calc(100vh - 320px)));
+}
+
+.draggableCardWindow > .studyCardDialog.knowledgeFlashcard.flashcardPresentation {
+  max-height: min(430px, var(--card-window-max-height, calc(100vh - 320px)));
+}
+
+.studyCardDialog.knowledgeFlashcard.flashcardPresentation .studyCardHeader {
+  padding: 14px 16px 8px;
+}
+
+.studyCardDialog.knowledgeFlashcard.flashcardPresentation .studyCardBody {
+  padding: 6px 16px 7px;
 }
 
 .flashcardPresentation .studyCardHeader {
@@ -1495,6 +1514,11 @@
 
 .anchoredInteraction .problemFlashcard {
   width: min(560px, 100%);
+  margin-left: auto;
+}
+
+.anchoredInteraction .knowledgeFlashcard {
+  width: min(520px, 100%);
   margin-left: auto;
 }
 

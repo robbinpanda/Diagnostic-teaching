@@ -250,6 +250,10 @@
     margin: 0 auto 8px;
   }
 
+  .activeKnowledgeCardDock:has(.knowledgeFlashcard) {
+    width: calc(100% - 20px);
+  }
+
   .composerActions select {
     max-width: 112px;
   }

@@ -430,6 +430,10 @@
   animation: activeCardDockEnter 420ms cubic-bezier(0.22, 0.82, 0.24, 1) both;
 }
 
+.activeKnowledgeCardDock:has(.knowledgeFlashcard) {
+  width: min(520px, calc(100% - 48px));
+}
+
 .activeKnowledgeCardDock > .draggableCardWindow {
   pointer-events: auto;
 }

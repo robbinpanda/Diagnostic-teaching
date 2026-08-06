@@ -18,7 +18,7 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useId, useState, type CSSProperties } from "react";
 import type { CardFolder, KnowledgeCardContent, StudyCard } from "../lib/api";
 import { cardThemeProperties } from "../lib/card-theme";
 import { defaultFolderForCard } from "../lib/card-folders";
@@ -264,6 +264,8 @@ export function StudyCardModal({
   const [validationError, setValidationError] = useState("");
   const [discardConfirmation, setDiscardConfirmation] = useState(false);
   const [folderId, setFolderId] = useState("");
+  const [saveLocationExpanded, setSaveLocationExpanded] = useState(false);
+  const saveLocationId = useId();
   const [collapsed, setCollapsed] = useState(
     Boolean(card?.deferred_at) && displayMode === "inline" && appearance !== "flashcard"
   );
@@ -291,6 +293,7 @@ export function StudyCardModal({
 
   useEffect(() => {
     setShowBack(false);
+    setSaveLocationExpanded(false);
   }, [card?.id]);
 
   if (!card) return null;
@@ -317,11 +320,22 @@ export function StudyCardModal({
       setDraft(result.content);
       setDiscardConfirmation(false);
       onSave({ ...currentCard, content: result.content }, folderId || undefined);
+      setSaveLocationExpanded(false);
       if (libraryView) setEditing(false);
       return;
     }
     setDiscardConfirmation(false);
     onSave(currentCard, folderId || undefined);
+    setSaveLocationExpanded(false);
+  }
+
+  function handleSaveIntent() {
+    if (folders.length > 0 && !saveLocationExpanded) {
+      setDiscardConfirmation(false);
+      setSaveLocationExpanded(true);
+      return;
+    }
+    handleSave();
   }
 
   function handleDiscard() {
@@ -377,12 +391,20 @@ export function StudyCardModal({
               <button
                 className="cardSaveButton"
                 type="button"
-                onClick={handleSave}
-                disabled={busy || (folders.length > 0 && !folderId)}
+                onClick={handleSaveIntent}
+                disabled={busy || (saveLocationExpanded && folders.length > 0 && !folderId)}
+                aria-expanded={folders.length > 0 ? saveLocationExpanded : undefined}
+                aria-controls={folders.length > 0 ? saveLocationId : undefined}
               >
                 {busy ? <Loader2 size={15} className="spin" /> : <Save size={15} />}
                 {busy
                   ? "处理中"
+                  : saveLocationExpanded && folders.length > 0
+                    ? libraryView
+                      ? (isKnowledge ? "确认保存修改" : "确认保存位置")
+                      : isKnowledge
+                        ? "确认保存知识卡片"
+                        : "确认保存题目卡片"
                   : libraryView
                     ? (isKnowledge ? "保存修改" : "保存位置")
                     : isKnowledge
@@ -480,8 +502,8 @@ export function StudyCardModal({
       </header>
 
       {!collapsed && <>
-      {flashcard && onSave && folders.length > 0 ? (
-        <div className="flashcardFolderPlacement">
+      {flashcard && onSave && folders.length > 0 && saveLocationExpanded ? (
+        <div className="cardSaveLocation flashcardFolderPlacement" id={saveLocationId}>
           <FolderLocationSelect
             folders={folders}
             value={folderId}
@@ -638,14 +660,16 @@ export function StudyCardModal({
                 : (isKnowledge ? "保存或舍弃后，AI 都会接着当前对话继续讲解。" : "保存后，本轮答疑完成。")}</span>
             {validationError && <span className="cardValidationError" role="alert">{validationError}</span>}
           </div>
-          {onSave && folders.length > 0 && (
-            <FolderLocationSelect
-              folders={folders}
-              value={folderId}
-              onChange={setFolderId}
-              disabled={busy}
-              onCreatePaperFolder={onCreatePaperFolder}
-            />
+          {onSave && folders.length > 0 && saveLocationExpanded && (
+            <div className="cardSaveLocation" id={saveLocationId}>
+              <FolderLocationSelect
+                folders={folders}
+                value={folderId}
+                onChange={setFolderId}
+                disabled={busy}
+                onCreatePaperFolder={onCreatePaperFolder}
+              />
+            </div>
           )}
           <div className="studyCardFooterActions">
             {isKnowledge && onDiscard && (
@@ -664,12 +688,20 @@ export function StudyCardModal({
               <button
                 className="cardSaveButton"
                 type="button"
-                onClick={handleSave}
-                disabled={busy || (folders.length > 0 && !folderId)}
+                onClick={handleSaveIntent}
+                disabled={busy || (saveLocationExpanded && folders.length > 0 && !folderId)}
+                aria-expanded={folders.length > 0 ? saveLocationExpanded : undefined}
+                aria-controls={folders.length > 0 ? saveLocationId : undefined}
               >
                 {busy ? <Loader2 size={17} className="spin" /> : <Save size={17} />}
                 {busy
                   ? "处理中"
+                  : saveLocationExpanded && folders.length > 0
+                    ? libraryView
+                      ? "确认保存修改"
+                      : isKnowledge
+                        ? "确认保存知识卡片"
+                        : "确认保存题目卡片"
                   : libraryView
                     ? "保存修改"
                     : isKnowledge
