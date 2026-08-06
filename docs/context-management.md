@@ -387,7 +387,7 @@ DELETE /api/sessions/{session_id}
 
 删除历史会话会删除该 session 的 SQLite 主记录，并由数据库外键级联删除 session_inputs、messages、checkpoints、session_events、session_runs；数据库触发器删除尚未关闭的待归档卡片。对应的 JSONL/Markdown 诊断日志仍由路由层删除。已归档学习卡片解除活动会话外键后继续保留在全局卡片库，来源审计字段不变，模型配置也不受影响。
 
-`DELETE /api/sessions` 是批量版本：删除全部 session；外键和触发器同步处理 session_inputs、messages、checkpoints、session_events、session_runs 与待归档卡片；路由层再删除日志目录中的所有 `.jsonl` / `.log.md` session 日志。已归档全局卡片和模型配置保留。若仍有答疑流正在生成，接口返回 409，避免清空后被并发写回。
+`DELETE /api/sessions` 是批量版本：在同一 SQLite 事务中先删除全部 session，再删除全部 `exam_papers`；外键和触发器同步处理 session_inputs、messages、checkpoints、session_events、session_runs 与待归档卡片；路由层再删除日志目录中的所有 `.jsonl` / `.log.md` session 日志。已归档全局卡片和模型配置保留。若仍有答疑流正在生成，接口返回 409，不删除 session 或试卷，避免清空后被并发写回。
 
 ## 7. Run 是可恢复业务态，不是诊断事件流
 

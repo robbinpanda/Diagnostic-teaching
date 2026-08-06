@@ -108,9 +108,11 @@ class SessionRepository(
                 raise KeyError(session_id)
 
     def delete_all_sessions(self) -> None:
-        """Delete sessions; database constraints preserve only archived global cards."""
+        """Delete sessions and exam papers while preserving archived global cards."""
         with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute("DELETE FROM sessions")
+            conn.execute("DELETE FROM exam_papers")
 
     def update_phase(
         self,
