@@ -1145,7 +1145,7 @@ export default function Home() {
   }
 
   async function handleDeleteAllSessions() {
-    if (!window.confirm("清空全部会话？会话、消息、检查点和诊断日志会永久删除，已归档卡片会保留。")) return;
+    if (!window.confirm("清空全部会话和试卷？会话、消息、检查点、试卷记录和诊断日志会永久删除，已归档卡片会保留。")) return;
     const clearingFromCollection = historyView !== null;
     setDeleteAllSessionsBusy(true);
     runtime.clearError();
@@ -2137,7 +2137,6 @@ export default function Home() {
             composerBlocked={composerBlocked}
             imageInputRef={imageInputRef}
             imageBusy={imageBusy}
-            gradeBand={gradeBand}
             selectedProfileId={selectedProfileId}
             selectedProfile={selectedProfile}
             profiles={profiles}
@@ -2159,7 +2158,6 @@ export default function Home() {
             onSend={() => void handleSend()}
             onImageFile={(file) => void handleImageFile(file)}
             onPasteImages={handlePastedImages}
-            onGradeBandChange={setGradeBand}
             onProfileChange={setSelectedProfileId}
             onAddProfile={openNewProfileDialog}
             onEditProfile={openSelectedProfileDialog}

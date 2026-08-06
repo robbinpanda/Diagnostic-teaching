@@ -1046,8 +1046,8 @@
 
 .reasoningPicker {
   position: relative;
-  width: 116px;
-  flex: 0 0 116px;
+  min-width: 128px;
+  flex: 0 0 auto;
 }
 
 .reasoningPickerTrigger {
@@ -1073,10 +1073,9 @@
 }
 
 .reasoningPickerCurrentLabel {
-  overflow: hidden;
+  flex: 0 0 auto;
   color: #62635e;
   font-size: 10px;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

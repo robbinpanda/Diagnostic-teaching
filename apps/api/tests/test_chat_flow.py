@@ -644,6 +644,7 @@ def test_delete_all_sessions_clears_sqlite_and_logs_but_preserves_saved_cards(tm
     client.post(f"/api/cards/{card['id']}/save", json={"session_id": session_id})
 
     profile_id = client.app.state.sessions.get(session_id)["model_profile_id"]
+    paper = client.post("/api/exam-papers", json={"name": "待清理试卷"}).json()
     second = client.post(
         "/api/sessions",
         json={
@@ -652,11 +653,13 @@ def test_delete_all_sessions_clears_sqlite_and_logs_but_preserves_saved_cards(tm
             "model_profile_id": profile_id,
             "problem_text": "计算 $2+2$。",
             "student_initial_thought": "",
+            "paper_id": paper["id"],
         },
     ).json()["session_id"]
     log_dir = client.app.state.session_logger.log_dir
     assert list(log_dir.glob("*.jsonl"))
     assert list(log_dir.glob("*.log.md"))
+    assert client.get("/api/exam-papers").json()["papers"]
 
     deleted = client.delete("/api/sessions")
 
@@ -669,6 +672,7 @@ def test_delete_all_sessions_clears_sqlite_and_logs_but_preserves_saved_cards(tm
         assert client.app.state.sessions.list_checkpoints(deleted_session_id) == []
     assert list(log_dir.glob("*.jsonl")) == []
     assert list(log_dir.glob("*.log.md")) == []
+    assert client.get("/api/exam-papers").json()["papers"] == []
     assert [item["id"] for item in client.get("/api/cards").json()["cards"]] == [card["id"]]
     assert client.get("/api/model-profiles").json()["profiles"]
 
@@ -697,6 +701,7 @@ def test_delete_all_cards_removes_saved_and_pending_cards_only(tmp_path: Path):
 
 def test_bulk_delete_is_rejected_while_a_chat_stream_is_active(tmp_path: Path):
     client, session_id = _bootstrap_app(tmp_path)
+    paper = client.post("/api/exam-papers", json={"name": "生成中的试卷"}).json()
     coordinator = client.app.state.chat_streams
     handle = asyncio.run(coordinator.enqueue(session_id, "run_test_active"))
     try:
@@ -708,6 +713,7 @@ def test_bulk_delete_is_rejected_while_a_chat_stream_is_active(tmp_path: Path):
     assert sessions_response.status_code == 409
     assert cards_response.status_code == 409
     assert client.app.state.sessions.get(session_id)["id"] == session_id
+    assert [item["id"] for item in client.get("/api/exam-papers").json()["papers"]] == [paper["id"]]
 
 
 def test_answer_unknown_triggers_recovery_phase(tmp_path: Path):

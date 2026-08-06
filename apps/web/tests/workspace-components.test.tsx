@@ -1187,7 +1187,7 @@ test("model picker exposes image capability and batch management controls", () =
   assert.match(conversationStyles, /\.modelPicker\s*\{[^}]*max-width:/);
 });
 
-test("composer exposes the three probed protocol reasoning effort labels", () => {
+test("composer omits the grade picker and exposes complete reasoning effort labels", () => {
   const protocolProfile: ModelProfile = {
     ...profile,
     id: "profile-prompt-effort",
@@ -1195,6 +1195,7 @@ test("composer exposes the three probed protocol reasoning effort labels", () =>
     base_url: "https://example.com/v1",
     base_url_host: "example.com",
     model: "vendor-chat-model",
+    reasoning_effort: "none",
     reasoning_effort_options: ["none", "low", "high"],
     reasoning_control: "openai_compatible_reasoning_effort",
     reasoning_control_description: "按协议发送 reasoning_effort。"
@@ -1208,7 +1209,6 @@ test("composer exposes the three probed protocol reasoning effort labels", () =>
       composerBlocked={false}
       imageInputRef={{ current: null }}
       imageBusy={false}
-      gradeBand="junior"
       selectedProfileId={protocolProfile.id}
       selectedProfile={protocolProfile}
       profiles={[protocolProfile]}
@@ -1225,7 +1225,6 @@ test("composer exposes the three probed protocol reasoning effort labels", () =>
       onSend={() => {}}
       onImageFile={() => {}}
       onPasteImages={() => {}}
-      onGradeBandChange={() => {}}
       onProfileChange={() => {}}
       onAddProfile={() => {}}
       onEditProfile={() => {}}
@@ -1236,19 +1235,29 @@ test("composer exposes the three probed protocol reasoning effort labels", () =>
     />
   );
 
-  assert.match(composer, /aria-label="学习阶段：初中"/);
-  assert.match(composer, /帮助导师调整知识范围与讲解方式/);
-  assert.match(composer, /侧重基础概念、直观解释与规范步骤/);
-  assert.match(composer, /允许使用高中知识、综合方法与完整推导/);
+  const tutorComposerSource = readFileSync(
+    resolve(__dirname, "../../../components/workspace/TutorComposer.tsx"),
+    "utf8"
+  );
+  const conversationStyles = readFileSync(resolve(__dirname, "../../../styles/conversation.css"), "utf8");
+
+  assert.doesNotMatch(composer, /学习阶段|初中|高中/);
+  assert.doesNotMatch(tutorComposerSource, /GradeBandPicker|onGradeBandChange|gradeBand:/);
   assert.doesNotMatch(composer, /<select[^>]*aria-label="年级"/);
-  assert.match(composer, /aria-label="推理强度：低"/);
+  assert.match(composer, /aria-label="推理强度：关闭"/);
   assert.match(composer, /aria-haspopup="listbox"/);
-  assert.match(composer, /推理 · <strong>低<\/strong>/);
+  assert.match(composer, /推理 · <strong>关闭<\/strong>/);
   assert.match(composer, /请求供应商关闭推理/);
   assert.match(composer, /较少推理，兼顾回复速度与必要复核/);
   assert.match(composer, /充分推理并仔细检查，优先回答质量/);
   assert.match(composer, /reasoningRecommendedBadge/);
   assert.doesNotMatch(composer, /<select[^>]*aria-label="推理强度"/);
+  assert.match(conversationStyles, /\.reasoningPicker\s*\{[^}]*min-width:\s*128px;/);
+  assert.match(conversationStyles, /\.reasoningPickerCurrentLabel\s*\{[^}]*flex:\s*0\s+0\s+auto;/);
+  assert.doesNotMatch(
+    conversationStyles.match(/\.reasoningPickerCurrentLabel\s*\{[^}]*\}/)?.[0] ?? "",
+    /text-overflow:\s*ellipsis|overflow:\s*hidden/
+  );
 });
 
 test("problem image selector renders movable and resizable regions", () => {
@@ -1388,6 +1397,20 @@ test("exam paper refresh ignores stale responses", () => {
   assert.match(
     refreshSource,
     /catch \(nextError\) \{\s*if \(examPapersRequestRef\.current === requestId\)/
+  );
+});
+
+test("clearing all sessions invalidates pending exam paper loads and clears paper state", () => {
+  const pageSource = readFileSync(resolve(__dirname, "../../../app/page.tsx"), "utf8");
+  const deleteStart = pageSource.indexOf("async function handleDeleteAllSessions()");
+  const deleteEnd = pageSource.indexOf("function readFileAsDataUrl", deleteStart);
+  const deleteSource = pageSource.slice(deleteStart, deleteEnd);
+
+  assert.ok(deleteStart >= 0);
+  assert.ok(deleteEnd > deleteStart);
+  assert.match(
+    deleteSource,
+    /await deleteAllSessions\(\);[\s\S]*examPapersRequestRef\.current \+= 1;[\s\S]*setExamPapers\(\[\]\)/
   );
 });
 
