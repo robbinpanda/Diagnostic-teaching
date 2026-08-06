@@ -40,6 +40,7 @@ export function CardMoveDialog({ card, folders, busy = false, onClose, onMove, o
         <p>选择目标文件夹，卡片内容和来源记录不会改变。</p>
         <FolderLocationSelect
           folders={folders}
+          cardType={card.card_type}
           value={folderId}
           onChange={setFolderId}
           disabled={busy}

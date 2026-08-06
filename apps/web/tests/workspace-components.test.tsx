@@ -658,10 +658,10 @@ test("checkpoint and pending card interactions render inside the conversation wi
   assert.match(cardSource, /folders\.length > 0 && saveLocationExpanded \? \(/);
   assert.match(dialogStyles, /\.cardViewerLayer\s*\{[^}]*justify-content:\s*flex-end;[^}]*pointer-events:\s*none;/);
   assert.match(dialogStyles, /\.studyCardDialog\.cardViewerDialog\s*\{[^}]*overflow-y:\s*auto;[^}]*pointer-events:\s*auto;/);
-  assert.match(dialogStyles, /\.studyCardDialog\.knowledgeFlashcard\.flashcardPresentation\s*\{[^}]*max-height:\s*min\(430px,[^}]*background-color:\s*color-mix\([^}]*46%[^}]*background-image:\s*linear-gradient[^}]*backdrop-filter:\s*blur\(12px\) saturate\(1\.12\);/);
+  assert.match(dialogStyles, /\.studyCardDialog\.knowledgeFlashcard\.flashcardPresentation\s*\{[^}]*max-height:\s*min\(430px,[^}]*background-color:\s*color-mix\([^}]*42%[^}]*radial-gradient[^}]*linear-gradient[^}]*backdrop-filter:\s*blur\(18px\) saturate\(1\.18\);[^}]*box-shadow:/);
   assert.doesNotMatch(dialogStyles, /\.studyCardDialog\.knowledgeFlashcard\.flashcardPresentation\s*\{[^}]*ambient-grain/);
-  assert.match(dialogStyles, /\.knowledgeFlashcard\.flashcardPresentation \.studyCardBody section\s*\{[^}]*border-color:\s*rgba\(255, 255, 255, 0\.52\);[^}]*color:\s*color-mix\([^}]*86%[^}]*background:\s*color-mix\([^}]*38%/);
-  assert.match(dialogStyles, /\.knowledgeFlashcard\.flashcardPresentation \.cardStepList li,[\s\S]*?\.cardConnection\s*\{[^}]*border-color:[^}]*42%[^}]*background:[^}]*44%/);
+  assert.match(dialogStyles, /\.knowledgeFlashcard\.flashcardPresentation \.studyCardBody section\s*\{[^}]*border-color:\s*rgba\(255, 255, 255, 0\.52\);[^}]*color:\s*color-mix\([^}]*86%[^}]*background:[^}]*24%[^}]*backdrop-filter:\s*blur\(8px\)/);
+  assert.match(dialogStyles, /\.knowledgeFlashcard\.flashcardPresentation \.cardStepList li,[\s\S]*?\.cardConnection\s*\{[^}]*border-color:[^}]*42%[^}]*background:[^}]*30%[^}]*backdrop-filter:\s*blur\(7px\)/);
   assert.match(conversationStyles, /\.activeKnowledgeCardDock:has\(\.knowledgeFlashcard\)\s*\{[^}]*width:\s*min\(520px,/);
   assert.match(dialogStyles, /\.flashcardHeading h2,[^}]*font-size:\s*22px;/);
   assert.match(dialogStyles, /\.flashcardPresentation \.studyCardBody section\s*\{[^}]*color:\s*var\(--flashcard-ink,[^;]+;[^}]*font-size:\s*14px;/);
@@ -1255,6 +1255,10 @@ test("problem image selector renders movable and resizable regions", () => {
     resolve(__dirname, "../../../components/ProblemImageSelector.tsx"),
     "utf8"
   );
+  const roundedSelectSource = readFileSync(
+    resolve(__dirname, "../../../components/RoundedSelect.tsx"),
+    "utf8"
+  );
   const selector = renderToStaticMarkup(
     <ProblemImageSelector
       imageUrl="data:image/png;base64,AAAA"
@@ -1285,9 +1289,10 @@ test("problem image selector renders movable and resizable regions", () => {
   assert.match(selector, /aria-pressed="false"/);
   assert.match(selector, /所属试卷/);
   assert.match(selector, /期中数学卷/);
-  assert.match(selector, /新建试卷/);
+  assert.match(selectorSource, /新建试卷/);
   assert.match(selector, /aria-haspopup="listbox"/);
-  assert.match(selector, /roundedSelectMenu/);
+  assert.match(roundedSelectSource, /createPortal\(/);
+  assert.match(roundedSelectSource, /onWheel=\{\(event\) => event\.stopPropagation\(\)\}/);
   assert.match(selectorSource, /papers\.some\(\(paper\) => paper\.id === paperId\)/);
   assert.match(selectorSource, /setPaperMode\("new"\)/);
   assert.match(selector, /paperAssignment paperAssignmentHeader/);
@@ -1299,12 +1304,14 @@ test("problem image selector renders movable and resizable regions", () => {
   assert.match(dialogStyles, /\.handle-e[^}]*cursor:\s*ew-resize/);
   assert.match(dialogStyles, /\.problemSelectorWorkspace\s*\{[^}]*margin:\s*12px;[^}]*border-radius:\s*14px;/);
   assert.match(dialogStyles, /\.roundedSelectMenu\s*\{[^}]*border-radius:\s*12px;/);
+  assert.match(dialogStyles, /\.roundedSelectMenu\s*\{[^}]*position:\s*fixed;[^}]*overflow-y:\s*auto;/);
 });
 
 test("card folder location uses the shared rounded listbox", () => {
   const folderSelect = renderToStaticMarkup(
     <FolderLocationSelect
       folders={[knowledgeFolderFixture]}
+      cardType="knowledge_card"
       value={knowledgeFolderFixture.id}
       label="Save to"
       onChange={() => {}}
@@ -1313,7 +1320,6 @@ test("card folder location uses the shared rounded listbox", () => {
   );
 
   assert.match(folderSelect, /aria-haspopup="listbox"/);
-  assert.match(folderSelect, /class="roundedSelectMenu"/);
   assert.match(folderSelect, /class="folderLocationLabel"/);
   assert.doesNotMatch(folderSelect, /<select/);
 });

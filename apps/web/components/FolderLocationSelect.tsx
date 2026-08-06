@@ -3,12 +3,13 @@
 import { FolderOpen, Loader2, Plus, X } from "lucide-react";
 import { useState } from "react";
 
-import type { CardFolder } from "../lib/api";
-import { flattenCardFolders } from "../lib/card-folders";
+import type { CardFolder, StudyCard } from "../lib/api";
+import { flattenCardFolders, foldersForCardType } from "../lib/card-folders";
 import { RoundedSelect } from "./RoundedSelect";
 
 type Props = {
   folders: CardFolder[];
+  cardType: StudyCard["card_type"];
   value: string;
   onChange: (folderId: string) => void;
   disabled?: boolean;
@@ -18,13 +19,14 @@ type Props = {
 
 export function FolderLocationSelect({
   folders,
+  cardType,
   value,
   onChange,
   disabled = false,
   label = "保存位置",
   onCreatePaperFolder
 }: Props) {
-  const options = flattenCardFolders(folders);
+  const options = flattenCardFolders(foldersForCardType(folders, cardType));
   const [creating, setCreating] = useState(false);
   const [paperName, setPaperName] = useState("");
   const [createBusy, setCreateBusy] = useState(false);
@@ -50,6 +52,7 @@ export function FolderLocationSelect({
       <div className="folderLocationControl">
         <RoundedSelect
           className="folderLocationPicker"
+          menuClassName={`folderLocationMenu ${cardType === "knowledge_card" ? "knowledgeFolderLocationMenu" : "problemFolderLocationMenu"}`}
           label={label}
           value={value}
           onChange={onChange}

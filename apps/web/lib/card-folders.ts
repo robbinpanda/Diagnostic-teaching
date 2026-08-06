@@ -45,6 +45,15 @@ export function flattenCardFolders(folders: CardFolder[]): FolderOption[] {
   return result;
 }
 
+export function foldersForCardType(
+  folders: CardFolder[],
+  cardType: StudyCard["card_type"]
+) {
+  return folders.filter((folder) => (
+    !folder.default_card_type || folder.default_card_type === cardType
+  ));
+}
+
 export function descendantFolderIds(folders: CardFolder[], folderId: string) {
   const result = new Set<string>([folderId]);
   let changed = true;

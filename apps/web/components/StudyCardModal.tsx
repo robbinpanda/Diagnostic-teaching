@@ -506,6 +506,7 @@ export function StudyCardModal({
         <div className="cardSaveLocation flashcardFolderPlacement" id={saveLocationId}>
           <FolderLocationSelect
             folders={folders}
+            cardType={currentCard.card_type}
             value={folderId}
             onChange={setFolderId}
             disabled={busy}
@@ -664,6 +665,7 @@ export function StudyCardModal({
             <div className="cardSaveLocation" id={saveLocationId}>
               <FolderLocationSelect
                 folders={folders}
+                cardType={currentCard.card_type}
                 value={folderId}
                 onChange={setFolderId}
                 disabled={busy}

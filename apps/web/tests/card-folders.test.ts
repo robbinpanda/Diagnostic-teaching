@@ -6,6 +6,7 @@ import {
   countCardsInFolderTree,
   descendantFolderIds,
   flattenCardFolders,
+  foldersForCardType,
   folderBreadcrumbs,
   isProtectedFolder
 } from "../lib/card-folders";
@@ -41,4 +42,30 @@ test("system and paper-archive folders are protected", () => {
   assert.equal(isProtectedFolder(child), false);
   assert.equal(isProtectedFolder({ ...child, managed_kind: "paper_archive_root" }), true);
   assert.equal(isProtectedFolder({ ...child, managed_kind: "paper_archive" }), true);
+});
+
+test("folder choices hide only the opposite card type default", () => {
+  const problemDefault: CardFolder = {
+    ...knowledgeFolderFixture,
+    id: "folder_default_problem",
+    name: "默认题目卡片",
+    default_card_type: "problem_card"
+  };
+  const paperArchive: CardFolder = {
+    ...knowledgeFolderFixture,
+    id: "folder_papers",
+    name: "按试卷归档",
+    default_card_type: null,
+    managed_kind: "paper_archive_root"
+  };
+  const folders = [knowledgeFolderFixture, problemDefault, paperArchive];
+
+  assert.deepEqual(
+    foldersForCardType(folders, "knowledge_card").map((folder) => folder.id),
+    [knowledgeFolderFixture.id, paperArchive.id]
+  );
+  assert.deepEqual(
+    foldersForCardType(folders, "problem_card").map((folder) => folder.id),
+    [problemDefault.id, paperArchive.id]
+  );
 });
