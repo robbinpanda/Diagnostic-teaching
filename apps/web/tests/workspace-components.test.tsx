@@ -658,10 +658,11 @@ test("checkpoint and pending card interactions render inside the conversation wi
   assert.match(cardSource, /folders\.length > 0 && saveLocationExpanded \? \(/);
   assert.match(dialogStyles, /\.cardViewerLayer\s*\{[^}]*justify-content:\s*flex-end;[^}]*pointer-events:\s*none;/);
   assert.match(dialogStyles, /\.studyCardDialog\.cardViewerDialog\s*\{[^}]*overflow-y:\s*auto;[^}]*pointer-events:\s*auto;/);
-  assert.match(dialogStyles, /\.studyCardDialog\.knowledgeFlashcard\.flashcardPresentation\s*\{[^}]*max-height:\s*min\(430px,[^}]*background-color:\s*color-mix\([^}]*42%[^}]*radial-gradient[^}]*linear-gradient[^}]*backdrop-filter:\s*blur\(26px\) saturate\(1\.16\);[^}]*box-shadow:/);
+  assert.match(dialogStyles, /\.studyCardDialog\.knowledgeFlashcard\.flashcardPresentation\s*\{[^}]*max-height:\s*min\(430px,[^}]*background-color:\s*color-mix\([^}]*64%[^}]*radial-gradient[^}]*linear-gradient[^}]*backdrop-filter:\s*blur\(26px\) saturate\(1\.16\);[^}]*box-shadow:/);
   assert.doesNotMatch(dialogStyles, /\.studyCardDialog\.knowledgeFlashcard\.flashcardPresentation\s*\{[^}]*ambient-grain/);
-  assert.match(dialogStyles, /\.knowledgeFlashcard\.flashcardPresentation \.studyCardBody section\s*\{[^}]*border-color:\s*rgba\(255, 255, 255, 0\.52\);[^}]*color:\s*color-mix\([^}]*86%[^}]*background:[^}]*24%[^}]*backdrop-filter:\s*blur\(12px\)/);
-  assert.match(dialogStyles, /\.knowledgeFlashcard\.flashcardPresentation \.cardStepList li,[\s\S]*?\.cardConnection\s*\{[^}]*border-color:[^}]*42%[^}]*background:[^}]*30%[^}]*backdrop-filter:\s*blur\(10px\)/);
+  assert.match(dialogStyles, /\.knowledgeFlashcard\.flashcardPresentation \.studyCardBody section\s*\{[^}]*border-color:\s*rgba\(255, 255, 255, 0\.52\);[^}]*color:\s*color-mix\([^}]*86%[^}]*background:[^}]*48%[^}]*backdrop-filter:\s*blur\(12px\)/);
+  assert.match(dialogStyles, /\.knowledgeFlashcard\.flashcardPresentation \.cardStepList li,[\s\S]*?\.cardConnection\s*\{[^}]*border-color:[^}]*42%[^}]*background:[^}]*52%[^}]*backdrop-filter:\s*blur\(10px\)/);
+  assert.match(conversationStyles, /\.activeKnowledgeCardDock:has\(\.knowledgeFlashcard\) > \.draggableCardWindow\s*\{[^}]*background:\s*rgba\(244, 250, 240, 0\.36\);[^}]*backdrop-filter:\s*blur\(36px\) saturate\(1\.08\);/);
   assert.match(conversationStyles, /\.activeKnowledgeCardDock:has\(\.knowledgeFlashcard\)\s*\{[^}]*width:\s*min\(520px,/);
   assert.match(dialogStyles, /\.flashcardHeading h2,[^}]*font-size:\s*22px;/);
   assert.match(dialogStyles, /\.flashcardPresentation \.studyCardBody section\s*\{[^}]*color:\s*var\(--flashcard-ink,[^;]+;[^}]*font-size:\s*14px;/);
