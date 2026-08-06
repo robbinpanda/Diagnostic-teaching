@@ -10,8 +10,8 @@ from app.storage.exam_paper_repository import (
     ExamPaperRepositoryMixin,
     require_exam_paper,
 )
-from app.storage.model_profiles import ModelProfileRepository
 from app.storage.mistake_set_repository import MistakeSetRepositoryMixin
+from app.storage.model_profiles import ModelProfileRepository
 from app.storage.repository_utils import (
     host_from_url,
     initial_context_status,

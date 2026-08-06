@@ -13,7 +13,6 @@ from app.storage.mistake_set_repository import (
     MistakeSetSourceNotFoundError,
 )
 
-
 router = APIRouter(prefix="/api/mistake-sets", tags=["mistake-sets"])
 
 
