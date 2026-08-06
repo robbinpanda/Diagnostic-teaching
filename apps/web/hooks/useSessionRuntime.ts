@@ -3,7 +3,10 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import {
   type AnsweredCheckpoint,
+  fetchSession,
+  fetchSessionRunStatus,
   interruptSession,
+  isApiResponseError,
   streamChat,
   type Checkpoint,
   type RestoredSession,
@@ -47,6 +50,22 @@ function initialContextMessage(problem: string, thought: string) {
 
 function messageId() {
   return crypto.randomUUID();
+}
+
+function isRetryableStreamError(error: unknown) {
+  return Boolean(
+    error
+    && typeof error === "object"
+    && "retryable" in error
+    && (error as { retryable?: unknown }).retryable === true
+  );
+}
+
+function isRetryableTransportError(error: unknown) {
+  if (isRetryableStreamError(error) || error instanceof TypeError) return true;
+  return isApiResponseError(error) && (
+    [408, 409, 425, 429].includes(error.status) || error.status >= 500
+  );
 }
 
 export function useSessionRuntime(input: { onRunSettled?: (sessionId: string) => void } = {}) {
@@ -218,9 +237,29 @@ export function useSessionRuntime(input: { onRunSettled?: (sessionId: string) =>
     dispatchWorkflow({ type: "error_set", message });
   }
 
-  async function runStream(nextSessionId: string, message?: string) {
+  async function waitForServerRun(nextSessionId: string) {
+    let status = await fetchSessionRunStatus(nextSessionId);
+    for (let attempt = 0; status.active && attempt < 40; attempt += 1) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
+      status = await fetchSessionRunStatus(nextSessionId);
+    }
+    return status;
+  }
+
+  async function runStream(
+    nextSessionId: string,
+    message?: string,
+    recovery: {
+      runAttempt?: number;
+      transportAttempt?: number;
+      clientRunId?: string;
+    } = {}
+  ) {
     if (!nextSessionId) return;
     const runId = messageId();
+    const clientRunId = recovery.clientRunId ?? messageId();
+    const runRecoveryAttempt = recovery.runAttempt ?? 0;
+    const transportRecoveryAttempt = recovery.transportAttempt ?? 0;
     const adapter = createStreamEventAdapter({ sessionId: nextSessionId, runId });
     let receivedVisibleText = false;
     let receivedCheckpoint = false;
@@ -240,11 +279,13 @@ export function useSessionRuntime(input: { onRunSettled?: (sessionId: string) =>
       const result = await controllerRef.current!.start<SseEvent>({
         sessionId: nextSessionId,
         runId,
-        execute: (signal, emit) => streamChat(
-          { session_id: nextSessionId, message },
-          emit,
-          { signal }
-        ),
+        execute: async (signal, emit) => {
+          await streamChat(
+            { session_id: nextSessionId, client_run_id: clientRunId, message },
+            emit,
+            { signal }
+          );
+        },
         onEvent(rawEvent) {
           const event = adapter.adapt(rawEvent);
           if (!event) return;
@@ -320,12 +361,53 @@ export function useSessionRuntime(input: { onRunSettled?: (sessionId: string) =>
       const messageText = error instanceof Error ? error.message : "答疑请求失败";
       dispatchTimeline({ type: "run_failed", sessionId: nextSessionId, runId, message: messageText });
       dispatchWorkflow({ type: "run_failed", sessionId: nextSessionId, runId, message: messageText });
+      try {
+        const status = await waitForServerRun(nextSessionId);
+        const opened = await fetchSession(nextSessionId);
+        const matchesGenerationIntent = status.run?.client_run_id === clientRunId;
+        if (!matchesGenerationIntent) {
+          if (
+            !status.active
+            && transportRecoveryAttempt < 1
+            && isRetryableTransportError(error)
+          ) {
+            await runStream(nextSessionId, message, {
+              clientRunId,
+              runAttempt: runRecoveryAttempt,
+              transportAttempt: transportRecoveryAttempt + 1
+            });
+          }
+          return;
+        }
+        const actionCommitted = (
+          status.run?.status === "completed"
+          || (status.run?.last_committed_action_index ?? -1) >= 0
+        );
+        if (status.active) return;
+        if (actionCommitted || opened.pending_checkpoint) {
+          if (contextRef.current.sessionId === nextSessionId) loadSession(opened);
+          return;
+        }
+
+        const retryable = status.run?.error?.retryable === true || isRetryableStreamError(error);
+        if (retryable && runRecoveryAttempt < 1) {
+          if (contextRef.current.sessionId === nextSessionId) loadSession(opened);
+          await runStream(nextSessionId, undefined, { runAttempt: runRecoveryAttempt + 1 });
+        }
+      } catch {
+        // Preserve the original failure and leave manual retry available.
+      }
     } finally {
       if (mountedRef.current) {
         setRunningSessionIds(controllerRef.current?.activeSessionIds ?? []);
         onRunSettledRef.current?.(nextSessionId);
       }
     }
+  }
+
+  async function retryRun(nextSessionId: string) {
+    if (!nextSessionId || controllerRef.current?.currentFor(nextSessionId)) return;
+    await runStream(nextSessionId);
   }
 
   async function stopStream() {
@@ -443,6 +525,7 @@ export function useSessionRuntime(input: { onRunSettled?: (sessionId: string) =>
     isDraftActive,
     isSessionActive,
     prepareSessionChange,
+    retryRun,
     runStream,
     setError,
     startComposerTask,

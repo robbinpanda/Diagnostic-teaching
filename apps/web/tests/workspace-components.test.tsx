@@ -521,6 +521,30 @@ test("problem image viewer exposes persistent access and bounded zoom controls",
   assert.equal(clampImageScale(8), 5);
 });
 
+test("failed student turn exposes a retry control beside the original message", () => {
+  const timeline = renderToStaticMarkup(
+    <MessageTimeline
+      messages={[{ id: "failed-student", role: "student", text: "我的思路是先配方" }]}
+      messageEndRef={{ current: null }}
+      retryableMessageId="failed-student"
+      onRetryMessage={() => {}}
+    />
+  );
+
+  assert.match(timeline, /重试本轮/);
+  assert.match(timeline, /重试这条消息对应的答疑/);
+  const timelineSource = readFileSync(
+    resolve(__dirname, "../../../components/workspace/MessageTimeline.tsx"),
+    "utf8"
+  );
+  const conversationCss = readFileSync(
+    resolve(__dirname, "../../../styles/conversation.css"),
+    "utf8"
+  );
+  assert.match(timelineSource, /\.chatMessage, \.messageRetryRow/);
+  assert.match(conversationCss, /\.messageRetryRow\.avoidsKnowledgeCard/);
+});
+
 test("checkpoint and pending card interactions render inside the conversation without backdrops", () => {
   const checkpoint = renderToStaticMarkup(
     <CheckpointModal checkpoint={checkpointFixture} onSubmit={() => {}} />
@@ -1177,7 +1201,8 @@ test("workspace keeps text and image multi-problem intake wired", () => {
   assert.match(pageSource, /<ProblemImageSelector/);
   assert.match(pageSource, /createExamPaper\(paperSelection\.name\)/);
   assert.match(pageSource, /batchStartImageSessions/);
-  assert.match(pageSource, /paper_id: paper\.id/);
+  assert.match(pageSource, /paperId: selection\.paperId/);
+  assert.match(pageSource, /paper_id: paperId/);
   assert.match(pageSource, /pendingComposerImage/);
   assert.match(pageSource, /handlePastedImages/);
   assert.match(pageSource, /image_data_url: pending\.imageDataUrl/);
@@ -1247,6 +1272,11 @@ test("workspace persists recoverable requests before clearing visible text", () 
   assert.match(pageSource, /restoreWorkspaceAfterRefresh/);
   assert.match(pageSource, /isApiResponseError\(nextError, 404\)/);
   assert.match(pageSource, /clearPendingStudentRequestsForSession\(window\.localStorage, activeSessionId\)/);
+  assert.match(pageSource, /saveImageDraft/);
+  assert.match(pageSource, /loadImageDraft/);
+  assert.match(pageSource, /stage: "detecting"/);
+  assert.match(pageSource, /persistedSelection\(startingSelection, "starting"\)/);
+  assert.match(pageSource, /stableImageStartItems/);
 });
 test("local demo configuration never asks users for real credentials", () => {
   const dialogSource = readFileSync(resolve(__dirname, "../../../components/ModelConfigDialog.tsx"), "utf8");

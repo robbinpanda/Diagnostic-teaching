@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import random
 import re
@@ -7,7 +8,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -30,6 +31,7 @@ __all__ = [
     "LlmEmptyResponseError",
     "LlmProviderError",
     "provider_retry_delay_seconds",
+    "structured_json_completion",
     "TEXT_PROBLEM_SPLIT_PROMPT",
     "_anthropic_response_events",
     "analyze_problem_text",
@@ -444,6 +446,159 @@ async def chat_completion(
     return content
 
 
+def _extract_structured_json_object(raw: str) -> dict[str, Any]:
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
+        text = re.sub(r"```$", "", text).strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        text = text[start : end + 1]
+    parsed = json.loads(text)
+    if not isinstance(parsed, dict):
+        raise ValueError("structured output must be a JSON object")
+    return parsed
+
+
+def _structured_json_retry_messages(
+    messages: list[dict[str, Any]],
+    raw: str,
+    error: Exception,
+) -> list[dict[str, Any]]:
+    error_summary = str(error).strip().replace("\n", " ")[:500]
+    return [
+        *messages,
+        {"role": "assistant", "content": raw},
+        {
+            "role": "user",
+            "content": (
+                "你刚才的输出不是完整、合法且满足字段要求的 JSON。"
+                f"校验错误：{error_summary or error.__class__.__name__}。"
+                "请依据原任务重新生成，只输出一个完整 JSON 对象，不要解释、"
+                "不要 Markdown，也不要省略必需字段。"
+            ),
+        },
+    ]
+
+
+async def structured_json_completion(
+    profile: LlmProfile,
+    messages: list[dict[str, Any]],
+    *,
+    validate: Callable[[dict[str, Any]], None],
+    max_tokens: int,
+    temperature: float | None = None,
+    max_structured_attempts: int = 3,
+    max_provider_attempts: int = 4,
+    retry_budget_seconds: float = 60.0,
+) -> str:
+    """Return schema-valid JSON with bounded format and transient retries."""
+    request_messages = messages
+    provider_calls = 0
+    structured_attempts = 0
+    transient_retries = 0
+    started = time.perf_counter()
+    last_error: Exception | None = None
+
+    while provider_calls < max_provider_attempts:
+        provider_calls += 1
+        try:
+            raw = await chat_completion(
+                profile,
+                request_messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+        except LlmProviderError as exc:
+            last_error = exc
+            transient_retries += 1
+            delay_seconds = provider_retry_delay_seconds(exc, transient_retries)
+            within_budget = (
+                time.perf_counter() - started + delay_seconds <= retry_budget_seconds
+            )
+            retryable = exc.retryable or isinstance(exc, LlmEmptyResponseError)
+            if retryable and provider_calls < max_provider_attempts and within_budget:
+                await asyncio.sleep(delay_seconds)
+                continue
+            raise
+
+        structured_attempts += 1
+        try:
+            parsed = _extract_structured_json_object(raw)
+            validate(parsed)
+            return raw
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            last_error = exc
+            if (
+                structured_attempts < max_structured_attempts
+                and provider_calls < max_provider_attempts
+            ):
+                request_messages = _structured_json_retry_messages(messages, raw, exc)
+                continue
+            raise LlmProviderError(
+                "模型连续返回不完整或不符合字段要求的 JSON，请重试",
+                phase="response_parse",
+                saw_content=bool(raw.strip()),
+                retryable=True,
+                code="invalid_structured_json",
+            ) from exc
+
+    raise LlmProviderError(
+        str(last_error) if last_error else "结构化模型请求失败",
+        phase="response_parse",
+        retryable=True,
+        code="invalid_structured_json",
+    )
+
+
+def _validate_image_analysis_payload(data: dict[str, Any]) -> None:
+    string_fields = (
+        "problem_text",
+        "student_work_summary",
+        "answer_text",
+        "mistake_summary",
+    )
+    if any(field not in data or not isinstance(data[field], str) for field in string_fields):
+        raise ValueError("image analysis string fields are missing or invalid")
+    if not isinstance(data.get("needs_diagram"), bool):
+        raise ValueError("needs_diagram must be a boolean")
+    if data.get("diagram_bbox") is not None and not isinstance(
+        data.get("diagram_bbox"), dict
+    ):
+        raise ValueError("diagram_bbox must be an object or null")
+    if data.get("correctness") not in {"correct", "incorrect", "unknown", "not_present"}:
+        raise ValueError("correctness has an unsupported value")
+
+
+def _validate_problem_regions_payload(data: dict[str, Any]) -> None:
+    problems = data.get("problems")
+    if not isinstance(problems, list):
+        raise ValueError("problems must be an array")
+    for item in problems:
+        if not isinstance(item, dict) or not isinstance(item.get("bbox"), dict):
+            raise ValueError("every detected problem must contain a bbox object")
+        bbox = item["bbox"]
+        if any(
+            key not in bbox or not isinstance(bbox[key], (int, float))
+            for key in ("x", "y", "width", "height")
+        ):
+            raise ValueError("bbox must contain numeric x, y, width and height")
+
+
+def _validate_text_problems_payload(data: dict[str, Any]) -> None:
+    problems = data.get("problems")
+    if not isinstance(problems, list):
+        raise ValueError("problems must be an array")
+    for item in problems:
+        if not isinstance(item, dict) or not isinstance(item.get("problem_text"), str):
+            raise ValueError("every text problem must contain problem_text")
+        if "student_initial_thought" not in item or not isinstance(
+            item["student_initial_thought"], str
+        ):
+            raise ValueError("every text problem must contain student_initial_thought")
+
+
 async def analyze_problem_image(profile: LlmProfile, image_data_url: str) -> str:
     if profile.provider == "local_demo":
         return json.dumps(
@@ -469,9 +624,10 @@ async def analyze_problem_image(profile: LlmProfile, image_data_url: str) -> str
             ],
         },
     ]
-    return await chat_completion(
+    return await structured_json_completion(
         profile,
         messages,
+        validate=_validate_image_analysis_payload,
         max_tokens=min(max(profile.max_output_tokens, 4000), 16000),
         temperature=profile.temperature,
     )
@@ -504,9 +660,10 @@ async def detect_problem_regions(profile: LlmProfile, image_data_url: str) -> st
             ],
         },
     ]
-    return await chat_completion(
+    return await structured_json_completion(
         profile,
         messages,
+        validate=_validate_problem_regions_payload,
         max_tokens=min(max(profile.max_output_tokens, 2000), 8000),
         temperature=profile.temperature,
     )
@@ -539,12 +696,13 @@ async def analyze_problem_text(profile: LlmProfile, text: str) -> str:
             ensure_ascii=False,
         )
 
-    return await chat_completion(
+    return await structured_json_completion(
         profile,
         [
             {"role": "system", "content": TEXT_PROBLEM_SPLIT_PROMPT},
             {"role": "user", "content": text},
         ],
+        validate=_validate_text_problems_payload,
         max_tokens=min(max(profile.max_output_tokens, 3000), 12000),
         temperature=profile.temperature,
     )
@@ -659,6 +817,7 @@ async def _openai_chat_stream_completion(
                 yield {"event": "response_headers", "delta": "", "finish_reason": None}
                 finish_reason: str | None = None
                 saw_any_data = False
+                saw_terminal = False
                 async for line in response.aiter_lines():
                     line = line.strip()
                     if not line or not line.startswith("data:"):
@@ -666,6 +825,7 @@ async def _openai_chat_stream_completion(
                     saw_any_data = True
                     data_str = line[len("data:") :].strip()
                     if data_str == "[DONE]":
+                        saw_terminal = True
                         break
                     try:
                         chunk = json.loads(data_str)
@@ -703,6 +863,7 @@ async def _openai_chat_stream_completion(
                         }
                     if choice.get("finish_reason"):
                         finish_reason = choice["finish_reason"]
+                        saw_terminal = True
                 if not saw_any_data:
                     raise LlmProviderError(
                         "模型流式响应中没有任何 data 事件，请确认 base_url/模型配置",
@@ -712,6 +873,14 @@ async def _openai_chat_stream_completion(
                     )
                 if not saw_content:
                     _assert_nonempty("", finish_reason, requested_max_tokens)
+                if not saw_terminal:
+                    raise LlmProviderError(
+                        "模型流式响应在明确完成事件之前关闭",
+                        phase="response_stream",
+                        saw_content=saw_content,
+                        retryable=True,
+                        code="provider_stream_closed",
+                    )
                 yield {"delta": "", "finish_reason": finish_reason}
     except httpx.TimeoutException as exc:
         raise _transport_error(
@@ -911,6 +1080,7 @@ async def _openai_responses_events(response: Any, requested_max_tokens: int):
     saw_any_data = False
     saw_content = False
     finish_reason: str | None = None
+    saw_terminal = False
     async for raw_line in response.aiter_lines():
         line = raw_line.strip()
         if not line or not line.startswith("data:"):
@@ -944,6 +1114,7 @@ async def _openai_responses_events(response: Any, requested_max_tokens: int):
             yield {"event": "reasoning_delta", "delta": "", "finish_reason": None}
             continue
         if event_type in {"response.completed", "response.incomplete"}:
+            saw_terminal = True
             response_payload = event.get("response")
             response_payload = response_payload if isinstance(response_payload, dict) else {}
             status = response_payload.get("status")
@@ -998,6 +1169,14 @@ async def _openai_responses_events(response: Any, requested_max_tokens: int):
         )
     if not saw_content:
         _assert_nonempty("", finish_reason, requested_max_tokens)
+    if not saw_terminal:
+        raise LlmProviderError(
+            "OpenAI Responses 流在明确完成事件之前关闭",
+            phase="response_stream",
+            saw_content=saw_content,
+            retryable=True,
+            code="provider_stream_closed",
+        )
     yield {"delta": "", "finish_reason": finish_reason or "stop"}
 
 
@@ -1144,6 +1323,7 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
     saw_any_data = False
     saw_content = False
     finish_reason: str | None = None
+    saw_terminal = False
     async for raw_line in response.aiter_lines():
         line = raw_line.strip()
         if not line or not line.startswith("data:"):
@@ -1192,8 +1372,10 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
             delta = event.get("delta")
             if isinstance(delta, dict) and delta.get("stop_reason"):
                 finish_reason = str(delta["stop_reason"])
+                saw_terminal = True
         elif event_type == "message_stop":
             finish_reason = finish_reason or "end_turn"
+            saw_terminal = True
         if text:
             saw_content = True
             yield {
@@ -1212,5 +1394,13 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
     if not saw_content:
         _assert_nonempty(
             "", "length" if finish_reason == "max_tokens" else finish_reason, requested_max_tokens
+        )
+    if not saw_terminal:
+        raise LlmProviderError(
+            "Anthropic 流在明确完成事件之前关闭",
+            phase="response_stream",
+            saw_content=saw_content,
+            retryable=True,
+            code="provider_stream_closed",
         )
     yield {"delta": "", "finish_reason": finish_reason}

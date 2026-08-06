@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from app.storage.database import SQLITE_BUSY_TIMEOUT_MS, Database
+from app.storage.database import (
+    SQLITE_BUSY_RETRY_DELAYS_SECONDS,
+    SQLITE_BUSY_TIMEOUT_MS,
+    Database,
+)
 
 
 def _create_legacy_database(path: Path) -> None:
@@ -176,8 +180,16 @@ def test_fresh_database_uses_alembic_and_sqlite_reliability_pragmas(tmp_path: Pa
         assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == SQLITE_BUSY_TIMEOUT_MS
         assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1
         assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == (
-            "0011_exam_papers"
+            "0012_merge_exam_run_heads"
         )
+        run_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(session_runs)")
+        }
+        run_indexes = {
+            row["name"] for row in conn.execute("PRAGMA index_list(session_runs)")
+        }
+        assert "client_run_id" in run_columns
+        assert "uq_session_runs_client_run" in run_indexes
 
         session_fks = {
             (row["from"], row["table"], row["on_delete"])
@@ -303,3 +315,63 @@ def test_database_constraints_cascade_and_preserve_archived_cards(tmp_path: Path
         assert cards[0]["live_session_id"] is None
 
         conn.execute("DELETE FROM model_profiles WHERE id = 'prof_1'")
+
+
+def test_sqlite_busy_retry_replays_the_whole_rolled_back_transaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    db = Database(tmp_path / "busy-retry.db")
+    with db.connect() as conn:
+        conn.execute("CREATE TABLE retry_probe (value TEXT NOT NULL)")
+
+    attempts = 0
+    slept: list[float] = []
+
+    def operation() -> str:
+        nonlocal attempts
+        attempts += 1
+        with db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("INSERT INTO retry_probe (value) VALUES ('once')")
+            if attempts < 3:
+                raise sqlite3.OperationalError("database is locked")
+        return "committed"
+
+    monkeypatch.setattr("app.storage.database.time.sleep", slept.append)
+
+    assert db.retry_busy(operation) == "committed"
+    assert attempts == 3
+    assert slept == list(SQLITE_BUSY_RETRY_DELAYS_SECONDS)
+    with db.connect() as conn:
+        rows = conn.execute("SELECT value FROM retry_probe").fetchall()
+        assert [tuple(row) for row in rows] == [("once",)]
+
+
+def test_sqlite_busy_retry_is_bounded_and_does_not_retry_other_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    db = Database(tmp_path / "bounded-retry.db")
+    attempts = 0
+    monkeypatch.setattr("app.storage.database.time.sleep", lambda _: None)
+
+    def always_busy() -> None:
+        nonlocal attempts
+        attempts += 1
+        raise sqlite3.OperationalError("database table is locked")
+
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        db.retry_busy(always_busy)
+    assert attempts == len(SQLITE_BUSY_RETRY_DELAYS_SECONDS) + 1
+
+    attempts = 0
+
+    def invalid_sql() -> None:
+        nonlocal attempts
+        attempts += 1
+        raise sqlite3.OperationalError("no such table: missing")
+
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        db.retry_busy(invalid_sql)
+    assert attempts == 1

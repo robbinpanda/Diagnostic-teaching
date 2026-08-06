@@ -21,3 +21,13 @@ test("API errors preserve non-JSON response text", async () => {
   assert.equal(error.status, 502);
   assert.equal(error.message, "upstream unavailable");
 });
+
+test("API errors unwrap messages from structured FastAPI detail", async () => {
+  const error = await responseError(new Response(
+    JSON.stringify({ detail: { code: "RUN_ALREADY_EXISTS", message: "该生成请求已接纳" } }),
+    { status: 409, headers: { "Content-Type": "application/json" } }
+  ));
+
+  assert.equal(error.status, 409);
+  assert.equal(error.message, "该生成请求已接纳");
+});

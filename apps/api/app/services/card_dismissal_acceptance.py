@@ -13,10 +13,12 @@ from app.services.input_acceptance_models import (
     load_json as _load_json,
 )
 from app.storage.card_folder_repository import resolve_card_folder
+from app.storage.database import with_sqlite_busy_retry
 from app.storage.repository_utils import new_id, now_iso
 
 
 class CardDismissalAcceptanceMixin:
+    @with_sqlite_busy_retry
     def accept_card_dismissed_continue(
         self,
         session_id: str,

@@ -11,10 +11,12 @@ from app.services.input_acceptance_models import (
 from app.services.input_acceptance_models import (
     load_json as _load_json,
 )
+from app.storage.database import with_sqlite_busy_retry
 from app.storage.repository_utils import new_id, now_iso
 
 
 class StudentMessageAcceptanceMixin:
+    @with_sqlite_busy_retry
     def accept_student_message(
         self,
         session_id: str,

@@ -72,6 +72,9 @@ def test_local_demo_chat_stream_emits_checkpoint(tmp_path: Path):
     assert decision["message"].strip()
     assert "state_hint" in decision
     assert decision["wait_for_student"] is True
+    terminal = next(d for e, d in events if e == "stream_complete")
+    assert terminal["status"] == "completed"
+    assert terminal["last_committed_action_index"] == 0
 
 
 def test_tutor_action_persists_provider_response_with_assistant_message(tmp_path: Path):

@@ -137,7 +137,23 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
     coordinator: SessionStreamCoordinator = request.app.state.chat_streams
     run_row = None
     try:
-        run_row = request.app.state.sessions.create_run(payload.session_id)
+        run_row, created = request.app.state.sessions.admit_run(
+            payload.session_id,
+            client_run_id=payload.client_run_id,
+        )
+        if not created:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "RUN_ALREADY_EXISTS",
+                    "message": "该生成请求已经被服务端接纳，请按现有 run 状态恢复。",
+                    "run_id": run_row["id"],
+                    "status": run_row["status"],
+                    "last_committed_action_index": run_row[
+                        "last_committed_action_index"
+                    ],
+                },
+            )
         handle = await coordinator.enqueue(payload.session_id, run_row["id"])
     except asyncio.CancelledError:
         if run_row is not None:
@@ -153,6 +169,8 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
         raise
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="会话不存在") from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         if run_row is not None:
             request.app.state.sessions.mark_run_failed(
@@ -342,6 +360,14 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                     },
                 )
                 if should_stop:
+                    yield sse(
+                        "stream_complete",
+                        {
+                            "run_id": handle.run_id,
+                            "status": "completed",
+                            "last_committed_action_index": action_index,
+                        },
+                    )
                     return
 
                 nonblocking_streak = (

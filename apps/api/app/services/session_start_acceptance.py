@@ -16,6 +16,7 @@ from app.services.input_acceptance_models import (
 from app.services.input_acceptance_models import (
     load_json as _load_json,
 )
+from app.storage.database import with_sqlite_busy_retry
 from app.storage.repository_utils import initial_context_status, new_id, now_iso
 
 
@@ -30,6 +31,7 @@ class SessionStartAcceptanceMixin:
 
         return self.start_sessions([payload])[0]
 
+    @with_sqlite_busy_retry
     def start_sessions(self, payloads: list[SessionStartRequest]) -> list[StartedSession]:
         """Create an idempotent group of sessions in one SQLite transaction."""
 

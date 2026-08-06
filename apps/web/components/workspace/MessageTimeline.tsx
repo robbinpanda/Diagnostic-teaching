@@ -1,4 +1,13 @@
-import { BookOpen, Bot, Camera, ChevronDown, ClipboardCheck, MessageCircleMore, PencilLine } from "lucide-react";
+import {
+  BookOpen,
+  Bot,
+  Camera,
+  ChevronDown,
+  ClipboardCheck,
+  MessageCircleMore,
+  PencilLine,
+  RotateCcw
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { ChatMessage } from "../../lib/timeline";
 import { CheckpointModal } from "../CheckpointModal";
@@ -33,6 +42,9 @@ type Props = {
   onOpenImage?: (imageUrl: string) => void;
   floatingObstacleRef?: RefObject<HTMLElement | null>;
   floatingObstacleActive?: boolean;
+  retryableMessageId?: string | null;
+  retryBusy?: boolean;
+  onRetryMessage?: (message: ChatMessage) => void;
 };
 
 type LayoutRect = Pick<DOMRect, "bottom" | "left" | "right" | "top" | "width">;
@@ -154,7 +166,10 @@ export function MessageTimeline({
   anchoredInteractions = [],
   onOpenImage,
   floatingObstacleRef,
-  floatingObstacleActive = false
+  floatingObstacleActive = false,
+  retryableMessageId,
+  retryBusy = false,
+  onRetryMessage
 }: Props) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [pastInteractionIds, setPastInteractionIds] = useState<string[]>([]);
@@ -169,7 +184,9 @@ export function MessageTimeline({
     let frame = 0;
     let settleFrame = 0;
     const clearAvoidance = (
-      messages: Iterable<HTMLElement> = viewport.querySelectorAll<HTMLElement>(".chatMessage.avoidsKnowledgeCard")
+      messages: Iterable<HTMLElement> = viewport.querySelectorAll<HTMLElement>(
+        ".chatMessage.avoidsKnowledgeCard, .messageRetryRow.avoidsKnowledgeCard"
+      )
     ) => {
       for (const message of messages) {
         message.classList.remove("avoidsKnowledgeCard");
@@ -180,7 +197,9 @@ export function MessageTimeline({
       window.cancelAnimationFrame(frame);
       window.cancelAnimationFrame(settleFrame);
       frame = window.requestAnimationFrame(() => {
-        const messages = Array.from(viewport.querySelectorAll<HTMLElement>(".chatMessage"));
+        const messages = Array.from(viewport.querySelectorAll<HTMLElement>(
+          ".chatMessage, .messageRetryRow"
+        ));
         const card = floatingObstacleRef?.current;
         if (!floatingObstacleActive || !card || window.matchMedia("(max-width: 900px)").matches) {
           clearAvoidance(messages);
@@ -347,6 +366,20 @@ export function MessageTimeline({
               )}
             </div>
           </article>
+          {message.role === "student" && message.id === retryableMessageId && (
+            <div className="messageRetryRow">
+              <button
+                className="messageRetryButton"
+                type="button"
+                disabled={retryBusy}
+                onClick={() => onRetryMessage?.(message)}
+                aria-label="重试这条消息对应的答疑"
+              >
+                <RotateCcw size={13} />
+                {retryBusy ? "正在重试" : "重试本轮"}
+              </button>
+            </div>
+          )}
           {anchoredNodesFor(message.actionId)}
         </div>))}
         {anchoredInteractions

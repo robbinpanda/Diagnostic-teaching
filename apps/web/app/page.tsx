@@ -67,6 +67,14 @@ import {
   savePendingSessionBatch,
   savePendingStudentRequest
 } from "../lib/request-recovery";
+import {
+  blobToDataUrl,
+  clearImageDraft,
+  loadImageDraft,
+  saveImageDraft,
+  type PersistedImageDraft,
+  type PersistedImageStartItem
+} from "../lib/image-draft-recovery";
 
 type ShelfCardTransitionPhase = "idle" | "preparing" | "opening" | "open" | "closing";
 
@@ -83,27 +91,70 @@ type LearningCardPrintJob = {
 };
 
 type PendingImageSelection = {
+  operationId: string;
+  imageBlob: Blob;
   imageUrl: string;
   contentType: string;
   filename: string;
   profileId: string;
   gradeBand: "junior" | "senior";
+  createdAt: string;
   viewToken: number;
   regions: DetectedProblemRegion[];
-  startItems?: Array<{
-    session_id: string;
-    client_message_id: string;
-    bbox: DetectedProblemRegion["bbox"];
-  }>;
+  startItems?: PersistedImageStartItem[];
+  paperId?: string;
 };
 
 type PendingComposerImage = {
   dataUrl: string;
   file: File;
+  operationId?: string;
+  createdAt?: string;
 };
 
 const DRAFT_SCOPE = "draft";
-const RECOVERABLE_RUN_CODES = new Set(["client_disconnected", "process_restarted"]);
+const RECOVERABLE_RUN_CODES = new Set([
+  "client_disconnected",
+  "process_restarted",
+  "provider_error",
+  "stream_closed"
+]);
+
+function stableImageStartItems(
+  regions: DetectedProblemRegion[],
+  existing: PersistedImageStartItem[] = []
+): PersistedImageStartItem[] {
+  return regions.map((region) => {
+    const previous = existing.find((item) => item.region_id === region.id);
+    return {
+      region_id: region.id,
+      session_id: previous?.session_id
+        ?? `sess_${crypto.randomUUID().replaceAll("-", "")}`,
+      client_message_id: previous?.client_message_id ?? crypto.randomUUID(),
+      bbox: region.bbox
+    };
+  });
+}
+
+function persistedSelection(
+  selection: PendingImageSelection,
+  stage: PersistedImageDraft["stage"]
+): PersistedImageDraft {
+  return {
+    version: 1,
+    operationId: selection.operationId,
+    stage,
+    imageBlob: selection.imageBlob,
+    contentType: selection.contentType,
+    filename: selection.filename,
+    profileId: selection.profileId,
+    gradeBand: selection.gradeBand,
+    regions: selection.regions,
+    startItems: selection.startItems,
+    paperId: selection.paperId,
+    createdAt: selection.createdAt
+  };
+}
 
 export default function Home() {
   const [gradeBand, setGradeBand] = useState<"junior" | "senior">("junior");
@@ -165,6 +216,9 @@ export default function Home() {
     streamBusy,
     workflow
   } = runtime;
+  const retryableMessageId = runtime.timeline.lastError && !streamBusy
+    ? messages.findLast((message) => message.role === "student")?.id ?? null
+    : null;
 
   useEffect(() => {
     const compact = window.matchMedia("(max-width: 1319px)");
@@ -206,6 +260,15 @@ export default function Home() {
   function clearComposerInput(scope = draftScope()) {
     setInput("");
     clearComposerDraft(window.localStorage, scope);
+  }
+
+  async function persistImageDraft(draft: PersistedImageDraft) {
+    try {
+      await saveImageDraft(draft);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function restoreComposerInput(value: string, scope = draftScope()) {
@@ -593,9 +656,74 @@ export default function Home() {
     await finishSessionBatchStart(result.sessions, originatingViewToken);
   }
 
+  async function restoreImageDraftAfterRefresh(bootstrapNavigationToken: number) {
+    try {
+      const draft = await loadImageDraft();
+      if (!draft) return false;
+      if (bootstrapNavigationRef.current !== bootstrapNavigationToken) return true;
+      const token = viewTokenRef.current;
+      const dataUrl = await blobToDataUrl(draft.imageBlob);
+      if (bootstrapNavigationRef.current !== bootstrapNavigationToken) return true;
+      const file = new File([draft.imageBlob], draft.filename, {
+        type: draft.contentType || draft.imageBlob.type || "image/png"
+      });
+      const pending: PendingComposerImage = {
+        dataUrl,
+        file,
+        operationId: draft.operationId,
+        createdAt: draft.createdAt
+      };
+      setSelectedProfileId(draft.profileId);
+      setGradeBand(draft.gradeBand);
+
+      if (draft.stage === "pending") {
+        setPendingComposerImage(pending);
+        return true;
+      }
+      if (draft.stage === "detecting") {
+        setPendingComposerImage(pending);
+        await handlePendingImageSend(pending, {
+          profileId: draft.profileId,
+          gradeBand: draft.gradeBand,
+          viewToken: token,
+          bootstrapNavigationToken
+        });
+        return true;
+      }
+
+      const selection: PendingImageSelection = {
+        operationId: draft.operationId,
+        imageBlob: draft.imageBlob,
+        imageUrl: dataUrl,
+        contentType: draft.contentType,
+        filename: draft.filename,
+        profileId: draft.profileId,
+        gradeBand: draft.gradeBand,
+        createdAt: draft.createdAt,
+        viewToken: token,
+        regions: draft.regions,
+        startItems: draft.startItems,
+        paperId: draft.paperId
+      };
+      setImageSelection(selection);
+      if (draft.stage === "starting" && draft.startItems?.length && draft.paperId) {
+        await submitImageSelection(selection, draft.regions, draft.paperId);
+      }
+      return true;
+    } catch (nextError) {
+      runtime.setError(
+        nextError instanceof Error ? nextError.message : "恢复图片框选草稿失败"
+      );
+      return true;
+    }
+  }
+
   async function restoreWorkspaceAfterRefresh(bootstrapNavigationToken: number) {
     const recoveredSessionIds: string[] = [];
-    const pendingBatch = loadPendingSessionBatch(window.localStorage);
+    const recoveredImageDraft = await restoreImageDraftAfterRefresh(bootstrapNavigationToken);
+    const pendingBatch = recoveredImageDraft
+      ? null
+      : loadPendingSessionBatch(window.localStorage);
     if (pendingBatch) {
       const token = viewTokenRef.current;
       pendingSessionBatchesRef.current.set(token, pendingBatch);
@@ -637,7 +765,7 @@ export default function Home() {
       }
     }
 
-    if (!pendingBatch) {
+    if (!pendingBatch && !recoveredImageDraft) {
       const activeSessionId = loadActiveSessionId(window.localStorage)
         || recoveredSessionIds.at(-1)
         || "";
@@ -705,6 +833,7 @@ export default function Home() {
     const previousViewToken = viewTokenRef.current;
     viewTokenRef.current += 1;
     pendingSessionBatchesRef.current.delete(previousViewToken);
+    void clearImageDraft();
     setImageSelection(null);
     setViewerImageUrl(null);
     setPendingComposerImage(null);
@@ -723,6 +852,8 @@ export default function Home() {
     openSessionRequestRef.current = requestId;
     viewTokenRef.current += 1;
     setViewingCard(null);
+    void clearImageDraft();
+    setImageSelection(null);
     setViewerImageUrl(null);
     setPendingComposerImage(null);
     setOpenSessionBusyId(nextSessionId);
@@ -807,6 +938,11 @@ export default function Home() {
     try {
       await deleteAllSessions();
       clearAllRequestRecovery(window.localStorage);
+      try {
+        await clearImageDraft();
+      } catch {
+        // Server deletion already succeeded; browser cleanup is best effort.
+      }
       setHistoryItems([]);
       clearCurrentSessionState();
     } catch (nextError) {
@@ -1029,7 +1165,27 @@ export default function Home() {
     runtime.clearError();
     try {
       const dataUrl = await readFileAsDataUrl(file);
-      setPendingComposerImage({ dataUrl, file });
+      const operationId = crypto.randomUUID();
+      const createdAt = new Date().toISOString();
+      const pending = { dataUrl, file, operationId, createdAt };
+      setPendingComposerImage(pending);
+      if (!sessionId) {
+        const persisted = await persistImageDraft({
+          version: 1,
+          operationId,
+          stage: "pending",
+          imageBlob: file,
+          contentType: file.type || "image/png",
+          filename: file.name || "clipboard-image.png",
+          profileId: selectedProfileId,
+          gradeBand,
+          regions: [],
+          createdAt
+        });
+        if (!persisted) runtime.setError(
+          "图片已保留在当前页面，但浏览器无法持久化草稿；刷新前请先完成框选。"
+        );
+      }
     } catch (nextError) {
       runtime.setError(nextError instanceof Error ? nextError.message : "图片读取失败");
     } finally {
@@ -1046,9 +1202,17 @@ export default function Home() {
     void handleImageFile(files[0]);
   }
 
-  async function handlePendingImageSend(pendingImage: PendingComposerImage) {
+  async function handlePendingImageSend(
+    pendingImage: PendingComposerImage,
+    recovery?: {
+      profileId: string;
+      gradeBand: "junior" | "senior";
+      viewToken: number;
+      bootstrapNavigationToken?: number;
+    }
+  ) {
     if (sessionId) return;
-    if (!selectedProfile?.is_multimodal) {
+    if (!recovery && !selectedProfile?.is_multimodal) {
       runtime.setError(
         multimodalProfiles.length
           ? "请先选中一个支持图片识别的多模态模型，再上传题目图片。"
@@ -1056,70 +1220,115 @@ export default function Home() {
       );
       return;
     }
-    const visionProfile = selectedProfile;
-    const originatingViewToken = viewTokenRef.current;
+    const profileId = recovery?.profileId ?? selectedProfile!.id;
+    const originatingViewToken = recovery?.viewToken ?? viewTokenRef.current;
     const operationKey = `draft:${originatingViewToken}`;
     if (sendInFlightKeysRef.current.has(operationKey)) return;
+    const targetGradeBand = recovery?.gradeBand ?? gradeBand;
+    const bootstrapNavigationIsCurrent = () => recovery?.bootstrapNavigationToken === undefined
+      || bootstrapNavigationRef.current === recovery.bootstrapNavigationToken;
+    if (!bootstrapNavigationIsCurrent()) return;
     sendInFlightKeysRef.current.add(operationKey);
-    const targetGradeBand = gradeBand;
+    const operationId = pendingImage.operationId ?? crypto.randomUUID();
+    const createdAt = pendingImage.createdAt ?? new Date().toISOString();
+    const detectingDraft: PersistedImageDraft = {
+      version: 1,
+      operationId,
+      stage: "detecting",
+      imageBlob: pendingImage.file,
+      contentType: pendingImage.file.type || "image/png",
+      filename: pendingImage.file.name || "clipboard-image.png",
+      profileId,
+      gradeBand: targetGradeBand,
+      regions: [],
+      createdAt
+    };
     runtime.startComposerTask("image");
     runtime.clearError();
     try {
+      await persistImageDraft(detectingDraft);
       const detected = await detectProblemImageRegions({
-        model_profile_id: visionProfile.id,
+        model_profile_id: profileId,
         image_base64: pendingImage.dataUrl,
         content_type: pendingImage.file.type || "image/png",
         filename: pendingImage.file.name || "clipboard-image.png"
       });
-      if (viewTokenRef.current === originatingViewToken && runtime.isDraftActive()) {
-        setImageSelection({
+      if (
+        viewTokenRef.current === originatingViewToken
+        && runtime.isDraftActive()
+        && bootstrapNavigationIsCurrent()
+      ) {
+        const selection: PendingImageSelection = {
+          operationId,
+          imageBlob: pendingImage.file,
           imageUrl: pendingImage.dataUrl,
           contentType: pendingImage.file.type || "image/png",
           filename: pendingImage.file.name || "clipboard-image.png",
-          profileId: visionProfile.id,
+          profileId,
           gradeBand: targetGradeBand,
+          createdAt,
           viewToken: originatingViewToken,
           regions: detected.problems
-        });
+        };
+        await persistImageDraft(persistedSelection(selection, "selecting"));
+        setImageSelection(selection);
+        setPendingComposerImage(null);
+        runtime.finishComposerTask();
+      } else if (!bootstrapNavigationIsCurrent() && runtime.isDraftActive()) {
         setPendingComposerImage(null);
         runtime.finishComposerTask();
       }
     } catch (nextError) {
-      if (viewTokenRef.current === originatingViewToken && runtime.isDraftActive()) {
+      if (
+        viewTokenRef.current === originatingViewToken
+        && runtime.isDraftActive()
+        && bootstrapNavigationIsCurrent()
+      ) {
+        try {
+          await saveImageDraft({ ...detectingDraft, stage: "pending" });
+        } catch {
+          // Keep the original detection error visible.
+        }
         runtime.failComposerTask(nextError instanceof Error ? nextError.message : "题目框检测失败");
+      } else if (!bootstrapNavigationIsCurrent() && runtime.isDraftActive()) {
+        setPendingComposerImage(null);
+        runtime.finishComposerTask();
       }
     } finally {
       sendInFlightKeysRef.current.delete(operationKey);
     }
   }
 
-  async function handleConfirmImageRegions(
+  async function submitImageSelection(
+    selection: PendingImageSelection,
     regions: DetectedProblemRegion[],
-    paperSelection: PaperSelection
+    paperId: string
   ) {
-    if (!imageSelection || imageConfirmBusy || !regions.length) return;
-    const selection = imageSelection;
-    const startItems = selection.startItems ?? regions.map((region) => ({
-      session_id: `sess_${crypto.randomUUID().replaceAll("-", "")}`,
-      client_message_id: crypto.randomUUID(),
-      bbox: region.bbox
-    }));
-    setImageSelection({ ...selection, regions, startItems });
+    if (!regions.length) return;
+    const startItems = stableImageStartItems(regions, selection.startItems);
+    const startingSelection = { ...selection, regions, startItems, paperId };
+    setImageSelection(startingSelection);
     setImageConfirmBusy(true);
     runtime.clearError();
     try {
-      const paper = paperSelection.mode === "existing"
-        ? examPapers.find((item) => item.id === paperSelection.paperId)
-        : await createExamPaper(paperSelection.name);
-      if (!paper) throw new Error("所选试卷不存在，请重新选择");
+      await persistImageDraft(persistedSelection(startingSelection, "starting"));
       const result = await batchStartImageSessions({
         grade_band: selection.gradeBand,
         subject: "math",
         model_profile_id: selection.profileId,
-        paper_id: paper.id,
+        paper_id: paperId,
         source_image_data_url: selection.imageUrl,
-        items: startItems
+        items: startItems.map((item) => ({
+          session_id: item.session_id,
+          client_message_id: item.client_message_id,
+          bbox: item.bbox
+        }))
       });
+      try {
+        await clearImageDraft();
+      } catch {
+        // Session ids are durable and idempotent; stale browser cleanup must not hide success.
+      }
       setImageSelection(null);
       await refreshExamPapers();
       if (imageInputRef.current) imageInputRef.current.value = "";
@@ -1129,6 +1338,38 @@ export default function Home() {
     } finally {
       setImageConfirmBusy(false);
     }
+  }
+
+  async function handleConfirmImageRegions(
+    regions: DetectedProblemRegion[],
+    paperSelection: PaperSelection
+  ) {
+    if (!imageSelection || imageConfirmBusy || !regions.length) return;
+    setImageConfirmBusy(true);
+    runtime.clearError();
+    try {
+      const paper = paperSelection.mode === "existing"
+        ? examPapers.find((item) => item.id === paperSelection.paperId)
+        : await createExamPaper(paperSelection.name);
+      if (!paper) throw new Error("所选试卷不存在，请重新选择");
+      await submitImageSelection(imageSelection, regions, paper.id);
+    } catch (nextError) {
+      runtime.setError(nextError instanceof Error ? nextError.message : "创建或选择试卷失败");
+      setImageConfirmBusy(false);
+    }
+  }
+
+  function handleImageRegionsChange(regions: DetectedProblemRegion[]) {
+    if (imageConfirmBusy) return;
+    setImageSelection((current) => {
+      if (!current) return current;
+      const startItems = current.startItems
+        ? stableImageStartItems(regions, current.startItems)
+        : undefined;
+      const next = { ...current, regions, startItems };
+      void persistImageDraft(persistedSelection(next, "selecting"));
+      return next;
+    });
   }
 
   async function handleCheckpoint(optionId: string) {
@@ -1394,6 +1635,9 @@ export default function Home() {
           onOpenImage={setViewerImageUrl}
           floatingObstacleRef={knowledgeCardDockRef}
           floatingObstacleActive={Boolean(displayedDockCard)}
+          retryableMessageId={retryableMessageId}
+          retryBusy={streamBusy}
+          onRetryMessage={() => void runtime.retryRun(sessionId)}
           anchoredInteractions={anchoredActiveCards.map((card) => ({
             id: card.id,
             sourceActionId: card.source_action_id,
@@ -1499,6 +1743,7 @@ export default function Home() {
             speechElapsedSeconds={speechInput.elapsedSeconds}
             onClearError={runtime.clearError}
             onRemoveImage={() => {
+              if (pendingComposerImage?.operationId) void clearImageDraft();
               setPendingComposerImage(null);
               if (imageInputRef.current) imageInputRef.current.value = "";
               runtime.clearError();
@@ -1564,9 +1809,11 @@ export default function Home() {
           busy={imageConfirmBusy}
           onCancel={() => {
             if (imageConfirmBusy) return;
+            void clearImageDraft();
             setImageSelection(null);
             if (imageInputRef.current) imageInputRef.current.value = "";
           }}
+          onRegionsChange={handleImageRegionsChange}
           onConfirm={(regions, paper) => void handleConfirmImageRegions(regions, paper)}
         />
       )}

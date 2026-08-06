@@ -10,6 +10,31 @@
 - 历史搜题改为可折叠、可滚动的“试卷 → 题目”树；旧会话统一显示在“未分类题目”，会话历史与显式恢复响应同时返回 `paper_id/paper_name`。
 - 会话顶部已收纳卡片标签按来源 `session_id` 过滤，首页和其他题目不再显示不属于当前题目的卡片。
 
+### SQLite 关键写事务有限重放
+
+- 连接原有 5 秒 `busy_timeout` 之后，关键输入接纳、run 生命周期、session event 和完整 assistant action 写入对 `SQLITE_BUSY/LOCKED` 再执行两次有限重放（50ms、150ms）。
+- 每次重放前由原连接上下文完整回滚，从业务操作开头重新执行；不拆分 commit、不只重试单条 SQL。稳定的 session/message/run 幂等键继续约束最终结果。
+- 非锁竞争的 SQL、约束、校验和业务错误不重试；耗尽后保留原异常，使请求和 run 明确失败而不是静默丢失。
+
+### 初始题图 IndexedDB 恢复
+
+- 新建 session 前的题图不再只存在 React 内存：IndexedDB 保存原始 Blob、文件元数据、模型/年级和 `pending / detecting / selecting / starting` 阶段。
+- 检测结果及用户编辑后的区域持续持久化；每个 region 对应的稳定 session/message IDs 在首次确认时写入，删除或新增区域不会让其余区域换 ID。
+- 刷新后可恢复待发送图片、重新继续检测、回到框选页，或用原 IDs 幂等续交批量建会话；成功建会话、移除图片、取消框选或明确离开草稿时清理记录。
+
+### 结构化 JSON 有界纠正
+
+- TutorTurn 非法 JSON/合同校验失败从 1 次纠正提高为最多 2 次纠正，即 3 次总格式尝试；每次重试前仍发送 `message_reset`，不把前一次残片留在界面。
+- 文字拆题、题图区域检测和图片内容分析共用 `structured_json_completion()`：统一提取 JSON 对象、校验必需字段，并在第一次或第二次格式错误后把校验原因反馈给模型重做。
+- 结构化入口同时复用连接失败、超时、408/429/5xx、overloaded/unavailable 的最多 4 次/60 秒退避；合法空结果继续由业务层返回 422。
+
+### SSE 明确终态、断流对账与本轮重试
+
+- chat SSE 新增 `stream_complete`；只有最后 action 和 `session_runs.completed` 已提交后才发送。前端 `streamChat()` 不再把 `message_done` 或干净 EOF 当成功，无明确终态即抛出流意外关闭。
+- EOF/传输异常会查询 `/run`：action 已提交时从 SQLite 重载 session；没有 action 且 run 可重试时自动续跑一次。`provider_error / stream_closed` 也进入刷新后的受控恢复，不要求学生发送“继续”。
+- 新增稳定 `client_run_id` 和数据库唯一索引，重复生成请求返回既有 run，避免响应丢失后启动两个 provider；run 查询同步返回该客户端身份。
+- provider 最终失败时保留 composer 输入与正常追加内容能力，并在最近一条学生消息旁显示“重试本轮”；按钮只重启生成，不新增学生消息。
+
 ### Provider 瞬时故障指数退避
 
 - OpenAI Responses、OpenAI-compatible Chat Completions 与 Anthropic Messages 统一使用结构化 provider error，保留 HTTP status、安全响应头、失败阶段、是否已收到内容、错误代码与 retryable；最终失败时同步进入 `session_runs.error_json`。

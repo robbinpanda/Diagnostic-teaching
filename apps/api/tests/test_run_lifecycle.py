@@ -98,6 +98,47 @@ def test_run_attempts_and_structured_terminal_state_are_durable(tmp_path: Path):
     assert completed["error_json"] is None
 
 
+def test_client_run_id_admission_is_idempotent(tmp_path: Path):
+    app, session_id = bootstrap(tmp_path)
+    repository = app.state.sessions
+
+    first, first_created = repository.admit_run(
+        session_id,
+        client_run_id="client-run-stable",
+    )
+    duplicate, duplicate_created = repository.admit_run(
+        session_id,
+        client_run_id="client-run-stable",
+    )
+
+    assert first_created is True
+    assert duplicate_created is False
+    assert duplicate["id"] == first["id"]
+    assert duplicate["client_run_id"] == "client-run-stable"
+    assert len(repository.list_runs(session_id)) == 1
+
+
+def test_duplicate_client_run_id_returns_existing_run_without_new_generation(tmp_path: Path):
+    app, session_id = bootstrap(tmp_path)
+    client = TestClient(app)
+
+    first = client.post(
+        "/api/chat/stream",
+        json={"session_id": session_id, "client_run_id": "browser-run-1"},
+    )
+    duplicate = client.post(
+        "/api/chat/stream",
+        json={"session_id": session_id, "client_run_id": "browser-run-1"},
+    )
+
+    assert first.status_code == 200
+    assert any(event == "stream_complete" for event, _ in parse_sse(first.text))
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"]["code"] == "RUN_ALREADY_EXISTS"
+    assert duplicate.json()["detail"]["status"] == "completed"
+    assert len(app.state.sessions.list_runs(session_id)) == 1
+
+
 def test_session_runs_migration_is_idempotent_for_existing_database(tmp_path: Path):
     app, session_id = bootstrap(tmp_path)
     first = app.state.sessions.create_run(session_id)

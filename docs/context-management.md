@@ -31,7 +31,7 @@ SQLite schema 由 `apps/api/migrations/versions/` 下的 Alembic revision 管理
 apps/api/app/services/input_acceptance.py
 ```
 
-该文件是稳定的公共门面；首次建会话、普通消息、卡片关闭和 checkpoint 答案分别由同目录下的分域模块实现。拆分只隔离代码职责，每一种输入仍在自己的单一 `BEGIN IMMEDIATE` 事务中同时写入 `session_inputs`、业务状态和对应稳定事件。
+该文件是稳定的公共门面；首次建会话、普通消息、卡片关闭和 checkpoint 答案分别由同目录下的分域模块实现。拆分只隔离代码职责，每一种输入仍在自己的单一 `BEGIN IMMEDIATE` 事务中同时写入 `session_inputs`、业务状态和对应稳定事件。若 SQLite 在取写锁或提交时返回 `BUSY/LOCKED`，连接上下文先回滚整笔事务，再以 50ms、150ms 的两次有限等待从操作开头重放；不会只重放某条 SQL。其他数据库错误不重试。
 
 它与生成服务的边界是：
 
@@ -391,7 +391,7 @@ DELETE /api/sessions/{session_id}
 
 ## 7. Run 是可恢复业务态，不是诊断事件流
 
-SQLite `session_runs` 是每次生成请求的权威生命周期记录。`run_id` 由后端生成，`attempt` 在同一 session 内事务递增；`queued_at / started_at / finished_at / updated_at` 记录阶段时间，`error_json` 保存结构化终态原因，`last_committed_action_index` 记录本 run 最后一个原子提交的完整教学 action。
+SQLite `session_runs` 是每次生成请求的权威生命周期记录。`run_id` 由后端生成，`client_run_id` 由浏览器为一次生成意图稳定生成，`session_id + client_run_id` 唯一；`attempt` 在同一 session 内事务递增。`queued_at / started_at / finished_at / updated_at` 记录阶段时间，`error_json` 保存结构化终态原因，`last_committed_action_index` 记录本 run 最后一个原子提交的完整教学 action。重复的 `client_run_id` 返回既有 run，不再次进入 coordinator 或 provider。
 
 coordinator 只保存当前进程的执行对象、每 session 锁和 provider 子任务引用，用于串行、查询和取消；它不是恢复来源。`GET /api/sessions/{session_id}/run` 同时核对 coordinator 的 active/running 状态与 SQLite 活动或最新 run。进程启动时，SQLite 中仍为 `queued/running` 的旧记录统一转为 `failed/process_restarted`，不会根据 JSONL 或内存状态续跑。
 
@@ -466,12 +466,15 @@ decision
 checkpoint_ready（可选）
 card_ready（可选，仅 knowledge_card / problem_card）
 message_done
+stream_complete（仅在 run.completed 与最后 action 已原子提交后）
 run_interrupted（仅显式中断，且没有当前 step 的完整 action 落库）
 ```
 
-只有学生可见的 `message` 字段会增量展示。`progress` 只携带后端定义的 stage/label/elapsed_ms；provider reasoning chunk 的原文不会进入 SSE。若首个模型输出格式不合法并触发重试，`message_reset` 会让前端丢弃该 action 已展示的残片。`state_hint`、`action`、`checkpoint` 和 card 必须等完整 JSON 到达、校验和后端策略归一化后才发出。`card_ready` 后当前 HTTP stream 停止，等待前端保存卡片。
+只有学生可见的 `message` 字段会增量展示。`progress` 只携带后端定义的 stage/label/elapsed_ms；provider reasoning chunk 的原文不会进入 SSE。TutorTurn 最多执行 3 次总格式尝试；每次非法 JSON 后 `message_reset` 会让前端丢弃该 action 已展示的残片，再把校验错误反馈给模型纠正，最多纠正 2 次。`state_hint`、`action`、`checkpoint` 和 card 必须等完整 JSON 到达、校验和后端策略归一化后才发出。`card_ready` 后当前 HTTP stream 停止，等待前端保存卡片。
 
-`message_delta/message_reset` 是高频瞬时事件，不写 `session_events`。完整 student/assistant message、归一化 action、checkpoint/card、run 完成、error 和 idle 等稳定边界会与业务数据一起写入 SQLite；因此 chat SSE 断开后不需要恢复每个字符，只需重放完整完成事件。
+文字拆题、题图区域检测和图片内容分析调用 `structured_json_completion()`。该助手共享 JSON 对象提取、必需字段校验、最多 3 次结构化尝试以及最多 4 次/60 秒的瞬时 provider 退避；第一次格式错不再直接 502。`problems=[]` 等“schema 合法但业务上没有识别结果”的响应仍交给路由返回 422，不消耗格式纠正重试。
+
+`message_delta/message_reset` 是高频瞬时事件，不写 `session_events`。完整 student/assistant message、归一化 action、checkpoint/card、run 完成、error 和 idle 等稳定边界会与业务数据一起写入 SQLite。`streamChat()` 必须看见 `stream_complete / error / run_interrupted` 之一；无明确终态的 EOF 是失败。断流后前端查询 `/run`，已提交 action 时重载 session；未提交且 `retryable=true` 时以新 run、同一业务历史受控重试一次，绝不凭半截字符恢复。
 
 每个 `tutor_turn` 诊断日志记录 `input_to_first_progress_ms`、`input_to_first_reasoning_event_ms`、`input_to_first_content_ms`、`input_to_first_visible_message_ms`、`input_to_interactive_turn_ms` 和 `total_completion_ms`。缺少 provider reasoning 事件时对应指标为 `null`，不能据此推断模型完全没有内部推理。
 
@@ -510,7 +513,7 @@ controller 以 session id 为键保存多条活动 `streamChat`。切换会话�
 
 timeline reducer 仍校验 event 的 session id 与本地 run id，因此后台流和迟到回调不能写入当前打开的另一个 session。重新打开仍在生成的 session 时，页面先读取 SQLite 快照恢复已提交 action，再依据 controller 中该 session 的活动 run 接收后续事件；切换期间遗漏的半截字符不作为恢复依据，最终 `decision` 或下次 SQLite 快照负责校准完整内容。显式停止时仅移除尚未 `message_done` 的临时 assistant 片段；已经完成的 action 和学生消息保留，SQLite 仍是重新打开会话时的唯一权威来源。
 
-图片检测阶段尚未创建 session；只有发起检测的草稿仍有效时才展示框选确认页。确认时前端为每个最终框生成稳定的 session id 和 `client_message_id`，后端在一个批量事务中裁剪并接纳全部子会话。成功后第一题绑定当前视图，其余题作为独立后台 session 并行生成；所有流继续由 `sessionId + runId` 隔离。用户取消框选或在检测完成前切换草稿时不会创建任何 session。
+图片检测阶段尚未创建 session。前端把原图 Blob 和 `pending / detecting / selecting / starting` 阶段写入 IndexedDB；检测结果及每次新增、删除、移动、缩放后的框持续覆盖同一草稿。确认时按 region id 为每个最终框生成并保存稳定的 session id 和 `client_message_id`，随后后端在一个批量事务中裁剪并接纳全部子会话。刷新后，pending 恢复到 composer，detecting 重新执行检测，selecting 恢复编辑后的框，starting 使用相同 IDs 幂等续交。成功后第一题绑定当前视图，其余题作为独立后台 session 并行生成；成功或明确取消才清理 IndexedDB 草稿，且所有流继续由 `sessionId + runId` 隔离。
 
 chat 流与 durable change feed 的边界如下：
 

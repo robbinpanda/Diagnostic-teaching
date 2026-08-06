@@ -55,11 +55,15 @@ Checkpoint answer 也进入 `session_inputs`，并由数据库唯一约束保证
 
 左侧会话栏直接从 SQLite 读取；“历史搜题”左侧仍是可搜索的“试卷 → 题目”快速树，旧会话显示在“未分类题目”中，“清空全部会话”也只保留在这里。点击“历史搜题”时，中央切换到由真实 `SessionHistoryItem` 派生的试卷总览：A「内容化纸张预览」在视口宽度 `> 1100px`、`761–1100px` 和 `≤ 760px` 时分别显示 3、2、1 列真实试卷卡片，可同时搜索试卷名和题目名，并按“最近更新”或“名称排序”。点击卡片进入单份试卷详情，查看题目标题、消息数、检查点数、运行状态和最近更新时间；再点击题目会通过 `GET /api/sessions/{session_id}` 打开原 session，不会因浏览而复制记录。当前打开、正在运行或存在并发打开/删除请求的会话不可单条删除，中央不提供试卷级删除。选择某个 session 后会话栏保持展开，只有用户主动点击收起按钮或初次进入窄屏布局时才收起。浏览器记住的活动 session 若已因清空数据库、切换 SQLite 文件或其他窗口删除而不存在，刷新时会自动清理该陈旧引用并回到新题界面，不显示 404；侧栏并发删除产生的失效条目也会自动移除。原有 `POST /api/sessions/restore` 仍保留给需要显式创建实验分支的调用方。左侧可清空全部会话和 session 日志，右侧可清空全部卡片；两项操作都需要二次确认，且互不删除对方保留的数据。会话顶部的已收纳卡片标签只显示来源为当前 session 的卡片，不会出现在首页或其他题目中。
 
-图片可通过回形针选择本地文件，也可直接粘贴到输入框。新建答疑时的第一张图片仍与文字草稿互斥：发送后先调用 `POST /api/problem-images/detect`，由当前多模态模型返回最多 20 个归一化题目框；每个框必须同时覆盖完整题干、该题全部学生演算/草稿/最终答案和批改痕迹。前端支持新增、删除、平移和缩放框；确认时必须选择已有试卷或输入新试卷名称，新试卷由 `POST /api/exam-papers` 创建，再由 `POST /api/sessions/image-batch-start` 在后端裁剪，并在同一 SQLite 事务中按框创建归属该试卷的独立 session。进入正式 session 后，可随时继续粘贴或上传图片，也可同时附带文字说明；这些图片不再触发题目框选，而是随对应 `STUDENT_RESPONSE` 原子写入 SQLite、在历史时间线原位恢复，并按消息顺序作为多模态内容传给该 session 绑定的模型。会话内图片要求该 session 使用支持图片输入的模型。
+图片可通过回形针选择本地文件，也可直接粘贴到输入框。新建答疑时的第一张图片仍与文字草稿互斥：发送后先调用 `POST /api/problem-images/detect`，由当前多模态模型返回最多 20 个归一化题目框；每个框必须同时覆盖完整题干、该题全部学生演算/草稿/最终答案和批改痕迹。前端支持新增、删除、平移和缩放框；确认时必须选择已有试卷或输入新试卷名称，新试卷由 `POST /api/exam-papers` 创建。得到 `paper_id` 后，前端把原图 Blob、模型/年级、检测阶段、试卷归属、编辑后的框以及稳定 session/message IDs 保存在 IndexedDB，再由 `POST /api/sessions/image-batch-start` 在后端裁剪，并在同一 SQLite 事务中按框创建归属该试卷的独立 session。刷新后可恢复待发送、检测和框选状态；若已进入批量创建阶段，则复用同一 `paper_id` 和稳定 IDs 幂等续交。成功建会话或用户明确取消后才清理草稿。进入正式 session 后，可随时继续粘贴或上传图片，也可同时附带文字说明；这些图片不再触发题目框选，而是随对应 `STUDENT_RESPONSE` 原子写入 SQLite、在历史时间线原位恢复，并按消息顺序作为多模态内容传给该 session 绑定的模型。会话内图片要求该 session 使用支持图片输入的模型。
 
 进入图片题目的答疑会话后，顶部“查看题目”按钮和消息中的题图都可打开全屏查看器。查看器默认适应屏幕，支持滚轮或按钮在 100%—500% 之间缩放、放大后拖动、重置视图，并可通过关闭按钮、Esc 或点击遮罩退出。
 
 每次 `POST /api/chat/stream` 现在都有持久化 `run_id` 和递增 `attempt`，状态依次为 `queued -> running -> completed`，异常或中断则进入 `failed / interrupted`。同一 session 的 run 按进入顺序串行，不同 session 可并行；`GET /api/sessions/{session_id}/run` 可查询活动或最新 run，`POST /api/sessions/{session_id}/interrupt` 会显式取消 provider 请求、指数退避等待和后续 bounded loop，空闲或重复中断是幂等 no-op。浏览器仅停止读取不会伪装成显式中断，而会记录为结构化 `failed/client_disconnected`。provider 的连接失败、超时、HTTP 408/429/5xx 以及 overloaded/unavailable 错误会在 60 秒预算内最多进行 4 次总尝试；优先服从 `retry-after-ms` / `Retry-After`，否则使用带约 20% jitter 的 2/4/8/16 秒指数退避并封顶 30 秒。provider 若完成推理却没有返回任何可见内容，本轮仍会用相同请求透明重试一次；连续两次空响应才把 run 标为可重试失败。每次 provider attempt 的结果、延迟、错误分类、响应阶段和是否已收到内容会进入 turn debug 与诊断日志。
+
+每个浏览器生成意图还会发送稳定 `client_run_id`；`session_id + client_run_id` 在 SQLite 中唯一，响应丢失后重复到达不会启动第二个 provider run。chat SSE 只有在完整 action 与 run 的 `completed` 状态已经提交后才发送 `stream_complete`；前端不再把 `message_done` 或干净 EOF 当作整条流成功。EOF/传输异常后会查询 `/run`：已有 action 则重载 SQLite session，未提交 action且错误可重试时受控续跑一次；仍失败时保留输入并在对应学生消息旁显示“重试本轮”，也允许直接在输入框追加内容发起下一轮。
+
+TutorTurn 的 JSON 合同现在允许最多 3 次总格式尝试（2 次带错误反馈的纠正重试）。文字拆题、题图区域检测和图片内容分析共用同一个结构化 JSON 重试器：语法错误、非对象结果或必需字段类型错误不会第一次就返回 502；它们最多进行 3 次结构化尝试，同时对连接失败、超时、408/429/5xx 和 overloaded/unavailable 复用最多 4 次/60 秒的瞬时故障退避。合法的空题目数组仍进入业务层 422，不会伪装成格式故障。
 
 run 中只有完整解析并通过 SQLite 事务提交的教学 action 才进入会话历史；流式显示到一半的 step 不会写成 assistant message。应用启动时会把上次进程遗留的 `queued/running` run 标为 `failed/process_restarted`，不会静默恢复可能重复的 provider 工作。
 
@@ -189,7 +193,7 @@ config     模型配置预设示例
 
 ## 数据可靠性
 
-SQLite 是会话恢复的唯一权威来源。普通消息、检查点答案和卡片继续命令会先以稳定幂等键写入 `session_inputs`，再开始生成；同一会话的生成由 `session_runs` 串行管理。浏览器刷新后，前端会恢复未完成请求并与后端已接纳状态对账。
+SQLite 是会话恢复的唯一权威来源。普通消息、检查点答案和卡片继续命令会先以稳定幂等键写入 `session_inputs`，再开始生成；同一会话的生成由 `session_runs` 串行管理。浏览器刷新后，前端会恢复未完成请求并与后端已接纳状态对账。关键写事务遇到 `BUSY/LOCKED` 时会在完整回滚后进行两次有限重放，其他数据库错误不会误重试。
 
 | 运行方式 | SQLite 与密钥 | 诊断日志 | 模型缓存 |
 |---|---|---|---|

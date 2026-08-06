@@ -1,4 +1,5 @@
 import asyncio
+import json
 from dataclasses import replace
 from datetime import datetime, timezone
 
@@ -276,7 +277,36 @@ def test_structured_intake_calls_keep_task_prompts_and_profile_temperature(monke
 
     async def fake_chat_completion(profile, messages, *, max_tokens=None, temperature=None):
         captured.append((messages, temperature))
-        return "{}"
+        system_prompt = messages[0]["content"]
+        if "图片录入助手" in system_prompt:
+            return json.dumps(
+                {
+                    "problem_text": "计算 $1+1$。",
+                    "needs_diagram": False,
+                    "diagram_bbox": None,
+                    "student_work_summary": "",
+                    "answer_text": "",
+                    "correctness": "not_present",
+                    "mistake_summary": "",
+                },
+                ensure_ascii=False,
+            )
+        if "作答区域检测助手" in system_prompt:
+            return json.dumps(
+                {
+                    "problems": [
+                        {
+                            "label": "题目 1",
+                            "bbox": {"x": 0, "y": 0, "width": 1, "height": 1},
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        return json.dumps(
+            {"problems": [{"problem_text": "计算 $1+1$。", "student_initial_thought": ""}]},
+            ensure_ascii=False,
+        )
 
     monkeypatch.setattr(provider, "chat_completion", fake_chat_completion)
     profile = replace(
@@ -300,6 +330,130 @@ def test_structured_intake_calls_keep_task_prompts_and_profile_temperature(monke
         assert "TutorTurn" not in system_prompt
         assert "message 为第一个字段" not in system_prompt
     assert "数学题目拆分助手" in captured[2][0][0]["content"]
+
+
+@pytest.mark.parametrize(
+    ("operation", "valid_payload"),
+    [
+        (
+            "image",
+            {
+                "problem_text": "计算 $1+1$。",
+                "needs_diagram": False,
+                "diagram_bbox": None,
+                "student_work_summary": "",
+                "answer_text": "",
+                "correctness": "not_present",
+                "mistake_summary": "",
+            },
+        ),
+        (
+            "regions",
+            {
+                "problems": [
+                    {
+                        "label": "题目 1",
+                        "bbox": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+                    }
+                ]
+            },
+        ),
+        (
+            "text",
+            {"problems": [{"problem_text": "计算 $1+1$。", "student_initial_thought": ""}]},
+        ),
+    ],
+)
+def test_intake_structured_json_retries_invalid_first_response(
+    monkeypatch,
+    operation,
+    valid_payload,
+):
+    calls = []
+
+    async def fake_chat_completion(profile, messages, **kwargs):
+        calls.append(messages)
+        if len(calls) == 1:
+            return "not-json"
+        return json.dumps(valid_payload, ensure_ascii=False)
+
+    monkeypatch.setattr(provider, "chat_completion", fake_chat_completion)
+    profile = _profile("openai_compatible")
+
+    async def run():
+        if operation == "image":
+            return await provider.analyze_problem_image(profile, "data:image/png;base64,dGVzdA==")
+        if operation == "regions":
+            return await provider.detect_problem_regions(profile, "data:image/png;base64,dGVzdA==")
+        return await provider.analyze_problem_text(profile, "计算 $1+1$。")
+
+    raw = asyncio.run(run())
+
+    assert json.loads(raw) == valid_payload
+    assert len(calls) == 2
+    assert calls[1][-2] == {"role": "assistant", "content": "not-json"}
+    assert "完整、合法" in calls[1][-1]["content"]
+
+
+def test_structured_json_stops_after_three_invalid_outputs(monkeypatch):
+    calls = 0
+
+    async def fake_chat_completion(profile, messages, **kwargs):
+        nonlocal calls
+        calls += 1
+        return "{}"
+
+    monkeypatch.setattr(provider, "chat_completion", fake_chat_completion)
+
+    with pytest.raises(LlmProviderError) as raised:
+        asyncio.run(
+            provider.analyze_problem_text(
+                _profile("openai_compatible"),
+                "计算 $1+1$。",
+            )
+        )
+
+    assert calls == 3
+    assert raised.value.code == "invalid_structured_json"
+    assert raised.value.phase == "response_parse"
+    assert raised.value.retryable is True
+
+
+def test_structured_json_retries_transient_provider_failure(monkeypatch):
+    calls = 0
+    sleeps = []
+
+    async def fake_chat_completion(profile, messages, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise LlmProviderError(
+                "busy",
+                status_code=503,
+                phase="response_headers",
+                retryable=True,
+            )
+        return json.dumps(
+            {"problems": [{"problem_text": "计算 $1+1$。", "student_initial_thought": ""}]},
+            ensure_ascii=False,
+        )
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+
+    monkeypatch.setattr(provider, "chat_completion", fake_chat_completion)
+    monkeypatch.setattr(provider.asyncio, "sleep", fake_sleep)
+
+    asyncio.run(
+        provider.analyze_problem_text(
+            _profile("openai_compatible"),
+            "计算 $1+1$。",
+        )
+    )
+
+    assert calls == 2
+    assert len(sleeps) == 1
+    assert 1.6 <= sleeps[0] <= 2.4
 
 
 def test_provider_types_route_to_their_bound_protocols(monkeypatch):
@@ -554,3 +708,38 @@ def test_anthropic_sse_yields_text_deltas_and_stop_reason():
         {"event": "content_delta", "delta": "好", "finish_reason": None},
         {"delta": "", "finish_reason": "end_turn"},
     ]
+
+
+def test_openai_responses_clean_eof_before_terminal_is_retryable_failure():
+    class FakeResponse:
+        async def aiter_lines(self):
+            yield 'data: {"type":"response.output_text.delta","delta":"partial"}'
+
+    async def run():
+        return [event async for event in _openai_responses_events(FakeResponse(), 8000)]
+
+    with pytest.raises(LlmProviderError) as raised:
+        asyncio.run(run())
+    assert raised.value.code == "provider_stream_closed"
+    assert raised.value.phase == "response_stream"
+    assert raised.value.saw_content is True
+    assert raised.value.retryable is True
+
+
+def test_anthropic_clean_eof_before_terminal_is_retryable_failure():
+    class FakeResponse:
+        async def aiter_lines(self):
+            yield (
+                'data: {"type":"content_block_delta",'
+                '"delta":{"type":"text_delta","text":"partial"}}'
+            )
+
+    async def run():
+        return [event async for event in _anthropic_response_events(FakeResponse(), 8000)]
+
+    with pytest.raises(LlmProviderError) as raised:
+        asyncio.run(run())
+    assert raised.value.code == "provider_stream_closed"
+    assert raised.value.phase == "response_stream"
+    assert raised.value.saw_content is True
+    assert raised.value.retryable is True

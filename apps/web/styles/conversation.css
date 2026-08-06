@@ -220,7 +220,8 @@
   gap: 12px;
 }
 
-.chatMessage.avoidsKnowledgeCard {
+.chatMessage.avoidsKnowledgeCard,
+.messageRetryRow.avoidsKnowledgeCard {
   width: var(--knowledge-card-avoidance-width);
 }
 
@@ -262,6 +263,34 @@
   padding: 11px 14px;
   border: 1px solid rgba(85, 112, 92, 0.1);
   background: rgba(208, 238, 185, 0.72);
+}
+
+.messageRetryRow {
+  display: flex;
+  justify-content: flex-end;
+  padding-right: 2px;
+}
+
+.messageRetryButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  padding: 3px 6px;
+  color: #687069;
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.messageRetryButton:hover:not(:disabled),
+.messageRetryButton:focus-visible {
+  color: var(--accent);
+}
+
+.messageRetryButton:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 .chatMessage.student.checkpointResponseMessage .messageBody {

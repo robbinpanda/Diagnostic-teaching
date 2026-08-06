@@ -1,7 +1,7 @@
 # SQLite 数据库与 Alembic 迁移
 
-版本：v1.3
-日期：2026-07-23
+版本：v1.4
+日期：2026-08-05
 
 SQLite 是 session 恢复的唯一权威来源。JSONL/Markdown 仍然只是只追加诊断日志，不参与 schema 迁移或业务恢复。
 
@@ -85,13 +85,17 @@ PRAGMA busy_timeout = 5000
 
 foreign keys 是连接级开关，因此不能只在建库时设置。WAL 是数据库文件的持久模式；`busy_timeout` 则需要每条连接设置。5 秒等待只吸收短暂写锁竞争，不能把 SQLite 变成多写者数据库。
 
+关键写操作在 `busy_timeout` 之后还提供两次有限重放（等待 50ms、150ms），覆盖首条/后续学生输入、checkpoint、卡片继续命令、run 生命周期、独立 session event 追加和完整 assistant action 提交。重放边界是整个仓储/接纳操作：原连接上下文先回滚整笔事务，再从事务开头执行；不会只重跑失败的单条 SQL，也不会把一个业务提交拆成多次 commit。`session_id / client_message_id / client_run_id` 等请求级稳定键保持不变，因此响应丢失后的客户端重试和数据库锁竞争后的服务端重放仍落在同一个幂等结果上。
+
+仅 `SQLITE_BUSY / SQLITE_LOCKED`（含 Python 对应的 locked 文本）可触发该策略。约束冲突、SQL 错误、数据校验失败和业务异常立即返回，避免把确定性错误伪装成瞬时拥挤。两次重放耗尽后保留原 `OperationalError`，由请求/run 错误边界显式记录和暴露，不会宣称写入成功。
+
 ## 5. Windows 运行与备份
 
 - API 运行时同目录可能出现 `app.db-wal`、`app.db-shm`，这是 WAL 的正常伴随文件。
 - 备份或手工迁移前关闭所有 API 窗口，等待 WAL checkpoint 后再复制 `app.db`。
 - 首次升级旧库只运行一个 API 进程，避免两个启动进程竞争 schema 写锁。
 - 数据库放在本机磁盘；不要放到 SMB/NFS 共享盘或实时同步云盘目录，WAL 对跨主机共享文件系统不可靠。
-- 如果写锁超过 5 秒仍未释放，调用会报 `database is locked`；应排查长事务或重复启动的后端进程。
+- 如果 5 秒锁等待和两次有限事务重放仍耗尽，调用会报 `database is locked`；应排查长事务或重复启动的后端进程。
 
 ## 6. 后续 revision
 
@@ -101,4 +105,4 @@ foreign keys 是连接级开关，因此不能只在建库时设置。WAL 是数
 python -m alembic -c alembic.ini revision -m "describe change"
 ```
 
-编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。当前迁移链在层级 `card_folders` 后分为两条兼容分支：checkpoint free text → nonblocking cards，以及 reasoning effort → reasoning effort levels → protocol probe；`0010_merge_feature_heads` 将两条迁移头合并，`0011_exam_papers` 从合并点继续单一迁移链。后续 schema 应以当前最新 revision 为 `down_revision`。
+编辑生成的 revision，分别覆盖新库升级和已有数据回填，再运行全量测试。不要修改已发布基线，也不要恢复 `_ensure_column`。当前迁移链在层级 `card_folders` 后分为两条兼容分支：checkpoint free text → nonblocking cards，以及 reasoning effort → reasoning effort levels → protocol probe；`0010_merge_feature_heads` 先将这两条迁移头合并。其后并行产生 `0011_exam_papers`（新增试卷归属）与 `0011_client_run_id`（为 `session_runs` 增加稳定客户端生成身份和 `(session_id, client_run_id)` 唯一索引），再由 `0012_merge_exam_run_heads` 合并二者。后续 schema 应以 `0012_merge_exam_run_heads` 为 `down_revision`。

@@ -91,6 +91,7 @@ def restored_messages(message_rows, checkpoint_rows) -> list[SessionRestoredMess
 def run_from_row(row) -> SessionRunPublic:
     return SessionRunPublic(
         run_id=row["id"],
+        client_run_id=row["client_run_id"],
         session_id=row["session_id"],
         attempt=row["attempt"],
         status=row["status"],

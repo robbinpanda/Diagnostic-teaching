@@ -15,6 +15,7 @@ type Props = {
   busy: boolean;
   onCancel: () => void;
   onConfirm: (regions: DetectedProblemRegion[], paper: PaperSelection) => void;
+  onRegionsChange?: (regions: DetectedProblemRegion[]) => void;
 };
 
 type ResizeDirection = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
@@ -86,7 +87,8 @@ export function ProblemImageSelector({
   papers = [],
   busy,
   onCancel,
-  onConfirm
+  onConfirm,
+  onRegionsChange
 }: Props) {
   const [regions, setRegions] = useState(initialRegions);
   const [selectedId, setSelectedId] = useState(initialRegions[0]?.id ?? "");
@@ -100,10 +102,19 @@ export function ProblemImageSelector({
   const drawRef = useRef<DrawState | null>(null);
   const manualRegionSequenceRef = useRef(1);
   const paperReady = paperMode === "existing" ? Boolean(paperId) : Boolean(newPaperName.trim());
+  const onRegionsChangeRef = useRef(onRegionsChange);
 
   useEffect(() => {
     if (paperMode === "existing" && !paperId && papers[0]) setPaperId(papers[0].id);
   }, [paperId, paperMode, papers]);
+
+  useEffect(() => {
+    onRegionsChangeRef.current = onRegionsChange;
+  }, [onRegionsChange]);
+
+  useEffect(() => {
+    onRegionsChangeRef.current?.(regions);
+  }, [regions]);
 
   function removeRegion(id: string) {
     if (busy) return;
