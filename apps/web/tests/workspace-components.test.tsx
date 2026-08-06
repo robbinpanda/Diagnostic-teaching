@@ -657,7 +657,9 @@ test("checkpoint and pending card interactions render inside the conversation wi
   assert.match(cardSource, /folders\.length > 0 && saveLocationExpanded \? \(/);
   assert.match(dialogStyles, /\.cardViewerLayer\s*\{[^}]*justify-content:\s*flex-end;[^}]*pointer-events:\s*none;/);
   assert.match(dialogStyles, /\.studyCardDialog\.cardViewerDialog\s*\{[^}]*overflow-y:\s*auto;[^}]*pointer-events:\s*auto;/);
-  assert.match(dialogStyles, /\.studyCardDialog\.knowledgeFlashcard\.flashcardPresentation\s*\{[^}]*max-height:\s*min\(430px,[^}]*background-color:\s*color-mix\([^}]*backdrop-filter:\s*blur\(18px\) saturate\(1\.14\);/);
+  assert.match(dialogStyles, /\.studyCardDialog\.knowledgeFlashcard\.flashcardPresentation\s*\{[^}]*max-height:\s*min\(430px,[^}]*background-color:\s*color-mix\([^}]*68%[^}]*backdrop-filter:\s*blur\(22px\) saturate\(1\.18\);/);
+  assert.match(dialogStyles, /\.knowledgeFlashcard\.flashcardPresentation \.studyCardBody section\s*\{[^}]*border-color:\s*rgba\(255, 255, 255, 0\.52\);[^}]*color:\s*color-mix\([^}]*86%[^}]*background:\s*color-mix\([^}]*58%/);
+  assert.match(dialogStyles, /\.knowledgeFlashcard\.flashcardPresentation \.cardStepList li,[\s\S]*?\.cardConnection\s*\{[^}]*border-color:[^}]*42%[^}]*background:[^}]*64%/);
   assert.match(conversationStyles, /\.activeKnowledgeCardDock:has\(\.knowledgeFlashcard\)\s*\{[^}]*width:\s*min\(520px,/);
   assert.match(dialogStyles, /\.flashcardHeading h2,[^}]*font-size:\s*22px;/);
   assert.match(dialogStyles, /\.flashcardPresentation \.studyCardBody section\s*\{[^}]*color:\s*var\(--flashcard-ink,[^;]+;[^}]*font-size:\s*14px;/);

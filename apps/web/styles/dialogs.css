@@ -1250,9 +1250,12 @@
 
 .studyCardDialog.knowledgeFlashcard.flashcardPresentation {
   max-height: min(430px, calc(100vh - 320px));
-  background-color: color-mix(in srgb, var(--flashcard-bg, #8fce77) 82%, transparent);
-  backdrop-filter: blur(18px) saturate(1.14);
-  -webkit-backdrop-filter: blur(18px) saturate(1.14);
+  background-color: color-mix(in srgb, var(--flashcard-bg, #8fce77) 68%, transparent);
+  background-image:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.1), transparent 54%),
+    url("/ambient-grain.webp");
+  backdrop-filter: blur(22px) saturate(1.18);
+  -webkit-backdrop-filter: blur(22px) saturate(1.18);
 }
 
 .draggableCardWindow > .studyCardDialog.flashcardPresentation {
@@ -1510,6 +1513,71 @@
   color: var(--flashcard-accent, #3d8138);
   background: rgba(255, 255, 255, 0.78);
   box-shadow: 0 2px 7px rgba(58, 76, 46, 0.1);
+}
+
+.knowledgeFlashcard.flashcardPresentation .flashcardHeading h2,
+.knowledgeFlashcard.flashcardPresentation .studyCardHeader h2 {
+  color: color-mix(in srgb, var(--flashcard-ink, #173820) 88%, transparent);
+}
+
+.knowledgeFlashcard.flashcardPresentation .cardEditButton,
+.knowledgeFlashcard.flashcardPresentation .cardDiscardButton,
+.knowledgeFlashcard.flashcardPresentation .cardSaveButton {
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.knowledgeFlashcard.flashcardPresentation .cardEditButton:hover:not(:disabled),
+.knowledgeFlashcard.flashcardPresentation .cardSaveButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.knowledgeFlashcard.flashcardPresentation .studyCardBody section {
+  border-color: rgba(255, 255, 255, 0.52);
+  color: color-mix(in srgb, var(--flashcard-ink, #173820) 86%, transparent);
+  background: color-mix(in srgb, var(--flashcard-panel, #d9f1cb) 58%, transparent);
+}
+
+.knowledgeFlashcard.flashcardPresentation .studyCardBody section h3,
+.knowledgeFlashcard.flashcardPresentation .flashcardSummaryBlock strong,
+.knowledgeFlashcard.flashcardPresentation .cardStepList li strong,
+.knowledgeFlashcard.flashcardPresentation .cardStepList .mathText {
+  color: color-mix(in srgb, var(--flashcard-ink, #173820) 88%, transparent);
+}
+
+.knowledgeFlashcard.flashcardPresentation .flashcardSummaryBlock > div > span {
+  color: color-mix(in srgb, var(--flashcard-ink, #173820) 78%, transparent);
+}
+
+.knowledgeFlashcard.flashcardPresentation .flashcardSummaryBlock + .flashcardSummaryBlock {
+  border-top-color: color-mix(in srgb, var(--flashcard-accent, #3d8138) 34%, transparent);
+}
+
+.knowledgeFlashcard.flashcardPresentation .flashcardMiniIcon {
+  color: color-mix(in srgb, var(--flashcard-accent, #3d8138) 86%, transparent);
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.knowledgeFlashcard.flashcardPresentation .cardTextList,
+.knowledgeFlashcard.flashcardPresentation .cardStepList,
+.knowledgeFlashcard.flashcardPresentation .cardStepList li,
+.knowledgeFlashcard.flashcardPresentation .studyCardBody .cardConnection {
+  color: color-mix(in srgb, var(--flashcard-ink, #173820) 86%, transparent);
+}
+
+.knowledgeFlashcard.flashcardPresentation .cardStepList li,
+.knowledgeFlashcard.flashcardPresentation .studyCardBody .cardConnection {
+  border-color: color-mix(in srgb, var(--flashcard-accent, #3d8138) 42%, transparent);
+  background: color-mix(in srgb, var(--flashcard-panel-strong, #f7fcf3) 64%, transparent);
+}
+
+.knowledgeFlashcard.flashcardPresentation .flashcardFlipBar {
+  border-top-color: rgba(255, 255, 255, 0.42);
+  color: color-mix(in srgb, var(--flashcard-ink, #173820) 82%, transparent);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.knowledgeFlashcard.flashcardPresentation .flashcardFlipBar:hover {
+  background: rgba(255, 255, 255, 0.13);
 }
 
 .anchoredInteraction .problemFlashcard {
