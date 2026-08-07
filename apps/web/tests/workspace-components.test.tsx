@@ -754,6 +754,29 @@ test("checkpoint and pending card interactions render inside the conversation wi
   assert.doesNotMatch(answeredTimeline, /我在检查点里选了 B/);
 });
 
+test("session sidebar keeps the complete title in markup for CSS ellipsis", () => {
+  const fullTitle = "Complete session title that must remain intact beyond ten characters";
+  const markup = renderToStaticMarkup(
+    <SessionSidebar
+      historyItems={[{ ...historyWorkspaceItems[0], title: fullTitle }]}
+      activeSessionId="session-current"
+      historyBusy={false}
+      openSessionBusyId=""
+      deleteSessionBusyId=""
+      deleteAllSessionsBusy={false}
+      runningSessionIds={[]}
+      onCollapse={() => {}}
+      onNewChat={() => {}}
+      onOpenSession={() => {}}
+      onDeleteSession={() => {}}
+      onDeleteAllSessions={() => {}}
+    />
+  );
+
+  assert.match(markup, new RegExp(fullTitle));
+  assert.match(markup, new RegExp(`title="${fullTitle}"`));
+});
+
 test("workspace sidebars disable deletion for the active session independently", () => {
   const activeSession = renderToStaticMarkup(
     <SessionSidebar
@@ -1141,7 +1164,8 @@ test("scrolling grid lists keep intrinsic row heights", () => {
 
   assert.match(shellStyles, /\.sessionList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(shellStyles, /\.sessionEntry\s*\{[^}]*min-height:\s*32px;[^}]*padding:\s*4px 8px;/);
-  assert.match(shellStyles, /\.sessionEntry > strong\s*\{[^}]*font-size:\s*12px;/);
+  assert.match(shellStyles, /\.sessionEntry > strong\s*\{[^}]*text-overflow:\s*ellipsis;[^}]*font-size:\s*12px;/);
+  assert.match(shellStyles, /\.sessionEntry > strong > \.titleMathText\s*\{[^}]*text-overflow:\s*ellipsis;/);
   assert.match(cardStyles, /\.cardList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.cardFileList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.knowledgeExportBody\s*\{[^}]*grid-auto-rows:\s*max-content;/);

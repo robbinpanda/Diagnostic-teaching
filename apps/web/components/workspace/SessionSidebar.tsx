@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { SessionHistoryItem } from "../../lib/api";
-import { summarizeSessionMenuTitle } from "../../lib/history-view";
 import { MathText } from "../MathText";
 
 export type WorkspaceContentNavigation =
@@ -163,12 +162,11 @@ export function SessionSidebar({
                       {group.items.map((item) => {
                         const isRunning = runningSessions.has(item.session_id);
                         const fullTitle = item.title || "未命名题目";
-                        const menuTitle = summarizeSessionMenuTitle(fullTitle);
                         return (
                           <div className={`sessionRow ${activeSessionId === item.session_id ? "active" : ""}`} key={item.session_id}>
                             <button className="sessionEntry" type="button" onClick={() => onOpenSession(item.session_id)} disabled={openSessionBusyId === item.session_id} title={fullTitle}>
                               {isRunning ? <Loader2 size={12} className="spin sessionRunningIcon" aria-label="正在思考" /> : null}
-                              <strong><MathText text={menuTitle} className="titleMathText" /></strong>
+                              <strong><MathText text={fullTitle} className="titleMathText" /></strong>
                             </button>
                             <button className="sessionDeleteButton" type="button" onClick={() => onDeleteSession(item)} disabled={Boolean(deleteSessionBusyId) || Boolean(openSessionBusyId) || isRunning || activeSessionId === item.session_id} aria-label={`删除会话：${item.title}`}>
                               {deleteSessionBusyId === item.session_id || openSessionBusyId === item.session_id

@@ -6,10 +6,8 @@ import {
   buildHistoryPaperGroups,
   filterHistoryPaperGroups,
   filterHistoryQuestions,
-  SESSION_MENU_TITLE_MAX_LENGTH,
   sortHistoryPaperGroups,
-  stableHistoryPaperAccent,
-  summarizeSessionMenuTitle
+  stableHistoryPaperAccent
 } from "../lib/history-view";
 
 function historyItem(overrides: Partial<SessionHistoryItem> = {}): SessionHistoryItem {
@@ -106,11 +104,4 @@ test("history paper accents are stable C4 token choices", () => {
   assert.equal(stableHistoryPaperAccent("paper-a"), "lavender");
   assert.equal(stableHistoryPaperAccent("paper-b"), "sage");
   assert.equal(stableHistoryPaperAccent("paper-a"), stableHistoryPaperAccent("paper-a"));
-});
-
-test("session menu titles use a compact first-clause summary of at most ten characters", () => {
-  assert.equal(summarizeSessionMenuTitle("  已知一次函数，求它与坐标轴围成的面积。  "), "已知一次函数，求它与");
-  assert.equal(summarizeSessionMenuTitle("求三角形面积。再说明理由"), "求三角形面积");
-  assert.equal(summarizeSessionMenuTitle(""), "未命名题目");
-  assert.ok(Array.from(summarizeSessionMenuTitle("😀😀😀😀😀😀😀😀😀😀😀")).length <= SESSION_MENU_TITLE_MAX_LENGTH);
 });

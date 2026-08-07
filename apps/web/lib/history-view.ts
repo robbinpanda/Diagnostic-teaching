@@ -18,13 +18,6 @@ export type HistoryPaperGroup = {
 };
 
 export const UNCLASSIFIED_PAPER_ID = "unclassified";
-export const SESSION_MENU_TITLE_MAX_LENGTH = 10;
-
-export function summarizeSessionMenuTitle(value: string | null | undefined) {
-  const normalizedTitle = (value || "未命名题目").replace(/\s+/gu, " ").trim() || "未命名题目";
-  const firstClause = normalizedTitle.split(/[。！？!?；;]/u, 1)[0]?.trim() || normalizedTitle;
-  return Array.from(firstClause).slice(0, SESSION_MENU_TITLE_MAX_LENGTH).join("");
-}
 
 function normalized(value: string) {
   return value.trim().toLocaleLowerCase("zh-CN");

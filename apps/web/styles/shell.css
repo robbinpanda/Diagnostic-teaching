@@ -445,11 +445,20 @@
 
 .sessionEntry > strong {
   min-width: 0;
+  flex: 1 1 auto;
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
   font-weight: 560;
+}
+
+.sessionEntry > strong > .titleMathText {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sessionRunningIcon {
