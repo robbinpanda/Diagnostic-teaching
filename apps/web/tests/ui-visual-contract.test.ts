@@ -109,6 +109,19 @@ test("desktop shell uses the approved atrium proportions", () => {
   assert.match(shell, /border-radius:\s*var\(--shell-radius\)/);
 });
 
+test("sidebar hover motion cannot create a horizontal scrollbar", () => {
+  const shell = text("styles/shell.css");
+
+  assert.match(
+    shell,
+    /\.primaryNavigation\s*\{[\s\S]*?overflow-x:\s*hidden;[\s\S]*?overflow-y:\s*auto;/
+  );
+  assert.match(
+    shell,
+    /\.primaryNavigation \.primaryNavButton:hover\s*\{[\s\S]*?transform:\s*translateX\(2px\);/
+  );
+});
+
 test("conversation keeps measurement hooks while using the bright stage", () => {
   const css = text("styles/conversation.css");
 

@@ -375,7 +375,7 @@ test("history workspace formats SSR dates in Asia Shanghai", () => {
   assert.doesNotMatch(result.stdout, /2026年8月5日/);
 });
 
-test("workspace sidebar formats SSR dates in Asia Shanghai", () => {
+test("workspace sidebar omits session dates and message counts", () => {
   const componentPath = resolve(__dirname, "../components/workspace/SessionSidebar.js");
   const result = spawnSync(process.execPath, ["-e", `
     const React = require("react");
@@ -420,8 +420,8 @@ test("workspace sidebar formats SSR dates in Asia Shanghai", () => {
   });
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /2026年8月6日/);
-  assert.doesNotMatch(result.stdout, /2026年8月5日/);
+  assert.match(result.stdout, /跨日题目/);
+  assert.doesNotMatch(result.stdout, /2026年|2026-08|条消息/);
 });
 
 test("history workspace renders loading empty no-result error and emptied-paper states", () => {
@@ -823,8 +823,10 @@ test("workspace sidebars render active sessions and filtered cards", () => {
   assert.match(sessions, /错题合集/);
   assert.match(sessions, /错题库/);
   assert.match(sessions, /搜索历史答疑/);
-  assert.match(sessions, /3 条消息/);
-  assert.match(sessions, /正在思考/);
+  assert.doesNotMatch(sessions, /条消息/);
+  assert.doesNotMatch(sessions, /2026|2025|2024/);
+  assert.match(sessions, /sessionRunningIcon/);
+  assert.match(sessions, /aria-label="正在思考"/);
 
   const openingSession = renderToStaticMarkup(
     <SessionSidebar
@@ -1117,7 +1119,7 @@ test("scrolling grid lists keep intrinsic row heights", () => {
   const cardStyles = readFileSync(resolve(__dirname, "../../../styles/cards.css"), "utf8");
 
   assert.match(shellStyles, /\.sessionList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
-  assert.match(shellStyles, /\.sessionEntry\s*\{[^}]*padding:\s*6px 8px;/);
+  assert.match(shellStyles, /\.sessionEntry\s*\{[^}]*min-height:\s*32px;[^}]*padding:\s*4px 8px;/);
   assert.match(shellStyles, /\.sessionEntry > strong\s*\{[^}]*font-size:\s*12px;/);
   assert.match(cardStyles, /\.cardList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.cardFileList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
