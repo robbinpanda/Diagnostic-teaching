@@ -394,6 +394,7 @@ class MistakeSetItemPublic(BaseModel):
     title: str
     problem_text: str
     problem_image_data_url: str | None = None
+    problem_card: dict[str, Any] | None = None
     position: int
     created_at: str
 

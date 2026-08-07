@@ -8,10 +8,7 @@ import { ModelConfigDialog } from "../components/ModelConfigDialog";
 import { ProblemImageSelector, type PaperSelection } from "../components/ProblemImageSelector";
 import { ProblemImageViewer } from "../components/ProblemImageViewer";
 import { StudyCardModal } from "../components/StudyCardModal";
-import {
-  LearningCardExportDialog,
-  type LearningCardExportLayout
-} from "../components/LearningCardExportDialog";
+import { LearningCardExportDialog } from "../components/LearningCardExportDialog";
 import { LearningCardPrintView } from "../components/LearningCardPrintView";
 import {
   MistakeSetPrintDocument,
@@ -112,12 +109,12 @@ type ShelfCardMotion = {
 
 type LearningCardPrintJob = {
   cards: StudyCard[];
-  layout: LearningCardExportLayout;
 };
 
 type MistakeSetPrintJob = {
   name: string;
   items: PrintableMistakeItem[];
+  practiceMode: boolean;
 };
 
 type MistakeExportDraft = MistakeSetPrintJob & {
@@ -1766,17 +1763,32 @@ export default function Home() {
     runtime.clearError();
     try {
       const openedSessions = await Promise.all(selectedItems.map((item) => fetchSession(item.session_id)));
+      const savedProblemCardsBySession = new Map<string, StudyCard>();
+      for (const card of cards) {
+        if (card.card_type === "problem_card" && !savedProblemCardsBySession.has(card.session_id)) {
+          savedProblemCardsBySession.set(card.session_id, card);
+        }
+      }
       setMistakeExportDraft({
         name: defaultMistakeSetName(),
+        practiceMode: false,
         sessionIds: selectedItems.map((item) => item.session_id),
-        items: openedSessions.map((opened, index) => ({
-          id: selectedItems[index].session_id,
-          source_paper_name: selectedItems[index].paper_name || "未分类题目",
-          title: selectedItems[index].title || opened.problem_text || "未命名题目",
-          problem_text: opened.problem_text,
-          problem_image_data_url: opened.problem_image_data_url ?? null,
-          position: index
-        }))
+        items: openedSessions.map((opened, index) => {
+          const pendingProblemCard = [...(opened.pending_cards || [])]
+            .reverse()
+            .find((card) => card.card_type === "problem_card");
+          const problemCard = savedProblemCardsBySession.get(selectedItems[index].session_id)
+            || pendingProblemCard;
+          return {
+            id: selectedItems[index].session_id,
+            source_paper_name: selectedItems[index].paper_name || "未分类题目",
+            title: problemCard?.content.title || selectedItems[index].title || opened.problem_text || "未命名题目",
+            problem_text: opened.problem_text,
+            problem_image_data_url: opened.problem_image_data_url ?? null,
+            problem_card: problemCard?.content.type === "problem_card" ? problemCard.content : null,
+            position: index
+          };
+        })
       });
     } catch (nextError) {
       runtime.setError(nextError instanceof Error ? nextError.message : "生成错题集预览失败");
@@ -1789,7 +1801,11 @@ export default function Home() {
     if (!mistakeExportDraft || mistakeSetSaveBusy) return;
     const created = await saveMistakeSet(mistakeExportDraft.name.trim(), mistakeExportDraft.sessionIds);
     if (!created) return;
-    const printJob = { name: created.name, items: created.items };
+    const printJob = {
+      name: created.name,
+      items: created.items,
+      practiceMode: mistakeExportDraft.practiceMode
+    };
     setSelectedMistakeSessionIds([]);
     setMistakeSelectionMode(false);
     setMistakeExportDraft(null);
@@ -1802,11 +1818,11 @@ export default function Home() {
     if (shouldPrint) setMistakeSetPrintJob(printJob);
   }
 
-  function handleLearningCardExport(selectedCards: StudyCard[], layout: LearningCardExportLayout) {
+  function handleLearningCardExport(selectedCards: StudyCard[]) {
     setKnowledgeCardExportOpen(false);
     setKnowledgeSelectionMode(false);
     setSelectedKnowledgeCardIds([]);
-    setLearningCardPrintJob({ cards: selectedCards, layout });
+    setLearningCardPrintJob({ cards: selectedCards });
   }
 
   function toggleKnowledgeCardSelection(cardId: string) {
@@ -1971,7 +1987,9 @@ export default function Home() {
                 items={mistakeExportDraft.items}
                 editableName
                 busy={mistakeSetSaveBusy}
+                practiceMode={mistakeExportDraft.practiceMode}
                 onNameChange={(name) => setMistakeExportDraft((current) => current ? { ...current, name } : current)}
+                onPracticeModeChange={(practiceMode) => setMistakeExportDraft((current) => current ? { ...current, practiceMode } : current)}
                 onBack={() => setMistakeExportDraft(null)}
                 onSaveOnly={() => void persistMistakeExport(false)}
                 onSaveAndPrint={() => void persistMistakeExport(true)}
@@ -2037,7 +2055,7 @@ export default function Home() {
               onExpandLeft={() => setLeftOpen(true)}
               onOpenSet={(setId) => setMistakeSetView({ mode: "detail", setId })}
               onBackToOverview={() => setMistakeSetView({ mode: "overview" })}
-              onPrint={(set) => setMistakeSetPrintJob({ name: set.name, items: set.items })}
+              onPrint={(set, practiceMode) => setMistakeSetPrintJob({ name: set.name, items: set.items, practiceMode })}
             />
             {activeCardDock ? <div className="historyCardOverlayStage">{activeCardDock}</div> : null}
           </>
@@ -2223,10 +2241,10 @@ export default function Home() {
       />
     </main>
     {learningCardPrintJob && (
-      <LearningCardPrintView cards={learningCardPrintJob.cards} layout={learningCardPrintJob.layout} />
+      <LearningCardPrintView cards={learningCardPrintJob.cards} />
     )}
     {mistakeSetPrintJob && (
-      <MistakeSetPrintDocument name={mistakeSetPrintJob.name} items={mistakeSetPrintJob.items} />
+      <MistakeSetPrintDocument name={mistakeSetPrintJob.name} items={mistakeSetPrintJob.items} practiceMode={mistakeSetPrintJob.practiceMode} />
     )}
     </>
   );

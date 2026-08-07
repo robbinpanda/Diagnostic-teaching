@@ -6,6 +6,8 @@ import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CheckpointModal } from "../components/CheckpointModal";
 import { LearningCardExportDialog } from "../components/LearningCardExportDialog";
+import { LearningCardPrintView } from "../components/LearningCardPrintView";
+import { MistakeSetPrintDocument } from "../components/MistakeSetPrintView";
 import { FolderLocationSelect } from "../components/FolderLocationSelect";
 import { StudyCardModal } from "../components/StudyCardModal";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
@@ -1195,7 +1197,7 @@ test("scrolling grid lists keep intrinsic row heights", () => {
   assert.match(cardStyles, /\.knowledgeExportBody\s*\{[^}]*grid-auto-rows:\s*max-content;/);
 });
 
-test("card save keeps folder navigation while knowledge export only confirms layout", () => {
+test("card exports use compact fixed double columns and optional answer masking", () => {
   const saveDialog = renderToStaticMarkup(
     <StudyCardModal
       card={cardFixture}
@@ -1216,10 +1218,41 @@ test("card save keeps folder navigation while knowledge export only confirms lay
     />
   );
   assert.match(exportDialog, /从知识卡片库导出/);
-  assert.match(exportDialog, /已在知识卡片库选中 1 张卡片/);
-  assert.match(exportDialog, /选择 PDF 排版/);
+  assert.match(exportDialog, /已选中 1 张知识卡片/);
+  assert.match(exportDialog, /固定 A4 纵向双列/);
   assert.match(exportDialog, /将导出 <strong>1<\/strong> 张知识卡片/);
-  assert.doesNotMatch(exportDialog, /导出文件夹|type="checkbox"|默认知识卡片/);
+  assert.doesNotMatch(exportDialog, /导出文件夹|type="checkbox"|type="radio"|单列|三列|默认知识卡片/);
+
+  const knowledgePrint = renderToStaticMarkup(<LearningCardPrintView cards={[cardFixture]} />);
+  assert.match(knowledgePrint, /printLayout-double/);
+  assert.match(knowledgePrint, /column-count:2/);
+  assert.match(knowledgePrint, /关键关系/);
+  assert.match(knowledgePrint, /核心原理/);
+
+  if (problemCardFixture.content.type !== "problem_card") throw new Error("problem card fixture mismatch");
+  const mistakeItems = [{
+    id: "mistake-1",
+    source_paper_name: "代数卷",
+    title: problemCardFixture.content.title,
+    problem_text: problemCardFixture.content.problem_summary,
+    problem_image_data_url: null,
+    problem_card: problemCardFixture.content,
+    position: 0
+  }];
+  const answerPrint = renderToStaticMarkup(
+    <MistakeSetPrintDocument name="错题复习" items={mistakeItems} practiceMode={false} />
+  );
+  const practicePrint = renderToStaticMarkup(
+    <MistakeSetPrintDocument name="错题复习" items={mistakeItems} practiceMode />
+  );
+  assert.match(answerPrint, /解题思路/);
+  assert.match(answerPrint, /关键步骤/);
+  assert.match(answerPrint, /如何想到这些步骤/);
+  assert.match(answerPrint, /易错提醒/);
+  assert.match(answerPrint, /最终答案/);
+  assert.match(practicePrint, /题目摘要/);
+  assert.match(practicePrint, /练习模式 · 解析已遮住/);
+  assert.doesNotMatch(practicePrint, /解题思路|最终答案/);
 });
 
 test("model picker exposes image capability and batch management controls", () => {

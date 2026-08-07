@@ -172,6 +172,9 @@ test("medium widths keep the session drawer and remove the card-library drawer",
 test("knowledge export replaces the removed global card drawer", () => {
   const page = text("app/page.tsx");
   const knowledgeWorkspace = text("components/workspace/KnowledgeWorkspace.tsx");
+  const exportDialog = text("components/LearningCardExportDialog.tsx");
+  const learningPrint = text("components/LearningCardPrintView.tsx");
+  const mistakePrint = text("components/MistakeSetPrintView.tsx");
 
   assert.match(
     page,
@@ -180,6 +183,11 @@ test("knowledge export replaces the removed global card drawer", () => {
   assert.match(page, /<LearningCardExportDialog[\s\S]*?cards=\{selectedKnowledgeCards\}/);
   assert.match(knowledgeWorkspace, /onToggleSelectionMode[\s\S]*?退出多选[\s\S]*?onExportSelection/);
   assert.doesNotMatch(knowledgeWorkspace, /导出知识卡片/);
+  assert.match(exportDialog, /固定 A4 纵向双列/);
+  assert.doesNotMatch(exportDialog, /single|triple|type="radio"/);
+  assert.match(learningPrint, /printLayout-double[\s\S]*?columnCount:\s*2/);
+  assert.match(mistakePrint, /printLayout-double[\s\S]*?columnCount:\s*2/);
+  assert.match(mistakePrint, /只看题目摘要[\s\S]*?practiceMode/);
   assert.doesNotMatch(page, /StudyCardSidebar|cardPanelToggle|rightOpen|setRightOpen/);
 });
 

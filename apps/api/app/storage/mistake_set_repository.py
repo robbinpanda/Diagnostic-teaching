@@ -81,6 +81,10 @@ class MistakeSetRepositoryMixin:
                             WHERE m.session_id = s.id AND m.role = 'student'
                             ORDER BY m.created_at ASC, m.rowid ASC LIMIT 1)
                              AS first_student_message
+                           ,(SELECT c.content_json FROM study_cards c
+                             WHERE c.session_id = s.id AND c.card_type = 'problem_card'
+                             ORDER BY c.created_at DESC, c.rowid DESC LIMIT 1)
+                             AS problem_card_json
                     FROM sessions s
                     LEFT JOIN exam_papers p ON p.id = s.paper_id
                     WHERE s.id = ?
@@ -109,8 +113,9 @@ class MistakeSetRepositoryMixin:
                     """
                     INSERT INTO mistake_set_items (
                       id, mistake_set_id, source_session_id, source_paper_name,
-                      title, problem_text, problem_image_data_url, position, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      title, problem_text, problem_image_data_url, problem_card_json,
+                      position, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         new_id("mistake_item"),
@@ -120,6 +125,7 @@ class MistakeSetRepositoryMixin:
                         title,
                         problem_text,
                         source["problem_image_data_url"],
+                        source["problem_card_json"],
                         position,
                         ts,
                     ),

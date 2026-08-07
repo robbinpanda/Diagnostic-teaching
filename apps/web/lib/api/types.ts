@@ -205,6 +205,7 @@ export type MistakeSetItem = {
   title: string;
   problem_text: string;
   problem_image_data_url?: string | null;
+  problem_card?: ProblemCardContent | null;
   position: number;
   created_at: string;
 };

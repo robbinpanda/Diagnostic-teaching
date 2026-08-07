@@ -509,6 +509,29 @@
   width: min(760px, 100%);
 }
 
+.exportFixedLayoutSummary {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 16px;
+  color: var(--accent-strong);
+  background: #f3fbf9;
+}
+
+.exportFixedLayoutSummary h3,
+.exportFixedLayoutSummary p {
+  margin: 0;
+}
+
+.exportFixedLayoutSummary p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .knowledgeExportHeader {
   display: flex;
   align-items: flex-start;

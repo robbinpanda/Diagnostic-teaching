@@ -755,6 +755,34 @@
   gap: var(--space-2);
 }
 
+.mistakePracticeToggle {
+  min-height: 40px;
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  color: var(--neutral-700);
+  background: var(--neutral-25);
+  font-size: 12px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.mistakePracticeToggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mistakePracticeToggle.active,
+.mistakePracticeToggle:focus-within {
+  border-color: var(--stage-sage);
+  color: var(--stage-forest);
+  background: var(--stage-sage-soft);
+}
+
 .mistakeSetNameError {
   margin: var(--space-3) var(--space-8) 0;
   color: var(--danger);
@@ -812,58 +840,140 @@
 }
 
 .mistakeSetDocumentQuestions {
-  display: grid;
-  gap: 28px;
-  margin-top: 28px;
+  column-count: 2;
+  column-gap: 18px;
+  margin-top: 20px;
 }
 
-.mistakeSetDocumentQuestion {
+.mistakeSetPreviewSheet .knowledgeCardPrintCard {
+  width: 100%;
+  margin: 0 0 16px;
+  border: 1px solid var(--neutral-300);
+  border-top: 4px solid var(--stage-forest);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--neutral-0);
   break-inside: avoid;
+  font-size: 11px;
+  line-height: 1.48;
 }
 
-.mistakeSetDocumentQuestion > header {
+.mistakeSetPreviewSheet .knowledgeCardPrintCard.problemCard {
+  border-color: var(--neutral-300);
+  border-top-color: var(--stage-yellow);
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard > header {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
   align-items: start;
+  margin-bottom: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--neutral-200);
 }
 
-.mistakeSetDocumentQuestion > header > span {
-  width: 32px;
-  height: 32px;
+.mistakeSetPreviewSheet .knowledgeCardPrintCard > header > span {
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
   border-radius: 50%;
   color: var(--neutral-0);
-  background: var(--stage-forest);
-  font-size: 11px;
+  background: var(--stage-yellow-ink);
+  font-size: 9px;
   font-weight: 800;
 }
 
-.mistakeSetDocumentQuestion small {
-  color: var(--stage-forest);
-  font-size: 10px;
-  font-weight: 760;
-}
-
-.mistakeSetDocumentQuestion h2 {
-  margin: 4px 0 0;
-  font-size: 16px;
-  line-height: 1.55;
-}
-
-.mistakeSetQuestionText {
-  margin: 12px 0 0 46px;
-  font-size: 14px;
-  line-height: 1.75;
-}
-
-.mistakeSetDocumentQuestion img {
+.mistakeSetPreviewSheet .knowledgeCardPrintCard small {
   display: block;
-  max-width: calc(100% - 46px);
-  max-height: 420px;
-  margin: 14px 0 0 46px;
-  object-fit: contain;
+  margin-bottom: 2px;
+  color: var(--stage-yellow-ink);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard h2 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard section {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--neutral-200);
+  break-inside: avoid;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard section:last-child {
+  border-bottom: 0;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard h3 {
+  margin: 0 0 3px;
+  color: var(--stage-yellow-ink);
+  font-size: 9px;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard p,
+.mistakeSetPreviewSheet .knowledgeCardPrintCard ul,
+.mistakeSetPreviewSheet .knowledgeCardPrintCard ol {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard ul,
+.mistakeSetPreviewSheet .knowledgeCardPrintCard ol {
+  padding-left: 18px;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard li + li {
+  margin-top: 4px;
+}
+
+.mistakeSetPreviewSheet .printStepResult {
+  margin-top: 4px;
+  border-left: 3px solid var(--stage-yellow);
+  padding: 4px 6px;
+  background: var(--stage-yellow-soft);
+}
+
+.mistakeSetPreviewSheet .printProblemLead,
+.mistakeSetPreviewSheet .printFinalAnswer {
+  margin: 0 -5px;
+  padding: 7px 5px !important;
+  border-radius: 5px;
+  background: var(--stage-yellow-soft);
+}
+
+.mistakeSetPreviewSheet .practiceHiddenTitle {
+  min-height: 20px;
+  border-radius: 4px;
+  color: transparent;
+  background: var(--neutral-200);
+}
+
+.mistakeSetPreviewSheet .practiceHiddenTitle * {
+  visibility: hidden;
+}
+
+.mistakeSetPreviewSheet .printPracticeArea {
+  min-height: 180px;
+  border: 0;
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  color: var(--neutral-500);
+}
+
+.mistakeSetPreviewSheet .printPracticeArea i {
+  display: block;
+  border-top: 1px solid var(--neutral-200);
+}
+
+.mistakeSetPreviewSheet .printIncompleteLine {
+  color: var(--neutral-500);
+  font-style: italic;
 }
 
 @keyframes historyWorkspaceEnter {

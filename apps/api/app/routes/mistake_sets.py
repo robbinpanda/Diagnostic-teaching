@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, HTTPException, Request
 
 from app.core.schemas import (
@@ -28,6 +30,11 @@ def mistake_set_from_rows(row, item_rows) -> MistakeSetPublic:
                 title=item["title"],
                 problem_text=item["problem_text"],
                 problem_image_data_url=item["problem_image_data_url"],
+                problem_card=(
+                    json.loads(item["problem_card_json"])
+                    if item["problem_card_json"]
+                    else None
+                ),
                 position=item["position"],
                 created_at=item["created_at"],
             )

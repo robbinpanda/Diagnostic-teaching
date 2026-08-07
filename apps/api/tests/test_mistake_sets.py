@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -52,6 +53,48 @@ def _session(
     )
 
 
+def _add_problem_card(client: TestClient, session_id: str):
+    content = {
+        "type": "problem_card",
+        "title": "三角形边长复盘",
+        "problem_summary": "已知三角形两边，求第三边范围。",
+        "solution_overview": "使用三角形两边之和大于第三边。",
+        "solution_steps": [
+            {
+                "step": 1,
+                "title": "列出不等式",
+                "reasoning": "第三边同时小于两边之和且大于两边之差。",
+                "result": "$|a-b|<c<a+b$",
+            }
+        ],
+        "pitfalls": ["不要漏掉下界"],
+        "how_to_think": ["看到三边关系就想到三角形不等式"],
+        "final_answer": "$|a-b|<c<a+b$",
+    }
+    with client.app.state.db.connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO study_cards (
+              id, session_id, live_session_id, card_type, title, content_json,
+              source_action_id, source_message_id, created_at, saved_at, folder_id
+            ) VALUES (?, ?, ?, 'problem_card', ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"card_{session_id}",
+                session_id,
+                session_id,
+                content["title"],
+                json.dumps(content, ensure_ascii=False),
+                f"action_{session_id}",
+                f"message_{session_id}",
+                "2026-08-07T00:00:00Z",
+                "2026-08-07T00:00:00Z",
+                "folder_default_problem",
+            ),
+        )
+    return content
+
+
 def test_mistake_set_api_snapshots_cross_paper_sessions_in_request_order(tmp_path: Path):
     client, profile_id = _client(tmp_path)
     paper_a = client.post("/api/exam-papers", json={"name": "代数卷"}).json()
@@ -69,6 +112,7 @@ def test_mistake_set_api_snapshots_cross_paper_sessions_in_request_order(tmp_pat
         problem_text="求三角形第三边范围",
         image_data_url="data:image/png;base64,c25hcHNob3Q=",
     )
+    problem_card = _add_problem_card(client, session_b["id"])
 
     response = client.post(
         "/api/mistake-sets",
@@ -84,6 +128,8 @@ def test_mistake_set_api_snapshots_cross_paper_sessions_in_request_order(tmp_pat
     ]
     assert [item["source_paper_name"] for item in payload["items"]] == ["几何卷", "代数卷"]
     assert payload["items"][0]["problem_image_data_url"] == "data:image/png;base64,c25hcHNob3Q="
+    assert payload["items"][0]["problem_card"] == problem_card
+    assert payload["items"][1]["problem_card"] is None
     assert [item["position"] for item in payload["items"]] == [0, 1]
 
     listed = client.get("/api/mistake-sets")
@@ -103,6 +149,7 @@ def test_mistake_set_snapshot_survives_source_session_and_paper_deletion(tmp_pat
         paper_id=paper["id"],
         problem_text="保留下来的题目",
     )
+    problem_card = _add_problem_card(client, session["id"])
     created = client.post(
         "/api/mistake-sets",
         json={"name": "长期错题集", "session_ids": [session["id"]]},
@@ -119,6 +166,7 @@ def test_mistake_set_snapshot_survives_source_session_and_paper_deletion(tmp_pat
     }
     assert opened.json()["items"][0]["source_paper_name"] == "会被删除的试卷"
     assert opened.json()["items"][0]["problem_text"] == "保留下来的题目"
+    assert opened.json()["items"][0]["problem_card"] == problem_card
 
 
 def test_mistake_set_create_rejects_duplicates_missing_sessions_and_blank_names(tmp_path: Path):

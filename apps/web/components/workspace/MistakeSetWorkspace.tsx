@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft, ChevronRight, FileText, Loader2, Printer } from "lucide-react";
-import { useMemo, useState, type Ref } from "react";
+import { useEffect, useMemo, useState, type Ref } from "react";
 
 import type { MistakeSet } from "../../lib/api";
 import { stableHistoryPaperAccent } from "../../lib/history-view";
@@ -22,7 +22,7 @@ type Props = {
   onExpandLeft: () => void;
   onOpenSet: (setId: string) => void;
   onBackToOverview: () => void;
-  onPrint: (set: MistakeSet) => void;
+  onPrint: (set: MistakeSet, practiceMode: boolean) => void;
 };
 
 const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
@@ -45,6 +45,7 @@ export function MistakeSetWorkspace({
   onPrint
 }: Props) {
   const [query, setQuery] = useState("");
+  const [practiceMode, setPracticeMode] = useState(false);
   const selectedSet = view.mode === "detail"
     ? mistakeSets.find((item) => item.id === view.setId)
     : undefined;
@@ -55,14 +56,18 @@ export function MistakeSetWorkspace({
       || set.items.some((item) => item.title.toLocaleLowerCase("zh-CN").includes(normalized)));
   }, [mistakeSets, query]);
 
+  useEffect(() => setPracticeMode(false), [selectedSet?.id]);
+
   if (view.mode === "detail" && selectedSet) {
     return (
       <section ref={workspaceRef} className="historyWorkspace" aria-label="错题集 PDF 工作区">
         <MistakeSetPrintView
           name={selectedSet.name}
           items={selectedSet.items}
+          practiceMode={practiceMode}
+          onPracticeModeChange={setPracticeMode}
           onBack={onBackToOverview}
-          onPrint={() => onPrint(selectedSet)}
+          onPrint={() => onPrint(selectedSet, practiceMode)}
         />
       </section>
     );
