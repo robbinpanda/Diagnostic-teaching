@@ -80,6 +80,8 @@ python -m alembic -c alembic.ini upgrade head
 
 单会话删除使用 `BEGIN IMMEDIATE`：先读取准确 `paper_id` 并在数据库内复查 queued/running run，再删除 session；若该 ID 已无其他 session 引用，同一事务删除 `exam_papers`。显式创建但尚无 session 的新试卷不会被全局扫描删除。批量清空会话则在同一事务删除全部 sessions 和全部 `exam_papers`；两种路径都保留受管目录与已归档卡片，只让 session 触发器删除 `saved_at IS NULL` 的临时卡片。普通创建、批量创建和 restore 都在自己的写事务内重新验证 `paper_id`，避免与最后会话删除交错时产生悬空引用。
 
+批量清空卡片同样使用 `BEGIN IMMEDIATE`，并在删除前查询权威 `session_runs`。存在 `queued/running` run 时事务回滚并返回冲突；没有活动 run 时才一次性删除全部已归档与待归档卡片，避免客户端断流后内存流注册消失却仍与后台生成交错。
+
 `0007_reasoning_effort` 为 `model_profiles` 新增非空 `reasoning_effort`，`0008_reasoning_effort_levels` 曾扩展为四档。`0009_reasoning_effort_protocol_probe` 将现行档位统一为 `none / low / high`，把旧 `minimal` 迁为 `none`、旧 `auto / medium` 迁为默认 `low`，并新增非空 `reasoning_effort_options_json`。该 JSON 数组保存完整 profile 实测成功的档位；未测试配置默认 `["none","low","high"]`。请求字段只按供应商类型绑定的协议决定：OpenAI Responses 使用 `reasoning.effort`，OpenAI-compatible Chat Completions 使用 `reasoning_effort`，Anthropic Messages 使用 `output_config.effort`，不再根据 Host 或模型名猜测。
 
 `sessions.context_status` 由 `0005_conversational_context` 增加，取值仅为 `need_problem / need_thought / ready`。它与 `problem_text / student_initial_thought` 都属于 SQLite 权威业务态：模型产出的上下文状态和新语义摘要会与完整 assistant action 同事务提交，刷新或恢复时不从诊断日志重新推断。旧 session 在迁移时默认为 `ready`，保持升级前已进入正式教学的语义。

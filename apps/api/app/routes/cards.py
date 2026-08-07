@@ -12,6 +12,7 @@ from app.core.schemas import (
     StudyCardSaveRequest,
     StudyCardUpdateRequest,
 )
+from app.storage.study_card_repository import CardDeleteConflictError
 
 router = APIRouter(prefix="/api/cards", tags=["cards"])
 
@@ -106,7 +107,13 @@ def update_card(card_id: str, payload: StudyCardUpdateRequest, request: Request)
 async def delete_all_cards(request: Request) -> Response:
     if await request.app.state.chat_streams.has_active_streams():
         raise HTTPException(status_code=409, detail="仍有答疑正在生成，请等待完成后再清空全部卡片")
-    request.app.state.sessions.delete_all_cards()
+    try:
+        request.app.state.sessions.delete_all_cards()
+    except CardDeleteConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="仍有答疑正在生成，请等待完成后再清空全部卡片",
+        ) from exc
     return Response(status_code=204)
 
 

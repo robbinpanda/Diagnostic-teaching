@@ -270,7 +270,7 @@ DELETE /api/cards
 DELETE /api/cards/{card_id}
 ```
 
-`DELETE /api/cards` 会清空全部已归档和待归档卡片，但不删除 session、message、checkpoint 或日志。`session_id` 仍保存在卡片记录中作为来源审计字段，但全局卡片库的查询与删除不依赖当前会话。删除 session 或删除其最后一条引用后同步清理试卷实体，都不会清空已归档卡片或受管试卷目录；该 session 的 `saved_at=null` 卡片则随会话删除。其余多张待归档卡片通过 `pending_cards` 恢复到各自的消息锚点，但不会形成生成锁。
+`DELETE /api/cards` 会清空全部已归档和待归档卡片，但不删除 session、message、checkpoint 或日志。清理在 `BEGIN IMMEDIATE` 事务内复查 `session_runs`；任一 run 仍为 `queued/running` 时整体返回 409，不依赖浏览器流是否仍连接，也不会删除部分卡片。`session_id` 仍保存在卡片记录中作为来源审计字段，但全局卡片库的查询与删除不依赖当前会话。删除 session 或删除其最后一条引用后同步清理试卷实体，都不会清空已归档卡片或受管试卷目录；该 session 的 `saved_at=null` 卡片则随会话删除。其余多张待归档卡片通过 `pending_cards` 恢复到各自的消息锚点，但不会形成生成锁。
 
 错题合集导出不改变 session 或 card 工作流。`POST /api/mistake-sets` 接收有序 `session_ids`，在单个 SQLite 写事务中把题目文字、原始题图和来源试卷名称复制到 `mistake_set_items`；`GET /api/mistake-sets` 和 `GET /api/mistake-sets/{id}` 只读取该快照。`source_session_id` 删除时置空，已经保存或打印的错题集仍可恢复并再次打印。
 

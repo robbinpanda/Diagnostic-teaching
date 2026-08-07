@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.schemas import ModelProfileCreate, SessionCreate, TutorTurn
@@ -237,3 +238,18 @@ def test_omitted_save_uses_generated_folder_while_explicit_selection_wins(tmp_pa
     )
     assert selected.status_code == 200
     assert selected.json()["folder_id"] == custom["id"]
+
+
+@pytest.mark.parametrize("status", ["queued", "running"])
+def test_delete_all_cards_rejects_durable_active_run(tmp_path: Path, status: str):
+    client, session_id = _bootstrap_app(tmp_path)
+    card = _pending_knowledge_card(client, session_id)
+    run = client.app.state.sessions.create_run(session_id)
+    if status == "running":
+        client.app.state.sessions.mark_run_running(run["id"])
+
+    response = client.delete("/api/cards")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "仍有答疑正在生成，请等待完成后再清空全部卡片"
+    assert client.app.state.sessions.get_card(card["id"])["id"] == card["id"]
