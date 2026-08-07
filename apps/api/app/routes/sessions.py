@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
@@ -28,8 +29,14 @@ from app.services.input_acceptance import (
     InputStateConflictError,
     InputValidationError,
 )
+from app.storage.exam_paper_repository import ExamPaperNotFoundError
+from app.storage.session_deletion_repository import (
+    MISSING_SESSION_PAPER_DETAIL,
+    SessionDeleteConflictError,
+)
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+LOGGER = logging.getLogger(__name__)
 
 
 def checkpoint_public_payload(row) -> dict:
@@ -109,7 +116,7 @@ def validate_session_profile(payload: SessionCreate, request: Request):
         try:
             request.app.state.sessions.get_exam_paper(payload.paper_id)
         except KeyError as exc:
-            raise HTTPException(status_code=400, detail="所选试卷不存在") from exc
+            raise HTTPException(status_code=400, detail=MISSING_SESSION_PAPER_DETAIL) from exc
     try:
         profile = request.app.state.model_profiles.get(payload.model_profile_id)
     except KeyError as exc:
@@ -124,7 +131,10 @@ def validate_session_profile(payload: SessionCreate, request: Request):
 
 def persist_session(payload: SessionCreate, request: Request):
     profile = validate_session_profile(payload, request)
-    session = request.app.state.sessions.create(payload)
+    try:
+        session = request.app.state.sessions.create(payload)
+    except ExamPaperNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=MISSING_SESSION_PAPER_DETAIL) from exc
     logger = getattr(request.app.state, "session_logger", None)
     if logger is not None:
         logger.log_session_started(
@@ -168,6 +178,8 @@ def accept_session_starts(
                 "message": "同一个会话启动标识已被用于不同内容。",
             },
         ) from exc
+    except ExamPaperNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=MISSING_SESSION_PAPER_DETAIL) from exc
     except (InputValidationError, InputStateConflictError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -393,26 +405,49 @@ async def interrupt_session(
 async def delete_all_sessions(request: Request) -> Response:
     if await request.app.state.chat_streams.has_active_streams():
         raise HTTPException(status_code=409, detail="仍有答疑正在生成，请等待完成后再清空全部会话")
-    request.app.state.sessions.delete_all_sessions()
+    try:
+        request.app.state.sessions.delete_all_sessions()
+    except SessionDeleteConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="仍有答疑正在生成，请等待完成后再清空全部会话",
+        ) from exc
     logger = getattr(request.app.state, "session_logger", None)
     if logger is not None:
-        logger.delete_all()
+        try:
+            logger.delete_all()
+        except Exception:
+            LOGGER.warning(
+                "Failed to delete diagnostic session logs after SQLite delete-all commit",
+                exc_info=True,
+            )
     return Response(status_code=204)
 
 
 @router.delete("/{session_id}", status_code=204)
 async def delete_session(session_id: str, request: Request) -> Response:
-    try:
-        request.app.state.sessions.get(session_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
     if await request.app.state.chat_streams.has_session_streams(session_id):
         raise HTTPException(status_code=409, detail="该会话仍有答疑正在生成，请先中断或等待完成")
 
+    try:
+        request.app.state.sessions.delete(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
+    except SessionDeleteConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="该会话仍有答疑正在生成，请先中断或等待完成",
+        ) from exc
+
     logger = getattr(request.app.state, "session_logger", None)
     if logger is not None:
-        logger.delete(session_id)
-    request.app.state.sessions.delete(session_id)
+        try:
+            logger.delete(session_id)
+        except Exception:
+            LOGGER.warning(
+                "Failed to delete diagnostic session logs after SQLite session commit",
+                exc_info=True,
+            )
     return Response(status_code=204)
 
 
@@ -432,7 +467,12 @@ def restore_session(payload: SessionRestoreRequest, request: Request) -> Session
     ):
         raise HTTPException(status_code=400, detail="该历史会话包含图片，必须选择支持图片识别的模型")
 
-    session = request.app.state.sessions.restore(payload.session_id, payload.model_profile_id)
+    try:
+        session = request.app.state.sessions.restore(payload.session_id, payload.model_profile_id)
+    except ExamPaperNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=MISSING_SESSION_PAPER_DETAIL) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
     messages = request.app.state.sessions.list_messages(session["id"])
     checkpoints = request.app.state.sessions.list_checkpoints(session["id"])
     pending = next((row for row in reversed(checkpoints) if row["answered_at"] is None), None)

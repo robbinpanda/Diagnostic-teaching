@@ -4,9 +4,7 @@
 
 @media (max-width: 1319px) and (min-width: 761px) {
   .appShell,
-  .appShell.leftClosed,
-  .appShell.rightClosed,
-  .appShell.leftClosed.rightClosed {
+  .appShell.leftClosed {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -14,8 +12,7 @@
     grid-column: 1;
   }
 
-  .appShell:not(.responsiveReady) .sessionSidebar,
-  .appShell:not(.responsiveReady) .cardSidebar {
+  .appShell:not(.responsiveReady) .sessionSidebar {
     visibility: hidden;
     opacity: 0;
   }
@@ -48,21 +45,6 @@
 
   .leftClosed .sessionSidebar {
     transform: translateX(-105%);
-  }
-
-  .cardSidebar {
-    position: fixed;
-    inset: calc(var(--shell-inset) + var(--shell-topbar)) var(--shell-inset) var(--shell-inset) auto;
-    z-index: 12;
-    height: auto;
-    width: min(330px, 88vw);
-    border-radius: 0 0 calc(var(--shell-radius) - 1px) 0;
-    box-shadow: -14px 0 36px rgba(42, 57, 46, 0.14);
-    transform: translateX(0);
-  }
-
-  .rightClosed .cardSidebar {
-    transform: translateX(105%);
   }
 
   .bambooLarge {
@@ -141,13 +123,31 @@
   }
 }
 
+@media (max-width: 900px) {
+  .historyCardOverlayStage {
+    display: flex;
+    align-items: flex-end;
+    padding-bottom: 12px;
+  }
+
+  .historyCardOverlayStage .activeKnowledgeCardDock {
+    position: relative;
+    right: auto;
+    bottom: auto;
+  }
+
+  .draggableCardWindow {
+    max-height: none;
+    transform: none !important;
+  }
+}
+
 @media (max-width: 760px) {
   .cardShelfTabs {
     display: none;
   }
 
-  .appShell:not(.responsiveReady) .sessionSidebar,
-  .appShell:not(.responsiveReady) .cardSidebar {
+  .appShell:not(.responsiveReady) .sessionSidebar {
     visibility: hidden;
     opacity: 0;
     transform: translateX(-105%);
@@ -177,9 +177,7 @@
   }
 
   .appShell,
-  .appShell.leftClosed,
-  .appShell.rightClosed,
-  .appShell.leftClosed.rightClosed {
+  .appShell.leftClosed {
     --shell-inset: 0px;
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -225,8 +223,7 @@
     max-width: 100vw;
   }
 
-  .sessionSidebar,
-  .cardSidebar {
+  .sessionSidebar {
     grid-column: 1;
     grid-row: 2;
     height: auto;
@@ -243,19 +240,6 @@
 
   .leftClosed .sessionSidebar {
     transform: translateX(-105%);
-  }
-
-  .cardSidebar {
-    position: fixed;
-    inset: calc(60px + var(--safe-top)) 0 var(--safe-bottom) auto;
-    z-index: 12;
-    width: min(330px, 92vw);
-    box-shadow: -12px 0 32px rgba(28, 29, 26, 0.12);
-    transform: translateX(0);
-  }
-
-  .rightClosed .cardSidebar {
-    transform: translateX(105%);
   }
 
   .messageColumn {
@@ -311,6 +295,10 @@
     bottom: auto;
     width: calc(100% - 20px);
     margin: 0 auto 8px;
+  }
+
+  .activeKnowledgeCardDock:has(.knowledgeFlashcard) {
+    width: calc(100% - 20px);
   }
 
   .composerActions select {
@@ -385,7 +373,7 @@
   }
 
   .studyCardFooter .folderLocationSelect,
-  .studyCardFooter select,
+  .studyCardFooter .folderLocationPicker,
   .studyCardSaveButton {
     width: 100%;
   }
@@ -537,6 +525,7 @@
   .historyWorkspaceToolbar {
     width: 100%;
     margin-left: 0;
+    flex-wrap: wrap;
   }
 
   .historyWorkspaceSearch {
@@ -558,6 +547,15 @@
   .historyWorkspaceToolbar {
     width: 100%;
     margin-left: 0;
+    flex-wrap: wrap;
+  }
+
+  .historySelectionActions {
+    width: 100%;
+  }
+
+  .historySelectionActions .historyWorkspaceAction {
+    flex: 1;
   }
 
   .historyWorkspaceSearch {
@@ -583,6 +581,37 @@
   .historyQuestionRow {
     grid-template-columns: minmax(0, 1fr) 44px;
   }
+
+  .historyQuestionRow.selectionMode {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+  }
+
+  .mistakeSetPreviewToolbar {
+    align-items: stretch;
+    flex-wrap: wrap;
+    padding: var(--space-4);
+  }
+
+  .mistakeSetPreviewTitle {
+    flex-basis: calc(100% - 60px);
+  }
+
+  .mistakeSetPreviewActions {
+    width: 100%;
+  }
+
+  .mistakeSetPreviewActions button {
+    flex: 1;
+  }
+
+  .mistakeSetPreviewCanvas {
+    padding: var(--space-4);
+  }
+
+  .mistakeSetPreviewSheet {
+    min-height: 0;
+    padding: 28px 24px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -593,6 +622,18 @@
 
   .historyWorkspaceToolbar {
     flex-direction: column;
+  }
+
+  .folderLocationControl,
+  .folderLocationCreateRow {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .folderLocationPicker,
+  .folderLocationCreateToggle,
+  .folderLocationCreateRow .secondaryButton {
+    width: 100%;
   }
 
   .historyWorkspaceSearch,

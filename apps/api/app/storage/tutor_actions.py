@@ -4,7 +4,7 @@ import json
 import sqlite3
 
 from app.core.schemas import TutorTurn
-from app.storage.card_folder_repository import default_folder_id
+from app.storage.card_folder_repository import session_card_folder_id
 from app.storage.database import Database, with_sqlite_busy_retry
 from app.storage.repository_utils import new_id, now_iso
 from app.storage.run_state import RunStateConflict
@@ -148,7 +148,9 @@ def record_tutor_action(
             ).fetchone()
 
         card_row = None
+        card_folder_id = None
         if card_content and card_id:
+            card_folder_id = session_card_folder_id(conn, session_id, card_content.type)
             conn.execute(
                 """
                 INSERT INTO study_cards (
@@ -166,7 +168,7 @@ def record_tutor_action(
                     action_id,
                     message_id,
                     ts,
-                    default_folder_id(card_content.type),
+                    card_folder_id,
                 ),
             )
             card_row = conn.execute(
@@ -246,7 +248,7 @@ def record_tutor_action(
                         "card_type": card_content.type,
                         "source_action_id": action_id,
                         "source_message_id": message_id,
-                        "folder_id": default_folder_id(card_content.type),
+                        "folder_id": card_folder_id,
                         "content": card_content.model_dump(),
                     },
                 )

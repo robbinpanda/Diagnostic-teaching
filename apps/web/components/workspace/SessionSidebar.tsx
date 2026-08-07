@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Files,
   Loader2,
   MessageSquarePlus,
   NotebookTabs,
@@ -16,14 +17,13 @@ import { useMemo, useState } from "react";
 import type { SessionHistoryItem } from "../../lib/api";
 import { MathText } from "../MathText";
 
-const historyDateFormatter = new Intl.DateTimeFormat("zh-CN", {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  timeZone: "Asia/Shanghai"
-});
-
-export type WorkspaceNavigation = "start" | "history" | "knowledge" | "mistakes";
+export type WorkspaceContentNavigation =
+  | "start"
+  | "history"
+  | "knowledge"
+  | "mistake_collection"
+  | "mistake_sets";
+export type WorkspaceNavigation = WorkspaceContentNavigation;
 
 type Props = {
   historyItems: SessionHistoryItem[];
@@ -110,16 +110,16 @@ export function SessionSidebar({
       </div>
 
       <nav className="primaryNavigation" aria-label="主要导航">
-        <button className={`primaryNavButton ${activeNavigation === "start" ? "active" : ""}`} type="button" onClick={() => navigate("start")} title="开始答疑">
+        <button className={`primaryNavButton ${activeNavigation === "start" ? "active" : ""}`} type="button" onClick={() => navigate("start")} aria-current={activeNavigation === "start" ? "page" : undefined} title="开始答疑">
           <MessageSquarePlus size={20} />
           <span className="sidebarNavLabel">开始答疑</span>
         </button>
         <div className={`historyNavigationGroup ${historyExpanded ? "expanded" : ""}`}>
           <div className={`historyNavigationRow ${activeNavigation === "history" ? "active" : ""}`}>
-            <button className="primaryNavButton historyNavigationMain" type="button" onClick={() => navigate("history")} title="历史搜题">
+            <div className="primaryNavButton historyNavigationMain" aria-label="历史搜题导航">
               <Clock3 size={20} />
               <span className="sidebarNavLabel">历史搜题</span>
-            </button>
+            </div>
             <button
               className="historyTreeToggle"
               type="button"
@@ -161,14 +161,12 @@ export function SessionSidebar({
                     <div className="paperQuestionList">
                       {group.items.map((item) => {
                         const isRunning = runningSessions.has(item.session_id);
+                        const fullTitle = item.title || "未命名题目";
                         return (
                           <div className={`sessionRow ${activeSessionId === item.session_id ? "active" : ""}`} key={item.session_id}>
-                            <button className="sessionEntry" type="button" onClick={() => onOpenSession(item.session_id)} disabled={openSessionBusyId === item.session_id}>
-                              <strong><MathText text={item.title || "未命名题目"} className="titleMathText" /></strong>
-                              <span>
-                                {isRunning ? <><Loader2 size={11} className="spin" /> 正在思考 · </> : null}
-                                {item.message_count} 条消息 · {historyDateFormatter.format(new Date(item.updated_at))}
-                              </span>
+                            <button className="sessionEntry" type="button" onClick={() => onOpenSession(item.session_id)} disabled={openSessionBusyId === item.session_id} title={fullTitle}>
+                              {isRunning ? <Loader2 size={12} className="spin sessionRunningIcon" aria-label="正在思考" /> : null}
+                              <strong><MathText text={fullTitle} className="titleMathText" /></strong>
                             </button>
                             <button className="sessionDeleteButton" type="button" onClick={() => onDeleteSession(item)} disabled={Boolean(deleteSessionBusyId) || Boolean(openSessionBusyId) || isRunning || activeSessionId === item.session_id} aria-label={`删除会话：${item.title}`}>
                               {deleteSessionBusyId === item.session_id || openSessionBusyId === item.session_id
@@ -198,13 +196,29 @@ export function SessionSidebar({
             </section>
           ) : null}
         </div>
-        <button className={`primaryNavButton ${activeNavigation === "knowledge" ? "active" : ""}`} type="button" onClick={() => navigate("knowledge")} title="知识库">
+        <button className={`primaryNavButton ${activeNavigation === "knowledge" ? "active" : ""}`} type="button" onClick={() => navigate("knowledge")} aria-current={activeNavigation === "knowledge" ? "page" : undefined} title="知识卡片库">
           <BookOpen size={20} />
-          <span className="sidebarNavLabel">知识库</span>
+          <span className="sidebarNavLabel">知识卡片库</span>
         </button>
-        <button className={`primaryNavButton ${activeNavigation === "mistakes" ? "active" : ""}`} type="button" onClick={() => navigate("mistakes")} title="错题库">
+        <button
+          className={`primaryNavButton ${activeNavigation === "mistake_collection" ? "active" : ""}`}
+          type="button"
+          onClick={() => navigate("mistake_collection")}
+          aria-current={activeNavigation === "mistake_collection" ? "page" : undefined}
+          title="错题卡片库"
+        >
+          <Files size={20} />
+          <span className="sidebarNavLabel">错题卡片库</span>
+        </button>
+        <button
+          className={`primaryNavButton ${activeNavigation === "mistake_sets" ? "active" : ""}`}
+          type="button"
+          onClick={() => navigate("mistake_sets")}
+          aria-current={activeNavigation === "mistake_sets" ? "page" : undefined}
+          title="错题集"
+        >
           <NotebookTabs size={20} />
-          <span className="sidebarNavLabel">错题库</span>
+          <span className="sidebarNavLabel">错题集</span>
         </button>
       </nav>
 

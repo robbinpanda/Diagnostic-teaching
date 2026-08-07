@@ -4,7 +4,12 @@ import json
 import sqlite3
 
 from app.storage.card_folder_repository import resolve_card_folder
+from app.storage.database import with_sqlite_busy_retry
 from app.storage.repository_utils import new_id, now_iso
+
+
+class CardDeleteConflictError(RuntimeError):
+    """A durable run still owns card-producing session work."""
 
 
 class StudyCardRepositoryMixin:
@@ -82,7 +87,12 @@ class StudyCardRepositoryMixin:
                 raise KeyError(card_id)
             if row["live_session_id"] != session_id:
                 raise PermissionError(card_id)
-            resolved_folder_id = resolve_card_folder(conn, folder_id, row["card_type"])
+            resolved_folder_id = resolve_card_folder(
+                conn,
+                folder_id,
+                row["card_type"],
+                preferred_folder_id=row["folder_id"],
+            )
             if row["saved_at"] is None:
                 conn.execute(
                     "UPDATE study_cards SET saved_at = ?, folder_id = ? WHERE id = ?",
@@ -205,7 +215,19 @@ class StudyCardRepositoryMixin:
                 raise PermissionError(card_id)
             conn.execute("DELETE FROM study_cards WHERE id = ?", (card_id,))
 
+    @with_sqlite_busy_retry
     def delete_all_cards(self) -> None:
-        """Delete saved and pending study cards without deleting sessions."""
+        """Atomically delete cards only while no durable run is active."""
+
         with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            active_run = conn.execute(
+                """
+                SELECT 1 FROM session_runs
+                WHERE status IN ('queued', 'running')
+                LIMIT 1
+                """
+            ).fetchone()
+            if active_run is not None:
+                raise CardDeleteConflictError("all")
             conn.execute("DELETE FROM study_cards")

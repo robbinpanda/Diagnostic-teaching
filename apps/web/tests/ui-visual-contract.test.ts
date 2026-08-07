@@ -12,10 +12,10 @@ const sha256 = (path: string) => createHash("sha256")
   .toUpperCase();
 
 const frozenFiles = new Map([
-  ["components/StudyCardModal.tsx", "402310A5E188AF80806CD6627BC8E79F76607177F2B6567B2217C2DCF2090718"],
-  ["components/workspace/CardShelfTabs.tsx", "C08002FDF3A7D714CDDC115BB0DF60C66F3BAD758E4AEF53717C9BAFA4872B9B"],
-  ["components/workspace/StudyCardSidebar.tsx", "2785AAFA07648E5E11EFD2F7B4E42A8C7440BD31E8C38FDB9EB0A678F7FF59A0"],
-  ["hooks/useStudyCards.ts", "757676B985C123E0B48FF3A058A8A0810192720BBEEABD9621E53C83647A59DD"],
+  ["components/StudyCardModal.tsx", "D99C7B18F89F7275CC5190F249DF865D4BE317B56C5A424E0C38D32CE1E9C267"],
+  ["components/workspace/CardShelfTabs.tsx", "977F00E8C48617D094E2388E3413337B97398A225202F00A32901CF491EFC063"],
+  ["components/workspace/StudyCardSidebar.tsx", "32EF1C14C81C6E9877E36DA24B432A149B6D4F6ACF353DB7B7EA5114EF003AB6"],
+  ["hooks/useStudyCards.ts", "CBD75FD8B7932D9406F0B5131644E02F9114C345A7788640E33E7E3C0F85593C"],
   ["hooks/useSessionRuntime.ts", "8C96D17076D1840158ED4D51B52C5E0EE18F6F4B99F350D080D3335F32960697"]
 ]);
 
@@ -106,9 +106,22 @@ test("desktop shell uses the approved atrium proportions", () => {
   );
   assert.match(
     shell,
-    /grid-template-columns:\s*260px minmax\(0, 1fr\) 312px/
+    /grid-template-columns:\s*260px minmax\(0, 1fr\)/
   );
   assert.match(shell, /border-radius:\s*var\(--shell-radius\)/);
+});
+
+test("sidebar hover motion cannot create a horizontal scrollbar", () => {
+  const shell = text("styles/shell.css");
+
+  assert.match(
+    shell,
+    /\.primaryNavigation\s*\{[\s\S]*?overflow-x:\s*hidden;[\s\S]*?overflow-y:\s*auto;/
+  );
+  assert.match(
+    shell,
+    /\.primaryNavigation \.primaryNavButton:hover\s*\{[\s\S]*?transform:\s*translateX\(2px\);/
+  );
 });
 
 test("conversation keeps measurement hooks while using the bright stage", () => {
@@ -132,31 +145,52 @@ test("conversation keeps measurement hooks while using the bright stage", () => 
   );
 });
 
-test("medium widths use full drawers and preserve responsive card flow", () => {
+test("medium widths keep the session drawer and remove the card-library drawer", () => {
   const css = text("styles/responsive.css");
   const page = text("app/page.tsx");
   const timeline = text("components/workspace/MessageTimeline.tsx");
+  const draggableCard = text("components/workspace/DraggableCardWindow.tsx");
 
   assert.match(css, /@media \(max-width: 1319px\) and \(min-width: 761px\)/);
   assert.match(
     css,
     /\.sessionSidebar\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?height:\s*auto;[\s\S]*?width:\s*min\(292px, 88vw\)/
   );
-  assert.match(
-    css,
-    /\.cardSidebar\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?height:\s*auto;[\s\S]*?width:\s*min\(330px, 88vw\)/
-  );
+  assert.doesNotMatch(css, /\.cardSidebar|rightClosed|rightOpen/);
+  assert.doesNotMatch(page, /StudyCardSidebar|cardPanelToggle|rightOpen|setRightOpen/);
   assert.match(page, /matchMedia\("\(max-width: 1319px\)"\)/);
   assert.match(css, /height:\s*100dvh/);
   assert.match(css, /env\(safe-area-inset-top, 0px\)/);
   assert.match(css, /env\(safe-area-inset-bottom, 0px\)/);
   assert.doesNotMatch(css, /\.leftClosed \.sessionSidebar\s*\{[^}]*visibility:\s*visible/);
-  assert.doesNotMatch(css, /\.rightClosed \.cardSidebar\s*\{[^}]*visibility:\s*visible/);
   assert.match(
     css,
     /@media \(min-width: 761px\) and \(max-width: 900px\)[\s\S]*?\.activeKnowledgeCardDock\s*\{[\s\S]*?position:\s*relative/
   );
-  assert.match(timeline, /matchMedia\("\(max-width: 900px\)"\)/);
+  assert.match(draggableCard, /matchMedia\("\(min-width: 901px\)"\)/);
+  assert.doesNotMatch(timeline, /floatingObstacle|avoidsKnowledgeCard/);
+});
+
+test("knowledge export replaces the removed global card drawer", () => {
+  const page = text("app/page.tsx");
+  const knowledgeWorkspace = text("components/workspace/KnowledgeWorkspace.tsx");
+  const exportDialog = text("components/LearningCardExportDialog.tsx");
+  const learningPrint = text("components/LearningCardPrintView.tsx");
+  const mistakePrint = text("components/MistakeSetPrintView.tsx");
+
+  assert.match(
+    page,
+    /knowledgeLibraryCards[\s\S]*?card\.card_type === "knowledge_card" && Boolean\(card\.saved_at\)/
+  );
+  assert.match(page, /<LearningCardExportDialog[\s\S]*?cards=\{selectedKnowledgeCards\}/);
+  assert.match(knowledgeWorkspace, /onToggleSelectionMode[\s\S]*?退出多选[\s\S]*?onExportSelection/);
+  assert.doesNotMatch(knowledgeWorkspace, /导出知识卡片/);
+  assert.match(exportDialog, /固定 A4 纵向双列/);
+  assert.doesNotMatch(exportDialog, /single|triple|type="radio"/);
+  assert.match(learningPrint, /printLayout-double[\s\S]*?columnCount:\s*2/);
+  assert.match(mistakePrint, /printLayout-double[\s\S]*?columnCount:\s*2/);
+  assert.match(mistakePrint, /只看题目摘要[\s\S]*?practiceMode/);
+  assert.doesNotMatch(page, /StudyCardSidebar|cardPanelToggle|rightOpen|setRightOpen/);
 });
 
 test("shelf card state machine transfers focus and restores the source trigger", () => {
@@ -164,7 +198,7 @@ test("shelf card state machine transfers focus and restores the source trigger",
 
   assert.match(
     page,
-    /type ShelfCardTransitionPhase = "idle" \| "preparing" \| "opening" \| "open" \| "closing"/
+    /type ShelfCardTransitionPhase =[\s\S]*?\| "closing"[\s\S]*?\| "closingFallback";/
   );
   assert.match(
     page,
@@ -175,12 +209,19 @@ test("shelf card state machine transfers focus and restores the source trigger",
   assert.match(page, /setShelfCardTransitionPhase\("opening"\)/);
   assert.match(page, /setShelfCardTransitionPhase\("open"\)/);
   assert.match(page, /setShelfCardTransitionPhase\("closing"\)/);
+  assert.match(page, /setShelfCardTransitionPhase\("closingFallback"\)/);
   assert.match(page, /setShelfCardTransitionPhase\("idle"\)/);
   assert.match(page, /event\.target !== event\.currentTarget/);
+  assert.match(page, /event\.animationName === "shelfCardOpen"/);
+  assert.match(page, /event\.animationName === "shelfCardClose"/);
+  assert.match(page, /event\.animationName === "shelfCardFadeClose"/);
   assert.match(page, /shelfCardTriggerRef/);
-  assert.match(page, /querySelector<HTMLElement>\('\[aria-label="关闭卡片"\]'\)/);
+  assert.match(page, /cardWindowRef\.current\?\.focusHandle\(\)/);
+  assert.match(page, /consumeOffsetAndReset\(\)/);
+  assert.match(page, /historyWorkspaceNav\[aria-label="展开会话栏"\]/);
+  assert.doesNotMatch(page, /cardPanelToggleRef/);
   assert.match(page, /restoreShelfCardFocus\(\)/);
-  assert.match(page, /inert=\{displayedDockCardIsArchived && shelfCardTransitionPhase === "closing"/);
+  assert.match(page, /inert=\{displayedDockCardIsArchived && \(/);
 });
 
 test("production build keeps the direction contract injector wired", () => {

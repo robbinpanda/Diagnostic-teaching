@@ -3,6 +3,7 @@
 import { Check, Loader2, Plus, ScanLine, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { DetectedProblemRegion, ExamPaper, ProblemBoundingBox } from "../lib/api";
+import { RoundedSelect } from "./RoundedSelect";
 
 export type PaperSelection =
   | { mode: "existing"; paperId: string }
@@ -101,11 +102,19 @@ export function ProblemImageSelector({
   const dragRef = useRef<DragState | null>(null);
   const drawRef = useRef<DrawState | null>(null);
   const manualRegionSequenceRef = useRef(1);
-  const paperReady = paperMode === "existing" ? Boolean(paperId) : Boolean(newPaperName.trim());
+  const paperReady = paperMode === "existing"
+    ? papers.some((paper) => paper.id === paperId)
+    : Boolean(newPaperName.trim());
   const onRegionsChangeRef = useRef(onRegionsChange);
 
   useEffect(() => {
-    if (paperMode === "existing" && !paperId && papers[0]) setPaperId(papers[0].id);
+    if (paperMode !== "existing" || papers.some((paper) => paper.id === paperId)) return;
+    if (papers[0]) {
+      setPaperId(papers[0].id);
+      return;
+    }
+    setPaperId("");
+    setPaperMode("new");
   }, [paperId, paperMode, papers]);
 
   useEffect(() => {
@@ -270,24 +279,26 @@ export function ProblemImageSelector({
           <div className="paperAssignment paperAssignmentHeader" aria-labelledby="paper-assignment-label">
             <div className="paperAssignmentTitle" id="paper-assignment-label">所属试卷</div>
             <div className="paperAssignmentControls">
-              <select
+              <RoundedSelect
+                className="paperModeSelect"
                 value={paperMode}
-                onChange={(event) => setPaperMode(event.target.value as "existing" | "new")}
+                onChange={(value) => setPaperMode(value as "existing" | "new")}
                 disabled={busy}
-                aria-label="试卷选择方式"
-              >
-                {papers.length ? <option value="existing">选择已有试卷</option> : null}
-                <option value="new">新建试卷</option>
-              </select>
+                label="试卷选择方式"
+                options={[
+                  ...(papers.length ? [{ value: "existing", label: "选择已有试卷" }] : []),
+                  { value: "new", label: "新建试卷" }
+                ]}
+              />
               {paperMode === "existing" ? (
-                <select
+                <RoundedSelect
+                  className="paperModeSelect"
                   value={paperId}
-                  onChange={(event) => setPaperId(event.target.value)}
+                  onChange={setPaperId}
                   disabled={busy}
-                  aria-label="选择已有试卷"
-                >
-                  {papers.map((paper) => <option key={paper.id} value={paper.id}>{paper.name}</option>)}
-                </select>
+                  label="选择已有试卷"
+                  options={papers.map((paper) => ({ value: paper.id, label: paper.name }))}
+                />
               ) : (
                 <input
                   value={newPaperName}

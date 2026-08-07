@@ -35,34 +35,16 @@ type AnchoredInteractionConfig = {
 type Props = {
   messages: ChatMessage[];
   messageEndRef: RefObject<HTMLDivElement | null>;
+  viewportRef?: RefObject<HTMLDivElement | null>;
   interaction?: ReactNode;
   anchoredInteractions?: AnchoredInteractionConfig[];
   onOpenImage?: (imageUrl: string) => void;
-  floatingObstacleRef?: RefObject<HTMLElement | null>;
-  floatingObstacleActive?: boolean;
   retryableMessageId?: string | null;
   retryBusy?: boolean;
   onRetryMessage?: (message: ChatMessage) => void;
   welcomePhase?: "visible" | "leaving" | "hidden";
   onWelcomeTransitionComplete?: () => void;
 };
-
-type LayoutRect = Pick<DOMRect, "bottom" | "left" | "right" | "top" | "width">;
-
-export function floatingCardAvoidanceWidth(
-  messageRect: LayoutRect,
-  cardRect: LayoutRect,
-  gap = 18,
-  minimumWidth = 220
-) {
-  const overlapsVertically = Math.min(messageRect.bottom, cardRect.bottom)
-    > Math.max(messageRect.top, cardRect.top);
-  const overlapsHorizontally = cardRect.left < messageRect.right && cardRect.right > messageRect.left;
-  if (!overlapsVertically || !overlapsHorizontally) return null;
-
-  const availableWidth = Math.min(messageRect.width, cardRect.left - messageRect.left - gap);
-  return availableWidth >= minimumWidth ? availableWidth : null;
-}
 
 export function anchoredInteractionScrollTop(
   currentScrollTop: number,
@@ -162,22 +144,22 @@ function AnchoredInteraction({
 export function MessageTimeline({
   messages,
   messageEndRef,
+  viewportRef,
   interaction,
   anchoredInteractions = [],
   onOpenImage,
-  floatingObstacleRef,
-  floatingObstacleActive = false,
   retryableMessageId,
   retryBusy = false,
   onRetryMessage,
   welcomePhase = "hidden",
   onWelcomeTransitionComplete
 }: Props) {
-  const viewportRef = useRef<HTMLDivElement | null>(null);
   const welcomeCharacterRef = useRef<SVGGElement | null>(null);
   const handoffTargetRef = useRef<HTMLDivElement | null>(null);
   const completedHandoffRef = useRef(false);
   const transitionCompleteRef = useRef(onWelcomeTransitionComplete);
+  const internalViewportRef = useRef<HTMLDivElement | null>(null);
+  const resolvedViewportRef = viewportRef ?? internalViewportRef;
   const [pastInteractionIds, setPastInteractionIds] = useState<string[]>([]);
   const [forceExpandedIds, setForceExpandedIds] = useState<string[]>([]);
   const returnCallbacks = useRef(new Map<string, () => void>());
@@ -246,88 +228,6 @@ export function MessageTimeline({
     };
   }, [firstAssistantId, welcomePhase]);
 
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-
-    let frame = 0;
-    let settleFrame = 0;
-    const clearAvoidance = (
-      messages: Iterable<HTMLElement> = viewport.querySelectorAll<HTMLElement>(
-        ".chatMessage.avoidsKnowledgeCard, .messageRetryRow.avoidsKnowledgeCard"
-      )
-    ) => {
-      for (const message of messages) {
-        message.classList.remove("avoidsKnowledgeCard");
-        message.style.removeProperty("--knowledge-card-avoidance-width");
-      }
-    };
-    const scheduleUpdate = () => {
-      window.cancelAnimationFrame(frame);
-      window.cancelAnimationFrame(settleFrame);
-      frame = window.requestAnimationFrame(() => {
-        const messages = Array.from(viewport.querySelectorAll<HTMLElement>(
-          ".chatMessage, .messageRetryRow"
-        ));
-        const card = floatingObstacleRef?.current;
-        if (!floatingObstacleActive || !card || window.matchMedia("(max-width: 900px)").matches) {
-          clearAvoidance(messages);
-          return;
-        }
-
-        const cardRect = card.getBoundingClientRect();
-        const viewportRect = viewport.getBoundingClientRect();
-        if (cardRect.bottom <= viewportRect.top || cardRect.top >= viewportRect.bottom) {
-          clearAvoidance(messages);
-          return;
-        }
-
-        const updates = messages.map((message) => {
-          const messageRect = message.getBoundingClientRect();
-          const visible = messageRect.bottom > viewportRect.top && messageRect.top < viewportRect.bottom;
-          return {
-            message,
-            width: visible ? floatingCardAvoidanceWidth(messageRect, cardRect) : null
-          };
-        });
-
-        updates.forEach(({ message, width }) => {
-          if (width === null) {
-            message.classList.remove("avoidsKnowledgeCard");
-            message.style.removeProperty("--knowledge-card-avoidance-width");
-            return;
-          }
-          message.classList.add("avoidsKnowledgeCard");
-          message.style.setProperty("--knowledge-card-avoidance-width", `${Math.floor(width)}px`);
-        });
-        settleFrame = window.requestAnimationFrame(() => {
-          const settledCard = floatingObstacleRef?.current;
-          if (settledCard && settledCard.getBoundingClientRect().height !== cardRect.height) scheduleUpdate();
-        });
-      });
-    };
-
-    const card = floatingObstacleRef?.current;
-    const resizeObserver = new ResizeObserver(scheduleUpdate);
-    resizeObserver.observe(viewport);
-    if (card) resizeObserver.observe(card);
-    const mutationObserver = new MutationObserver(scheduleUpdate);
-    mutationObserver.observe(viewport, { childList: true, characterData: true, subtree: true });
-    viewport.addEventListener("scroll", scheduleUpdate, { passive: true });
-    window.addEventListener("resize", scheduleUpdate);
-    scheduleUpdate();
-
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.cancelAnimationFrame(settleFrame);
-      resizeObserver.disconnect();
-      mutationObserver.disconnect();
-      viewport.removeEventListener("scroll", scheduleUpdate);
-      window.removeEventListener("resize", scheduleUpdate);
-      clearAvoidance();
-    };
-  }, [floatingObstacleActive, floatingObstacleRef, messages.length]);
-
   const handlePastChange = useCallback((id: string, past: boolean) => {
     setPastInteractionIds((ids) => past
       ? (ids.includes(id) ? ids : [...ids, id])
@@ -362,7 +262,7 @@ export function MessageTimeline({
 
   const anchoredSourceIds = new Set(messages.map((message) => message.actionId));
   return (
-    <div className="messageViewport" ref={viewportRef}>
+    <div className="messageViewport" ref={resolvedViewportRef}>
       {welcomePhase !== "hidden" ? (
         <PandaWelcome phase={welcomePhase} characterRef={welcomeCharacterRef} />
       ) : null}

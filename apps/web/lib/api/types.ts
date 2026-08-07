@@ -98,6 +98,7 @@ export type CardFolder = {
   parent_id?: string | null;
   is_system: boolean;
   default_card_type?: "knowledge_card" | "problem_card" | null;
+  managed_kind?: "paper_archive_root" | "paper_archive" | null;
   created_at: string;
   updated_at: string;
 };
@@ -191,7 +192,28 @@ export type SessionStartInput = {
 export type ExamPaper = {
   id: string;
   name: string;
+  card_folder_id: string;
   session_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MistakeSetItem = {
+  id: string;
+  source_session_id?: string | null;
+  source_paper_name?: string | null;
+  title: string;
+  problem_text: string;
+  problem_image_data_url?: string | null;
+  problem_card?: ProblemCardContent | null;
+  position: number;
+  created_at: string;
+};
+
+export type MistakeSet = {
+  id: string;
+  name: string;
+  items: MistakeSetItem[];
   created_at: string;
   updated_at: string;
 };

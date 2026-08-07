@@ -5,7 +5,7 @@
   height: calc(100dvh - (var(--shell-inset) * 2));
   margin: var(--shell-inset);
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 312px;
+  grid-template-columns: 260px minmax(0, 1fr);
   grid-template-rows: var(--shell-topbar) minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.72);
@@ -16,15 +16,7 @@
 }
 
 .appShell.leftClosed {
-  grid-template-columns: 0 minmax(0, 1fr) 312px;
-}
-
-.appShell.rightClosed {
-  grid-template-columns: 260px minmax(0, 1fr) 0;
-}
-
-.appShell.leftClosed.rightClosed {
-  grid-template-columns: 0 minmax(0, 1fr) 0;
+  grid-template-columns: 0 minmax(0, 1fr);
 }
 
 .appTopbar {
@@ -119,8 +111,7 @@
   background: var(--primary-500);
 }
 
-.sessionSidebar,
-.cardSidebar {
+.sessionSidebar {
   grid-row: 2;
   min-width: 0;
   height: 100%;
@@ -132,12 +123,7 @@
   grid-column: 1;
 }
 
-.cardSidebar {
-  grid-column: 3;
-}
-
-.leftClosed .sessionSidebar,
-.rightClosed .cardSidebar {
+.leftClosed .sessionSidebar {
   visibility: hidden;
   opacity: 0;
 }
@@ -202,6 +188,11 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--neutral-300) transparent;
 }
 
 .historyNavigationGroup {
@@ -273,6 +264,13 @@
 .historyNavigationRow .historyNavigationMain {
   min-width: 0;
   border-radius: 10px 0 0 10px;
+  cursor: default;
+}
+
+.primaryNavigation .historyNavigationMain:hover {
+  color: inherit;
+  background: transparent;
+  transform: none;
 }
 
 .historyTreeToggle {
@@ -424,7 +422,7 @@
 .sessionRow:hover,
 .sessionRow:focus-within,
 .sessionRow.active {
-  grid-template-columns: minmax(0, 1fr) 40px;
+  grid-template-columns: minmax(0, 1fr) 32px;
   background: var(--primary-50);
 }
 
@@ -434,38 +432,43 @@
 
 .sessionEntry {
   min-width: 0;
+  min-height: 32px;
   border: 0;
-  display: grid;
-  gap: 2px;
-  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
   color: var(--neutral-900);
   background: transparent;
   text-align: left;
 }
 
-.sessionEntry > strong,
-.sessionEntry > span {
+.sessionEntry > strong {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.sessionEntry > strong > .titleMathText {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sessionEntry > strong {
-  font-size: 12px;
-  font-weight: 560;
-}
-
-.sessionEntry > span {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--neutral-600);
-  font-size: 11px;
+.sessionRunningIcon {
+  flex: 0 0 auto;
+  color: var(--primary-600);
 }
 
 .sessionDeleteButton {
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   align-self: center;
   border-radius: var(--radius-sm);
   color: var(--neutral-500);
@@ -560,12 +563,6 @@
   width: 82px;
   padding: 14px 0 28px;
   transition: opacity 180ms var(--ease-standard), transform 180ms var(--ease-standard);
-}
-
-.rightOpen .cardShelfTabs {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(12px);
 }
 
 .cardShelfTabs button {

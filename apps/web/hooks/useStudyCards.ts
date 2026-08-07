@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   copyCard as copyCardRequest,
   createCardFolder as createCardFolderRequest,
@@ -37,6 +37,9 @@ export function useStudyCards({ onError, onClearError }: Options) {
   const [folderBusyId, setFolderBusyId] = useState("");
   const [pasteBusy, setPasteBusy] = useState(false);
   const [deleteAllCardsBusy, setDeleteAllCardsBusy] = useState(false);
+  const cardsRequestRef = useRef(0);
+  const cardsMutationRef = useRef(0);
+  const foldersMutationRef = useRef(0);
 
   const visibleFolders = useMemo(
     () => childFolders(folders, currentFolderId),
@@ -50,22 +53,34 @@ export function useStudyCards({ onError, onClearError }: Options) {
   );
 
   const refreshCards = useCallback(async () => {
+    const requestId = ++cardsRequestRef.current;
+    const cardsMutationId = cardsMutationRef.current;
+    const foldersMutationId = foldersMutationRef.current;
     try {
       const [nextCards, nextFolders] = await Promise.all([
         fetchCards(),
         fetchCardFolders()
       ]);
-      setCards(nextCards);
-      setFolders(nextFolders);
-      setCurrentFolderId((current) =>
-        current && !nextFolders.some((folder) => folder.id === current) ? null : current
-      );
+      if (requestId !== cardsRequestRef.current) return;
+      if (cardsMutationId === cardsMutationRef.current) setCards(nextCards);
+      if (foldersMutationId === foldersMutationRef.current) {
+        setFolders(nextFolders);
+        setCurrentFolderId((current) =>
+          current && !nextFolders.some((folder) => folder.id === current) ? null : current
+        );
+      }
     } catch (error) {
+      if (requestId !== cardsRequestRef.current) return;
       onError(error instanceof Error ? error.message : "学习卡片加载失败");
     }
   }, [onError]);
 
+  const invalidateCardRefresh = useCallback(() => {
+    cardsRequestRef.current += 1;
+  }, []);
+
   const upsertCard = useCallback((card: StudyCard) => {
+    cardsMutationRef.current += 1;
     setCards((current) => [card, ...current.filter((item) => item.id !== card.id)]);
     setViewingCard((current) => current?.id === card.id ? card : current);
     setClipboard((current) => current?.card.id === card.id
@@ -81,6 +96,7 @@ export function useStudyCards({ onError, onClearError }: Options) {
         name,
         parent_id: currentFolderId
       });
+      foldersMutationRef.current += 1;
       setFolders((current) => [...current, folder]);
       return true;
     } catch (error) {
@@ -96,6 +112,7 @@ export function useStudyCards({ onError, onClearError }: Options) {
     setFolderBusyId(folder.id);
     try {
       const updated = await updateCardFolderRequest(folder.id, { name });
+      foldersMutationRef.current += 1;
       setFolders((current) => current.map((item) => item.id === updated.id ? updated : item));
       return true;
     } catch (error) {
@@ -111,6 +128,7 @@ export function useStudyCards({ onError, onClearError }: Options) {
     setFolderBusyId(folder.id);
     try {
       await deleteCardFolderRequest(folder.id);
+      foldersMutationRef.current += 1;
       setFolders((current) => current.filter((item) => item.id !== folder.id));
       setCurrentFolderId((current) => current === folder.id ? folder.parent_id ?? null : current);
     } catch (error) {
@@ -144,6 +162,7 @@ export function useStudyCards({ onError, onClearError }: Options) {
     try {
       if (clipboard.mode === "copy") {
         const copied = await copyCardRequest(clipboard.card.id, currentFolderId);
+        cardsMutationRef.current += 1;
         setCards((current) => [copied, ...current]);
       } else {
         const moved = await moveCardRequest(clipboard.card.id, currentFolderId);
@@ -164,6 +183,7 @@ export function useStudyCards({ onError, onClearError }: Options) {
     onClearError();
     try {
       await deleteCardRequest(card.id);
+      cardsMutationRef.current += 1;
       setCards((current) => current.filter((item) => item.id !== card.id));
       setViewingCard((current) => current?.id === card.id ? null : current);
       setClipboard((current) => current?.card.id === card.id ? null : current);
@@ -180,6 +200,7 @@ export function useStudyCards({ onError, onClearError }: Options) {
     onClearError();
     try {
       await deleteAllCardsRequest();
+      cardsMutationRef.current += 1;
       setCards([]);
       setViewingCard(null);
       setClipboard(null);
@@ -208,6 +229,7 @@ export function useStudyCards({ onError, onClearError }: Options) {
     pasteBusy,
     deleteAllCardsBusy,
     refreshCards,
+    invalidateCardRefresh,
     upsertCard,
     createFolder,
     renameFolder,

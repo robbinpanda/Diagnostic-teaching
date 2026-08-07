@@ -6,12 +6,15 @@ import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CheckpointModal } from "../components/CheckpointModal";
 import { LearningCardExportDialog } from "../components/LearningCardExportDialog";
+import { LearningCardPrintView } from "../components/LearningCardPrintView";
+import { MistakeSetPrintDocument } from "../components/MistakeSetPrintView";
+import { FolderLocationSelect } from "../components/FolderLocationSelect";
 import { StudyCardModal } from "../components/StudyCardModal";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import { HistoryWorkspace } from "../components/workspace/HistoryWorkspace";
+import { KnowledgeWorkspace } from "../components/workspace/KnowledgeWorkspace";
 import {
   anchoredInteractionScrollTop,
-  floatingCardAvoidanceWidth,
   MessageTimeline,
   shouldCollapseAnchoredInteraction
 } from "../components/workspace/MessageTimeline";
@@ -25,7 +28,7 @@ import { CardShelfTabs } from "../components/workspace/CardShelfTabs";
 import { SessionSidebar } from "../components/workspace/SessionSidebar";
 import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
 import { getPastedImageFiles } from "../components/workspace/TutorComposer";
-import type { ModelProfile, SessionHistoryItem, StudyCard } from "../lib/api";
+import type { CardFolder, ModelProfile, SessionHistoryItem, StudyCard } from "../lib/api";
 import { cardVisualTheme, stableCardThemeIndex } from "../lib/card-theme";
 import { cardFixture, checkpointFixture, knowledgeFolderFixture } from "./fixtures";
 
@@ -159,7 +162,8 @@ test("history navigation owns a three-state central view and separate load error
   const openSessionIndex = openHistorySessionSource.indexOf("handleOpenSession(targetSessionId)");
   assert.ok(clearHistoryViewIndex >= 0);
   assert.ok(openSessionIndex > clearHistoryViewIndex);
-  assert.doesNotMatch(openHistorySessionSource, /closeNavigationOnMobile/);
+  assert.match(openHistorySessionSource, /setContentNavigation\("history"\)/);
+  assert.match(openHistorySessionSource, /closeNavigationOnMobile/);
   assert.equal(
     (pageSource.match(/onOpenSession=\{handleOpenHistorySession\}/g) ?? []).length,
     2
@@ -222,7 +226,7 @@ test("history bootstrap restoration yields to explicit navigation", () => {
   assert.ok(staleReturnIndex > fetchSessionIndex);
   assert.ok(loadSessionIndex > staleReturnIndex);
   assert.ok(restoreSessionSource.indexOf("setHistoryView(null)") > staleReturnIndex);
-  assert.ok(restoreSessionSource.indexOf('setActiveNavigation("history")') > staleReturnIndex);
+  assert.ok(restoreSessionSource.indexOf('setContentNavigation("history")') > staleReturnIndex);
 
   const activeRestoreCallIndex = restoreWorkspaceSource.indexOf(
     "restoreSessionAfterRefresh(activeSessionId, bootstrapNavigationToken)"
@@ -267,13 +271,18 @@ test("history bootstrap restoration yields to explicit navigation", () => {
   const onNavigateSource = pageSource.slice(onNavigateStart, onNavigateEnd);
   assert.match(
     openHistorySource,
-    /setHistoryView\(null\);[\s\S]*?setActiveNavigation\("start"\);[\s\S]*?void handleOpenSession\(targetSessionId\);/
+    /setHistoryView\(null\);[\s\S]*?setContentNavigation\("history"\);[\s\S]*?void handleOpenSession\(targetSessionId\);/
   );
   assert.doesNotMatch(openHistorySource, /handleStartNewChat\(/);
-  assert.doesNotMatch(openSessionSource, /setActiveNavigation\(/);
+  assert.doesNotMatch(openSessionSource, /setContentNavigation\(/);
   assert.ok(openHistorySource.indexOf("invalidateBootstrapNavigation();") < openHistorySource.indexOf("setHistoryView(null)"));
   assert.ok(startNewChatSource.indexOf("invalidateBootstrapNavigation();") < startNewChatSource.indexOf("setHistoryView(null)"));
-  assert.ok(onNavigateSource.indexOf("invalidateBootstrapNavigation();") < onNavigateSource.indexOf("setActiveNavigation(navigation)"));
+  assert.ok(onNavigateSource.indexOf("invalidateBootstrapNavigation();") < onNavigateSource.indexOf('navigation === "mistake_collection"'));
+  assert.match(onNavigateSource, /setContentNavigation\(navigation\)/);
+  assert.match(onNavigateSource, /navigation === "mistake_collection"[\s\S]*?setHistoryView\(\{ mode: "overview" \}\)/);
+  assert.match(onNavigateSource, /navigation === "mistake_sets"[\s\S]*?setMistakeSetView\(\{ mode: "overview" \}\)/);
+  assert.match(onNavigateSource, /navigation === "knowledge"[\s\S]*?setKnowledgeView\(\{ mode: "overview" \}\)/);
+  assert.doesNotMatch(onNavigateSource, /setCardLibraryNavigation/);
 
   const refreshHistoryStart = pageSource.indexOf("async function refreshHistory()");
   const refreshHistoryEnd = pageSource.indexOf("async function refreshExamPapers()", refreshHistoryStart);
@@ -294,8 +303,9 @@ test("history workspace renders overview and paper detail from real session meta
     /<button class="historyWorkspaceBack"[\s\S]*?<\/button>/
   )?.[0] ?? "";
 
-  assert.match(overview, /历史搜题/);
-  assert.match(overview, /按试卷继续你的学习/);
+  assert.match(overview, /错题卡片库/);
+  assert.match(overview, /按试卷回看与整理答疑题目/);
+  assert.doesNotMatch(overview, /<h1>历史搜题<\/h1>/);
   assert.match(overview, /搜索试卷或题目/);
   assert.match(overview, /最近更新/);
   assert.match(overview, /名称排序/);
@@ -370,7 +380,7 @@ test("history workspace formats SSR dates in Asia Shanghai", () => {
   assert.doesNotMatch(result.stdout, /2026年8月5日/);
 });
 
-test("workspace sidebar formats SSR dates in Asia Shanghai", () => {
+test("workspace sidebar omits session dates and message counts", () => {
   const componentPath = resolve(__dirname, "../components/workspace/SessionSidebar.js");
   const result = spawnSync(process.execPath, ["-e", `
     const React = require("react");
@@ -415,8 +425,54 @@ test("workspace sidebar formats SSR dates in Asia Shanghai", () => {
   });
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /2026年8月6日/);
-  assert.doesNotMatch(result.stdout, /2026年8月5日/);
+  assert.match(result.stdout, /跨日题目/);
+  assert.doesNotMatch(result.stdout, /2026年|2026-08|条消息/);
+});
+
+test("knowledge card library selects cards before opening the export dialog", () => {
+  const idleMarkup = renderToStaticMarkup(
+    <KnowledgeWorkspace
+      view={{ mode: "overview" }}
+      cards={[cardFixture]}
+      folders={[knowledgeFolderFixture]}
+      leftOpen
+      onExpandLeft={() => {}}
+      onOpenGroup={() => {}}
+      onBackToOverview={() => {}}
+      onOpenCard={() => {}}
+      onMoveCard={() => {}}
+    />
+  );
+  const idleExportButton = idleMarkup.match(/<button[^>]*historyExportAction[^>]*>/)?.[0] ?? "";
+
+  const selectedMarkup = renderToStaticMarkup(
+    <KnowledgeWorkspace
+      view={{ mode: "overview" }}
+      cards={[cardFixture]}
+      folders={[knowledgeFolderFixture]}
+      leftOpen
+      selectionMode
+      selectedCardIds={[cardFixture.id]}
+      onExpandLeft={() => {}}
+      onOpenGroup={() => {}}
+      onBackToOverview={() => {}}
+      onOpenCard={() => {}}
+      onMoveCard={() => {}}
+      onToggleSelectionMode={() => {}}
+      onToggleCardSelection={() => {}}
+      onToggleGroupSelection={() => {}}
+      onExportSelection={() => {}}
+    />
+  );
+  const selectedExportButton = selectedMarkup.match(/<button[^>]*historyExportAction[^>]*>/)?.[0] ?? "";
+
+  assert.match(idleMarkup, /知识卡片库/);
+  assert.match(idleMarkup, /多选/);
+  assert.match(idleExportButton, /disabled=""/);
+  assert.match(selectedMarkup, /退出多选/);
+  assert.match(selectedMarkup, /导出 \(1\)/);
+  assert.match(selectedMarkup, /取消整卷/);
+  assert.doesNotMatch(selectedExportButton, /disabled=""/);
 });
 
 test("history workspace renders loading empty no-result error and emptied-paper states", () => {
@@ -427,12 +483,12 @@ test("history workspace renders loading empty no-result error and emptied-paper 
   const emptiedPaper = renderToStaticMarkup(<HistoryWorkspace {...historyWorkspaceProps} items={[]} view={{ mode: "paper", paperId: "paper-a" }} />);
 
   assert.equal((loading.match(/class="historyPaperSkeleton"/g) ?? []).length, 6);
-  assert.match(empty, /还没有历史答疑/);
+  assert.match(empty, /还没有收录题目/);
   assert.match(empty, /开始答疑/);
   assert.match(noResult, /没有匹配的试卷或题目/);
   assert.match(noResult, /清除搜索/);
   assert.match(failed, /重新加载/);
-  assert.match(emptiedPaper, /这份试卷暂无历史题目/);
+  assert.match(emptiedPaper, /这份试卷暂无收录题目/);
   assert.match(emptiedPaper, /返回全部试卷/);
 });
 
@@ -461,7 +517,6 @@ test("workspace header and timeline preserve teaching context labels", () => {
       streamBusy
       problemImageUrl="data:image/png;base64,AAAA"
       onExpandLeft={() => {}}
-      onToggleCards={() => {}}
       onViewProblemImage={() => {}}
     />
   );
@@ -480,7 +535,6 @@ test("workspace header and timeline preserve teaching context labels", () => {
       streamBusy
       progressLabel="正在核对你的思路"
       onExpandLeft={() => {}}
-      onToggleCards={() => {}}
       onViewProblemImage={() => {}}
     />
   );
@@ -588,8 +642,8 @@ test("failed student turn exposes a retry control beside the original message", 
     resolve(__dirname, "../../../styles/conversation.css"),
     "utf8"
   );
-  assert.match(timelineSource, /\.chatMessage, \.messageRetryRow/);
-  assert.match(conversationCss, /\.messageRetryRow\.avoidsKnowledgeCard/);
+  assert.doesNotMatch(timelineSource, /floatingObstacle|avoidsKnowledgeCard|knowledge-card-avoidance-width/);
+  assert.doesNotMatch(conversationCss, /avoidsKnowledgeCard|knowledge-card-avoidance-width/);
 });
 
 test("checkpoint and pending card interactions render inside the conversation without backdrops", () => {
@@ -692,9 +746,18 @@ test("checkpoint and pending card interactions render inside the conversation wi
 
   const cardSource = readFileSync(resolve(__dirname, "../../../components/StudyCardModal.tsx"), "utf8");
   const dialogStyles = readFileSync(resolve(__dirname, "../../../styles/dialogs.css"), "utf8");
+  const conversationStyles = readFileSync(resolve(__dirname, "../../../styles/conversation.css"), "utf8");
   assert.match(cardSource, /discardConfirmation \? "确认舍弃" : "舍弃"/);
+  assert.match(cardSource, /folders\.length > 0 && !saveLocationExpanded/);
+  assert.match(cardSource, /folders\.length > 0 && saveLocationExpanded \? \(/);
   assert.match(dialogStyles, /\.cardViewerLayer\s*\{[^}]*justify-content:\s*flex-end;[^}]*pointer-events:\s*none;/);
   assert.match(dialogStyles, /\.studyCardDialog\.cardViewerDialog\s*\{[^}]*overflow-y:\s*auto;[^}]*pointer-events:\s*auto;/);
+  assert.match(dialogStyles, /\.studyCardDialog\.knowledgeFlashcard\.flashcardPresentation\s*\{[^}]*max-height:\s*min\(430px,[^}]*background-color:\s*color-mix\([^}]*64%[^}]*0\.72[^}]*radial-gradient[^}]*linear-gradient[^}]*backdrop-filter:\s*blur\(26px\) saturate\(1\.16\);[^}]*box-shadow:/);
+  assert.doesNotMatch(dialogStyles, /\.studyCardDialog\.knowledgeFlashcard\.flashcardPresentation\s*\{[^}]*ambient-grain/);
+  assert.match(dialogStyles, /\.knowledgeFlashcard\.flashcardPresentation \.studyCardBody section\s*\{[^}]*border-color:\s*rgba\(255, 255, 255, 0\.52\);[^}]*color:\s*color-mix\([^}]*86%[^}]*background:[^}]*48%[^}]*backdrop-filter:\s*blur\(12px\)/);
+  assert.match(dialogStyles, /\.knowledgeFlashcard\.flashcardPresentation \.cardStepList li,[\s\S]*?\.cardConnection\s*\{[^}]*border-color:[^}]*42%[^}]*background:[^}]*52%[^}]*backdrop-filter:\s*blur\(10px\)/);
+  assert.match(conversationStyles, /\.activeKnowledgeCardDock:has\(\.knowledgeFlashcard\) > \.draggableCardWindow\s*\{[^}]*background:\s*rgba\(244, 250, 240, 0\.52\);[^}]*backdrop-filter:\s*blur\(36px\) saturate\(1\.08\);/);
+  assert.match(conversationStyles, /\.activeKnowledgeCardDock:has\(\.knowledgeFlashcard\)\s*\{[^}]*width:\s*min\(520px,/);
   assert.match(dialogStyles, /\.flashcardHeading h2,[^}]*font-size:\s*22px;/);
   assert.match(dialogStyles, /\.flashcardPresentation \.studyCardBody section\s*\{[^}]*color:\s*var\(--flashcard-ink,[^;]+;[^}]*font-size:\s*14px;/);
   assert.match(dialogStyles, /\.flashcardPresentation \.cardStepList li\s*\{[^}]*border:\s*1px solid color-mix\(in srgb, var\(--flashcard-accent,/);
@@ -762,6 +825,29 @@ test("checkpoint and pending card interactions render inside the conversation wi
   assert.match(answeredTimeline, /checkpointResponseMessage/);
   assert.match(answeredTimeline, /哪一步正确？/);
   assert.doesNotMatch(answeredTimeline, /我在检查点里选了 B/);
+});
+
+test("session sidebar keeps the complete title in markup for CSS ellipsis", () => {
+  const fullTitle = "Complete session title that must remain intact beyond ten characters";
+  const markup = renderToStaticMarkup(
+    <SessionSidebar
+      historyItems={[{ ...historyWorkspaceItems[0], title: fullTitle }]}
+      activeSessionId="session-current"
+      historyBusy={false}
+      openSessionBusyId=""
+      deleteSessionBusyId=""
+      deleteAllSessionsBusy={false}
+      runningSessionIds={[]}
+      onCollapse={() => {}}
+      onNewChat={() => {}}
+      onOpenSession={() => {}}
+      onDeleteSession={() => {}}
+      onDeleteAllSessions={() => {}}
+    />
+  );
+
+  assert.match(markup, new RegExp(fullTitle));
+  assert.match(markup, new RegExp(`title="${fullTitle}"`));
 });
 
 test("workspace sidebars disable deletion for the active session independently", () => {
@@ -846,15 +932,18 @@ test("workspace sidebars render active sessions and filtered cards", () => {
   assert.doesNotMatch(sessions, /lucide-folder/);
   assert.match(sessions, /historyNavigationGroup expanded/);
   assert.ok(sessions.indexOf("historyTree") > sessions.indexOf("historyNavigationRow"));
-  assert.ok(sessions.indexOf("historyTree") < sessions.indexOf('title="知识库"'));
+  assert.ok(sessions.indexOf("historyTree") < sessions.indexOf('title="知识卡片库"'));
   assert.match(sessions, /主要导航/);
   assert.match(sessions, /开始答疑/);
   assert.match(sessions, /历史搜题/);
-  assert.match(sessions, /知识库/);
-  assert.match(sessions, /错题库/);
+  assert.match(sessions, /知识卡片库/);
+  assert.match(sessions, /错题卡片库/);
+  assert.match(sessions, /错题集/);
   assert.match(sessions, /搜索历史答疑/);
-  assert.match(sessions, /3 条消息/);
-  assert.match(sessions, /正在思考/);
+  assert.doesNotMatch(sessions, /条消息/);
+  assert.doesNotMatch(sessions, /2026|2025|2024/);
+  assert.match(sessions, /sessionRunningIcon/);
+  assert.match(sessions, /aria-label="正在思考"/);
 
   const openingSession = renderToStaticMarkup(
     <SessionSidebar
@@ -882,7 +971,7 @@ test("workspace sidebars render active sessions and filtered cards", () => {
   const onOpenSessionEnd = pageSource.indexOf("function handleStartNewChat()", onOpenSessionStart);
   assert.ok(onOpenSessionStart >= 0);
   assert.ok(onOpenSessionEnd > onOpenSessionStart);
-  assert.doesNotMatch(
+  assert.match(
     pageSource.slice(onOpenSessionStart, onOpenSessionEnd),
     /closeNavigationOnMobile/
   );
@@ -920,29 +1009,125 @@ test("workspace sidebars render active sessions and filtered cards", () => {
   assert.match(cards, /知识卡片/);
 });
 
-test("floating knowledge cards reserve only the overlapping message width", () => {
-  const messageRect = { left: 100, right: 900, top: 200, bottom: 360, width: 800 };
-  assert.equal(
-    floatingCardAvoidanceWidth(
-      messageRect,
-      { left: 560, right: 940, top: 240, bottom: 520, width: 380 }
-    ),
-    442
+test("floating cards leave message width untouched", () => {
+  const timelineSource = readFileSync(
+    resolve(__dirname, "../../../components/workspace/MessageTimeline.tsx"),
+    "utf8"
   );
-  assert.equal(
-    floatingCardAvoidanceWidth(
-      messageRect,
-      { left: 560, right: 940, top: 400, bottom: 520, width: 380 }
-    ),
-    null
+  const conversationCss = readFileSync(resolve(__dirname, "../../../styles/conversation.css"), "utf8");
+
+  assert.match(timelineSource, /viewportRef\?: RefObject<HTMLDivElement \| null>/);
+  assert.doesNotMatch(timelineSource, /ResizeObserver|MutationObserver|floatingCardAvoidanceWidth/);
+  assert.doesNotMatch(conversationCss, /avoidsKnowledgeCard|knowledge-card-avoidance-width/);
+});
+
+test("clearing sessions keeps collection ownership or returns a history session to start", () => {
+  const pageSource = readFileSync(resolve(__dirname, "../../../app/page.tsx"), "utf8");
+  const clearStart = pageSource.indexOf("async function handleDeleteAllSessions()");
+  const clearEnd = pageSource.indexOf("function readFileAsDataUrl", clearStart);
+  const clearSource = pageSource.slice(clearStart, clearEnd);
+
+  assert.match(clearSource, /const clearingFromCollection = historyView !== null/);
+  assert.match(clearSource, /setHistoryView\(clearingFromCollection \? \{ mode: "overview" \} : null\)/);
+  assert.match(clearSource, /setContentNavigation\(clearingFromCollection \? "mistake_collection" : "start"\)/);
+  assert.doesNotMatch(clearSource, /setCardLibraryNavigation/);
+  assert.doesNotMatch(clearSource, /setRightOpen/);
+});
+
+test("history quick tree remains while card libraries are canonical top-level destinations", () => {
+  const markup = renderToStaticMarkup(
+    <SessionSidebar
+      historyItems={historyWorkspaceItems}
+      activeSessionId=""
+      historyBusy={false}
+      openSessionBusyId=""
+      deleteSessionBusyId=""
+      deleteAllSessionsBusy={false}
+      runningSessionIds={[]}
+      activeNavigation="mistake_collection"
+      onCollapse={() => {}}
+      onNewChat={() => {}}
+      onNavigate={() => {}}
+      onOpenSession={() => {}}
+      onDeleteSession={() => {}}
+      onDeleteAllSessions={() => {}}
+    />
   );
-  assert.equal(
-    floatingCardAvoidanceWidth(
-      messageRect,
-      { left: 260, right: 940, top: 240, bottom: 520, width: 680 }
-    ),
-    null
+
+  assert.match(markup, /历史搜题/);
+  assert.match(markup, /知识卡片库/);
+  assert.match(markup, /错题卡片库/);
+  assert.match(markup, /错题集/);
+  assert.match(markup, /<div class="primaryNavButton historyNavigationMain" aria-label="历史搜题导航">/);
+  assert.doesNotMatch(markup, /<button[^>]*historyNavigationMain/);
+  assert.doesNotMatch(markup, /mistakeNavigationGroup|mistakeNavigationChildren|错题库分组/);
+  assert.equal((markup.match(/aria-current="page"/g) ?? []).length, 1);
+});
+
+test("typed card libraries share managed folders without exposing destructive folder actions", () => {
+  const archiveRoot: CardFolder = {
+    id: "folder-paper-root",
+    name: "按试卷归档",
+    parent_id: null,
+    is_system: false,
+    default_card_type: null,
+    managed_kind: "paper_archive_root",
+    created_at: "2026-08-06T00:00:00Z",
+    updated_at: "2026-08-06T00:00:00Z"
+  };
+  const paperFolder: CardFolder = {
+    ...archiveRoot,
+    id: "folder-paper-a",
+    name: "期中数学卷",
+    parent_id: archiveRoot.id,
+    managed_kind: "paper_archive"
+  };
+  const legacyFolder: CardFolder = {
+    ...paperFolder,
+    id: "folder-legacy-child",
+    name: "待整理",
+    managed_kind: null
+  };
+  const markup = renderToStaticMarkup(
+    <StudyCardSidebar
+      cards={[{ ...problemCardFixture, folder_id: paperFolder.id }]}
+      folders={[archiveRoot, paperFolder, legacyFolder]}
+      currentFolderId={archiveRoot.id}
+      visibleFolders={[paperFolder, legacyFolder]}
+      visibleCards={[]}
+      clipboard={null}
+      cardBusyId=""
+      folderBusyId=""
+      pasteBusy={false}
+      deleteAllCardsBusy={false}
+      composerBlocked={false}
+      libraryMode="problem"
+      onCollapse={() => {}}
+      onOpenFolder={() => {}}
+      onCreateFolder={async () => true}
+      onRenameFolder={async () => true}
+      onDeleteFolder={() => {}}
+      onOpenCard={() => {}}
+      onCopyCard={() => {}}
+      onCutCard={() => {}}
+      onClearClipboard={() => {}}
+      onPasteCard={() => {}}
+      onMoveCard={() => {}}
+      onDeleteCard={() => {}}
+      onExport={() => {}}
+      onDeleteAllCards={() => {}}
+    />
   );
+
+  assert.match(markup, /期中数学卷/);
+  assert.match(markup, /1 张卡片/);
+  assert.match(markup, /试卷归档根目录由系统管理/);
+  assert.match(markup, /导出全部学习卡片/);
+  assert.doesNotMatch(markup, /重命名文件夹：期中数学卷/);
+  assert.doesNotMatch(markup, /删除文件夹：期中数学卷/);
+  assert.doesNotMatch(markup, /重命名文件夹：待整理/);
+  assert.match(markup, /删除文件夹：待整理/);
+  assert.doesNotMatch(markup, /清空全部卡片/);
 });
 
 test("card shelf tabs only render saved cards from the active source session", () => {
@@ -1051,15 +1236,15 @@ test("scrolling grid lists keep intrinsic row heights", () => {
   const cardStyles = readFileSync(resolve(__dirname, "../../../styles/cards.css"), "utf8");
 
   assert.match(shellStyles, /\.sessionList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
-  assert.match(shellStyles, /\.sessionEntry\s*\{[^}]*padding:\s*6px 8px;/);
-  assert.match(shellStyles, /\.sessionEntry > strong\s*\{[^}]*font-size:\s*12px;/);
+  assert.match(shellStyles, /\.sessionEntry\s*\{[^}]*min-height:\s*32px;[^}]*padding:\s*4px 8px;/);
+  assert.match(shellStyles, /\.sessionEntry > strong\s*\{[^}]*text-overflow:\s*ellipsis;[^}]*font-size:\s*12px;/);
+  assert.match(shellStyles, /\.sessionEntry > strong > \.titleMathText\s*\{[^}]*text-overflow:\s*ellipsis;/);
   assert.match(cardStyles, /\.cardList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.cardFileList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.knowledgeExportBody\s*\{[^}]*grid-auto-rows:\s*max-content;/);
-  assert.match(cardStyles, /\.knowledgeExportCardList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
 });
 
-test("card save and export dialogs expose folder-based navigation", () => {
+test("card exports use compact fixed double columns and optional answer masking", () => {
   const saveDialog = renderToStaticMarkup(
     <StudyCardModal
       card={cardFixture}
@@ -1067,21 +1252,54 @@ test("card save and export dialogs expose folder-based navigation", () => {
       onSave={() => {}}
     />
   );
-  assert.match(saveDialog, /保存位置/);
-  assert.match(saveDialog, /默认知识卡片/);
+  assert.match(saveDialog, /aria-expanded="false"/);
+  assert.doesNotMatch(saveDialog, /保存位置/);
+  assert.doesNotMatch(saveDialog, /默认知识卡片/);
 
   const exportDialog = renderToStaticMarkup(
     <LearningCardExportDialog
       open
       cards={[cardFixture]}
-      folders={[knowledgeFolderFixture]}
       onClose={() => {}}
       onExport={() => {}}
     />
   );
-  assert.match(exportDialog, /从卡片库导出/);
-  assert.match(exportDialog, /全部卡片/);
-  assert.match(exportDialog, /默认知识卡片/);
+  assert.match(exportDialog, /从知识卡片库导出/);
+  assert.match(exportDialog, /已选中 1 张知识卡片/);
+  assert.match(exportDialog, /固定 A4 纵向双列/);
+  assert.match(exportDialog, /将导出 <strong>1<\/strong> 张知识卡片/);
+  assert.doesNotMatch(exportDialog, /导出文件夹|type="checkbox"|type="radio"|单列|三列|默认知识卡片/);
+
+  const knowledgePrint = renderToStaticMarkup(<LearningCardPrintView cards={[cardFixture]} />);
+  assert.match(knowledgePrint, /printLayout-double/);
+  assert.match(knowledgePrint, /column-count:2/);
+  assert.match(knowledgePrint, /关键关系/);
+  assert.match(knowledgePrint, /核心原理/);
+
+  if (problemCardFixture.content.type !== "problem_card") throw new Error("problem card fixture mismatch");
+  const mistakeItems = [{
+    id: "mistake-1",
+    source_paper_name: "代数卷",
+    title: problemCardFixture.content.title,
+    problem_text: problemCardFixture.content.problem_summary,
+    problem_image_data_url: null,
+    problem_card: problemCardFixture.content,
+    position: 0
+  }];
+  const answerPrint = renderToStaticMarkup(
+    <MistakeSetPrintDocument name="错题复习" items={mistakeItems} practiceMode={false} />
+  );
+  const practicePrint = renderToStaticMarkup(
+    <MistakeSetPrintDocument name="错题复习" items={mistakeItems} practiceMode />
+  );
+  assert.match(answerPrint, /解题思路/);
+  assert.match(answerPrint, /关键步骤/);
+  assert.match(answerPrint, /如何想到这些步骤/);
+  assert.match(answerPrint, /易错提醒/);
+  assert.match(answerPrint, /最终答案/);
+  assert.match(practicePrint, /题目摘要/);
+  assert.match(practicePrint, /练习模式 · 解析已遮住/);
+  assert.doesNotMatch(practicePrint, /解题思路|最终答案/);
 });
 
 test("model picker exposes image capability and batch management controls", () => {
@@ -1206,10 +1424,18 @@ test("empty workspace removes its header row and wires the welcome lifecycle", (
 });
 
 test("problem image selector renders movable and resizable regions", () => {
+  const selectorSource = readFileSync(
+    resolve(__dirname, "../../../components/ProblemImageSelector.tsx"),
+    "utf8"
+  );
+  const roundedSelectSource = readFileSync(
+    resolve(__dirname, "../../../components/RoundedSelect.tsx"),
+    "utf8"
+  );
   const selector = renderToStaticMarkup(
     <ProblemImageSelector
       imageUrl="data:image/png;base64,AAAA"
-      papers={[{ id: "paper-a", name: "期中数学卷", session_count: 0, created_at: "2026-07-18T00:00:00Z", updated_at: "2026-07-18T00:00:00Z" }]}
+      papers={[{ id: "paper-a", name: "期中数学卷", card_folder_id: "folder-paper-a", session_count: 0, created_at: "2026-07-18T00:00:00Z", updated_at: "2026-07-18T00:00:00Z" }]}
       initialRegions={[
         {
           id: "problem-1",
@@ -1236,7 +1462,12 @@ test("problem image selector renders movable and resizable regions", () => {
   assert.match(selector, /aria-pressed="false"/);
   assert.match(selector, /所属试卷/);
   assert.match(selector, /期中数学卷/);
-  assert.match(selector, /新建试卷/);
+  assert.match(selectorSource, /新建试卷/);
+  assert.match(selector, /aria-haspopup="listbox"/);
+  assert.match(roundedSelectSource, /createPortal\(/);
+  assert.match(roundedSelectSource, /onWheel=\{\(event\) => event\.stopPropagation\(\)\}/);
+  assert.match(selectorSource, /papers\.some\(\(paper\) => paper\.id === paperId\)/);
+  assert.match(selectorSource, /setPaperMode\("new"\)/);
   assert.match(selector, /paperAssignment paperAssignmentHeader/);
   assert.ok(selector.indexOf("paperAssignmentHeader") < selector.indexOf("problemSelectorWorkspace"));
   assert.match(selector, /handle-nw/);
@@ -1244,6 +1475,26 @@ test("problem image selector renders movable and resizable regions", () => {
   assert.match(dialogStyles, /\.problemSelectorCanvas\.adding/);
   assert.match(dialogStyles, /\.problemRegionDraft/);
   assert.match(dialogStyles, /\.handle-e[^}]*cursor:\s*ew-resize/);
+  assert.match(dialogStyles, /\.problemSelectorWorkspace\s*\{[^}]*margin:\s*12px;[^}]*border-radius:\s*14px;/);
+  assert.match(dialogStyles, /\.roundedSelectMenu\s*\{[^}]*border-radius:\s*12px;/);
+  assert.match(dialogStyles, /\.roundedSelectMenu\s*\{[^}]*position:\s*fixed;[^}]*overflow-y:\s*auto;/);
+});
+
+test("card folder location uses the shared rounded listbox", () => {
+  const folderSelect = renderToStaticMarkup(
+    <FolderLocationSelect
+      folders={[knowledgeFolderFixture]}
+      cardType="knowledge_card"
+      value={knowledgeFolderFixture.id}
+      label="Save to"
+      onChange={() => {}}
+      onCreatePaperFolder={async () => null}
+    />
+  );
+
+  assert.match(folderSelect, /aria-haspopup="listbox"/);
+  assert.match(folderSelect, /class="folderLocationLabel"/);
+  assert.doesNotMatch(folderSelect, /<select/);
 });
 
 test("new problem boxes support reverse dragging and stay inside the image", () => {
