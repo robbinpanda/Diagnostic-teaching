@@ -10,7 +10,7 @@ Adjust only the bamboo rendering proportions and the desktop horizontal position
 - Keep the three approved bamboo layout transforms and animation amplitudes unchanged.
 - Move `.panda-copy` to the right with `translateX(clamp(28px, 3.8vw, 46px))` on desktop, matching the reference image's approximately 120px left edge.
 - Reset the copy translation to zero at widths up to 720px to prevent the one-line title from clipping.
-- Wrap all three bamboo instances in one `bamboo-position-group` translated by `(0, 24)` SVG units. This moves the decoration downward as one composition without changing the approved per-instance transforms or animation pivots.
+- Wrap all three bamboo instances in one `bamboo-position-group` translated by `(0, 48)` SVG units. This aligns the lowest bamboo edge with the green book cover while preserving the approved per-instance transforms and animation pivots.
 
 ## Acceptance Criteria
 
