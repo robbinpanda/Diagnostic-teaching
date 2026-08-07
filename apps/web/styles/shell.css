@@ -202,9 +202,14 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--neutral-300) transparent;
 }
 
-.historyNavigationGroup {
+.historyNavigationGroup,
+.mistakeNavigationGroup {
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -262,7 +267,8 @@
   transform: scaleY(1);
 }
 
-.historyNavigationRow {
+.historyNavigationRow,
+.mistakeNavigationRow {
   min-width: 0;
   border-radius: 10px;
   display: grid;
@@ -270,12 +276,22 @@
   align-items: center;
 }
 
-.historyNavigationRow .historyNavigationMain {
+.historyNavigationRow .historyNavigationMain,
+.mistakeNavigationRow .mistakeNavigationMain {
   min-width: 0;
   border-radius: 10px 0 0 10px;
+  cursor: default;
 }
 
-.historyTreeToggle {
+.primaryNavigation .historyNavigationMain:hover,
+.primaryNavigation .mistakeNavigationMain:hover {
+  color: inherit;
+  background: transparent;
+  transform: none;
+}
+
+.historyTreeToggle,
+.mistakeTreeToggle {
   width: 44px;
   height: 44px;
   border: 0;
@@ -286,9 +302,24 @@
   background: transparent;
 }
 
-.historyTreeToggle:hover {
+.historyTreeToggle:hover,
+.mistakeTreeToggle:hover {
   color: var(--primary-800);
   background: var(--primary-100);
+}
+
+.mistakeNavigationChildren {
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 2px 20px;
+  padding-left: 9px;
+  border-left: 1px solid var(--neutral-200);
+}
+
+.primaryNavigation .mistakeChildNavButton {
+  min-height: 40px;
+  padding-left: var(--space-3);
+  font-size: 13px;
 }
 
 .historyTree {

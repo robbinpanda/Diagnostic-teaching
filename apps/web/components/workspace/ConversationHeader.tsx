@@ -1,6 +1,7 @@
 "use client";
 
 import { BookOpen, ChevronRight, Image as ImageIcon, Loader2 } from "lucide-react";
+import type { Ref } from "react";
 import type { ModelProfile } from "../../lib/api";
 import { modelProfileLabel } from "../../lib/api";
 import { MathText } from "../MathText";
@@ -14,6 +15,7 @@ type Props = {
   streamBusy: boolean;
   problemImageUrl?: string | null;
   progressLabel?: string;
+  cardPanelToggleRef?: Ref<HTMLButtonElement>;
   onExpandLeft: () => void;
   onToggleCards: () => void;
   onViewProblemImage: () => void;
@@ -28,6 +30,7 @@ export function ConversationHeader({
   streamBusy,
   problemImageUrl,
   progressLabel,
+  cardPanelToggleRef,
   onExpandLeft,
   onToggleCards,
   onViewProblemImage
@@ -59,7 +62,7 @@ export function ConversationHeader({
           <span>查看题目</span>
         </button>
       )}
-      <button className="plainIconButton cardPanelToggle" type="button" onClick={onToggleCards} aria-label="切换卡片栏">
+      <button ref={cardPanelToggleRef} className="plainIconButton cardPanelToggle" type="button" onClick={onToggleCards} aria-label="切换卡片栏">
         <BookOpen size={18} />
       </button>
     </header>

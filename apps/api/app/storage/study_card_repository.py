@@ -82,7 +82,12 @@ class StudyCardRepositoryMixin:
                 raise KeyError(card_id)
             if row["live_session_id"] != session_id:
                 raise PermissionError(card_id)
-            resolved_folder_id = resolve_card_folder(conn, folder_id, row["card_type"])
+            resolved_folder_id = resolve_card_folder(
+                conn,
+                folder_id,
+                row["card_type"],
+                preferred_folder_id=row["folder_id"],
+            )
             if row["saved_at"] is None:
                 conn.execute(
                     "UPDATE study_cards SET saved_at = ?, folder_id = ? WHERE id = ?",

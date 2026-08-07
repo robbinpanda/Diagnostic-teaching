@@ -4,7 +4,6 @@ import { ArrowUp, Loader2, Mic, Paperclip, Pencil, Plus, Square, X } from "lucid
 import type { RefObject } from "react";
 import type { SpeechInputPhase } from "../../hooks/useSpeechInput";
 import type { ModelProfile, ReasoningEffort } from "../../lib/api";
-import { GradeBandPicker } from "./GradeBandPicker";
 import { ModelProfilePicker } from "./ModelProfilePicker";
 import { ReasoningEffortPicker } from "./ReasoningEffortPicker";
 
@@ -25,7 +24,6 @@ type Props = {
   composerBlocked: boolean;
   imageInputRef: RefObject<HTMLInputElement | null>;
   imageBusy: boolean;
-  gradeBand: "junior" | "senior";
   selectedProfileId: string;
   selectedProfile?: ModelProfile;
   profiles: ModelProfile[];
@@ -42,7 +40,6 @@ type Props = {
   onSend: () => void;
   onImageFile: (file?: File) => void;
   onPasteImages: (files: File[]) => void;
-  onGradeBandChange: (value: "junior" | "senior") => void;
   onProfileChange: (profileId: string) => void;
   onAddProfile: () => void;
   onEditProfile: () => void;
@@ -60,7 +57,6 @@ export function TutorComposer({
   composerBlocked,
   imageInputRef,
   imageBusy,
-  gradeBand,
   selectedProfileId,
   selectedProfile,
   profiles,
@@ -77,7 +73,6 @@ export function TutorComposer({
   onSend,
   onImageFile,
   onPasteImages,
-  onGradeBandChange,
   onProfileChange,
   onAddProfile,
   onEditProfile,
@@ -167,11 +162,6 @@ export function TutorComposer({
                   ? <Square size={13} />
                   : <Mic size={17} />}
             </button>
-            <GradeBandPicker
-              value={gradeBand}
-              disabled={Boolean(sessionId) || composerBlocked || speechBusy}
-              onChange={onGradeBandChange}
-            />
             <ModelProfilePicker
               profiles={profiles}
               selectedProfileId={selectedProfileId}

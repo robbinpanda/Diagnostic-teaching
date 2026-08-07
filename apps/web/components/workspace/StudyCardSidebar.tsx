@@ -23,7 +23,8 @@ import { useState } from "react";
 import type { CardFolder, StudyCard } from "../../lib/api";
 import {
   countCardsInFolderTree,
-  folderBreadcrumbs
+  folderBreadcrumbs,
+  isProtectedFolder
 } from "../../lib/card-folders";
 import type { CardClipboard } from "../../hooks/useStudyCards";
 import { MathText } from "../MathText";
@@ -46,7 +47,11 @@ type Props = {
   onCreateFolder: (name: string) => Promise<boolean>;
   onRenameFolder: (folder: CardFolder, name: string) => Promise<boolean>;
   onDeleteFolder: (folder: CardFolder) => void;
-  onOpenCard: (card: StudyCard) => void;
+  onOpenCard: (
+    card: StudyCard,
+    origin: DOMRectReadOnly,
+    trigger: HTMLButtonElement
+  ) => void;
   onCopyCard: (card: StudyCard) => void;
   onCutCard: (card: StudyCard) => void;
   onClearClipboard: () => void;
@@ -93,6 +98,12 @@ export function StudyCardSidebar({
   const currentFolder = currentFolderId
     ? folders.find((folder) => folder.id === currentFolderId)
     : null;
+  const canCreateFolder = currentFolder?.managed_kind !== "paper_archive_root";
+  const managedRootFolderIds = new Set(
+    folders
+      .filter((folder) => folder.managed_kind === "paper_archive_root")
+      .map((folder) => folder.id)
+  );
   const libraryCards = libraryMode === "all"
     ? cards
     : cards.filter((card) => card.card_type === (libraryMode === "knowledge" ? "knowledge_card" : "problem_card"));
@@ -149,8 +160,13 @@ export function StudyCardSidebar({
           className="cardFolderTool"
           type="button"
           onClick={() => { setFolderEditor({ mode: "create" }); setFolderName(""); }}
-          aria-label={currentFolderId ? "新建子文件夹" : "新建主文件夹"}
-          title={currentFolderId ? "新建子文件夹" : "新建主文件夹"}
+          disabled={!canCreateFolder}
+          aria-label={canCreateFolder
+            ? currentFolderId ? "新建子文件夹" : "新建主文件夹"
+            : "试卷归档根目录由系统管理"}
+          title={canCreateFolder
+            ? currentFolderId ? "新建子文件夹" : "新建主文件夹"
+            : "试卷归档根目录由系统管理"}
         >
           <FolderPlus size={16} />
         </button>
@@ -194,35 +210,49 @@ export function StudyCardSidebar({
       )}
 
       <div className="cardFileList">
-        {visibleFolders.map((folder) => (
+        {visibleFolders.map((folder) => {
+          const canDeleteFolder = !isProtectedFolder(folder);
+          const canRenameFolder = canDeleteFolder
+            && !managedRootFolderIds.has(folder.parent_id ?? "");
+          return (
           <div className="cardFolderItem" key={folder.id}>
             <button className="cardFolderOpen" type="button" onClick={() => onOpenFolder(folder.id)}>
               <Folder size={19} />
               <span><strong>{folder.name}</strong><small>{countCardsInFolderTree(libraryCards, folders, folder.id)} 张卡片</small></span>
               <ChevronRight size={14} />
             </button>
-            {!folder.is_system && (
+            {(canRenameFolder || canDeleteFolder) && (
               <div className="cardFolderActions">
-                <button type="button" onClick={() => startRename(folder)} disabled={Boolean(folderBusyId)} aria-label={`重命名文件夹：${folder.name}`} title="重命名"><Pencil size={13} /></button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (window.confirm(`删除空文件夹“${folder.name}”？`)) onDeleteFolder(folder);
-                  }}
-                  disabled={Boolean(folderBusyId)}
-                  aria-label={`删除文件夹：${folder.name}`}
-                  title="删除空文件夹"
-                >
-                  {folderBusyId === folder.id ? <Loader2 size={13} className="spin" /> : <Trash2 size={13} />}
-                </button>
+                {canRenameFolder ? (
+                  <button type="button" onClick={() => startRename(folder)} disabled={Boolean(folderBusyId)} aria-label={`重命名文件夹：${folder.name}`} title="重命名"><Pencil size={13} /></button>
+                ) : null}
+                {canDeleteFolder ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`删除空文件夹“${folder.name}”？`)) onDeleteFolder(folder);
+                    }}
+                    disabled={Boolean(folderBusyId)}
+                    aria-label={`删除文件夹：${folder.name}`}
+                    title="删除空文件夹"
+                  >
+                    {folderBusyId === folder.id ? <Loader2 size={13} className="spin" /> : <Trash2 size={13} />}
+                  </button>
+                ) : null}
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
 
         {displayedCards.map((card) => (
           <div className={`cardItem${clipboard?.mode === "cut" && clipboard.card.id === card.id ? " cut" : ""}`} key={card.id}>
-            <button className="cardOpenButton" type="button" onClick={() => onOpenCard(card)}>
+            <button
+              className="cardOpenButton"
+              type="button"
+              data-library-card-id={card.id}
+              onClick={(event) => onOpenCard(card, event.currentTarget.getBoundingClientRect(), event.currentTarget)}
+            >
               <span className={`cardIcon ${card.card_type === "knowledge_card" ? "knowledge" : "problem"}`}>
                 {card.card_type === "knowledge_card" ? <BookOpen size={16} /> : <ClipboardCheck size={16} />}
               </span>
@@ -250,12 +280,14 @@ export function StudyCardSidebar({
       <div className="cardSidebarActions">
         <button className="exportCardsButton" type="button" onClick={onExport} disabled={cards.length === 0}>
           <FileDown size={15} />
-          导出卡片
+          导出全部学习卡片
         </button>
-        <button className="clearCardsButton" type="button" onClick={onDeleteAllCards} disabled={deleteAllCardsBusy || composerBlocked || cards.length === 0}>
-          {deleteAllCardsBusy ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
-          清空卡片
-        </button>
+        {libraryMode === "all" ? (
+          <button className="clearCardsButton" type="button" onClick={onDeleteAllCards} disabled={deleteAllCardsBusy || composerBlocked || cards.length === 0}>
+            {deleteAllCardsBusy ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
+            清空全部卡片
+          </button>
+        ) : null}
       </div>
     </aside>
   );

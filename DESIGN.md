@@ -101,13 +101,14 @@
 - 左抽屉宽 `min(292px, 88vw)`、层级 `z-index: 13`；右抽屉宽 `min(330px, 88vw)`、层级 `z-index: 12`。
 - 关闭位移分别为 `translateX(-105%)` 与 `translateX(105%)`，打开任一抽屉时显示遮罩；遮罩点击关闭两侧。
 - [`apps/web/app/page.tsx`](apps/web/app/page.tsx) 通过 `matchMedia("(max-width: 1319px)")` 在进入紧凑断点时关闭两栏，并以 `responsiveReady` 避免首帧抽屉闪现。
-- `761–900px` 时 `.activeKnowledgeCardDock` 改为文档流内相对定位，宽 `min(560px, calc(100% - 28px))`，避免覆盖过窄的消息列。
+- `901–1319px` 的活动卡片仍可在 `.messageViewport` 内拖动；从右侧抽屉打开归档卡前先关闭抽屉，关闭卡片时不自动重开抽屉。
+- `761–900px` 时活动卡片改为文档流内安全位置，宽 `min(560px, calc(100% - 28px))`，隐藏拖动把手，避免与页面滚动和抽屉手势冲突。
 
 ### 3.3 手机：`<= 760px`
 
 - 壳层全屏，使用 `100vh` 回退和 `100dvh`；边框、圆角、外壳阴影与外部内缩归零。
 - 顶栏为 `60px + safe-area-inset-top`；左右栏为互斥抽屉。左栏宽 `min(280px, 88vw)`，右栏宽 `min(330px, 92vw)`。
-- `.cardShelfTabs` 隐藏；打开的学习卡进入输入器上方文档流，宽 `calc(100% - 20px)`。
+- `.cardShelfTabs` 隐藏；打开的学习卡进入输入器上方文档流，宽 `calc(100% - 20px)`，不启用自由拖动。
 - 输入器底部、遮罩、卡片查看层和抽屉均计入 `safe-area-inset-top/bottom`；工具栏可在自身区域横向滚动，页面不能横向溢出。
 - `<= 480px` 进一步隐藏次要会话元数据、思考状态与部分按钮文字；题图查看器变为全屏，欢迎页标题降为 `27px`。
 - 视口高度 `<= 760px` 时即使宽屏也取消壳层外部内缩，优先保证可用高度。
@@ -118,19 +119,23 @@
 
 顶部只承载产品标识、AI 工具入口和账户区域。中央顺序固定为：会话标题/状态 → 当前会话收纳卡签 → 消息时间线、检查点和对话内卡片 → 输入器。题图、公式、教学动作、生成/停止、错误、检查点和语音状态均属于现有产品能力，视觉精简不得删除。
 
-### 4.2 历史导航与中央工作区
+### 4.2 历史快速树、错题合集与中央工作区
 
-一级导航顺序固定：开始答疑 → 历史搜题 → 知识库 → 错题库 → 本地安全存储提示。左侧会话栏保留从真实历史派生的“试卷 → 题目”快速树：搜索同时匹配试卷名和题目名，旧会话归入“未分类题目”，题目行可打开原会话或执行单题删除。运行、加载、空列表与无匹配结果状态均须保留。“清空全部会话”由左侧树独占，中央历史页不得重复该危险操作；清空处理中、存在生成中会话或历史为空时禁用。
+左侧导航顺序固定为：开始答疑 → 历史搜题（原“试卷 → 题目”快速树）→ 知识库 → 错题库分组（错题合集、错题库）→ 本地安全存储提示。历史快速树保留展开/收起、试卷与题目搜索、打开原会话、单题删除、清空全部会话以及运行/打开/删除禁用状态；旧会话继续归入“未分类题目”。侧栏整体可滚动，快速树的内容区使用 `min-height: 0` 和独立滚动，低高度窗口中下方导航仍能通过滚动与键盘到达。
 
-点击“历史搜题”后，中央在同一根路由中依次提供“历史试卷总览 → 单份试卷题目列表 → 原答疑会话”。总览仅从真实 `SessionHistoryItem[]` 在前端派生试卷组，以 A「内容化纸张预览」显示真实学段、试卷名、最近 2–3 道题标题、题目数和最近更新时间；试卷卡片网格在视口宽度 `> 1100px`、`761–1100px` 和 `≤ 760px` 时分别为 3、2、1 列。搜索同时匹配试卷名和题目名，排序支持“最近更新”和按中文试卷名升序的“名称排序”。
+中央只保留一套试卷浏览界面，规范名称为“错题合集”。点击“历史搜题”主标签会展开快速树并作为快捷方式前往错题合集；点击“错题库”父级也默认进入并展开“错题合集”。这两种入口都只能让“错题合集”成为唯一 `aria-current` 项，不能让快捷入口与目的项同时高亮。父级与同名子级分别使用“错题库分组”和“打开错题库”的无障碍名称。
 
-试卷详情显示真实题目标题、消息数、检查点数、运行状态和最近更新时间；点击题目复用既有打开链路读取原 session，不调用恢复接口复制会话。`HistoryView` 独立于 `activeNavigation`：前者区分总览、试卷详情和退出历史浏览，后者只标记一级导航归属，因此打开历史会话后仍可保持“历史搜题”高亮而渲染原答疑会话。目标是当前打开会话、正在运行，或任一打开/单题删除请求执行中时，单题删除必须禁用；中央不提供试卷级删除。
+错题合集在同一根路由中提供“试卷总览 → 单份试卷题目列表”。总览仅从真实 `SessionHistoryItem[]` 派生试卷组，以 A「内容化纸张预览」显示真实学段、试卷名、最近 2–3 道题标题、题目数和最近更新时间；试卷卡片网格在视口宽度 `> 1100px`、`761–1100px` 和 `≤ 760px` 时分别为 3、2、1 列。搜索同时匹配试卷名和题目名，排序支持“最近更新”和按中文试卷名升序的“名称排序”。总览搜索与排序上下文保留，卷内搜索在离开详情后重置。
 
-试卷实体/API、`paper_id` / `paper_name` 和左侧快速树属于继承的试卷前置，图片批量建会话仍须先选择已有试卷或创建新试卷。中央历史工作区不新增缩略图字段或 API，不逐题/逐卷下载完整 session 形成 N+1 请求，也不改变会话数据模型、右侧学习卡片系统或第 6 节冻结的卡片交互合同。
+试卷详情显示真实题目标题、消息数、检查点数、运行状态和最近更新时间；点击题目复用既有打开链路读取原 session，不调用恢复接口复制会话。打开合集中的题目、从快速树打开会话或刷新恢复历史 session 时，中央合集状态清空且导航归属为“历史搜题”，快速树按 session ID 标记当前会话；只有新建答疑归属“开始答疑”。当前打开、正在运行或任一打开/单题删除请求执行中时，单题删除必须禁用；中央不提供手工试卷级删除。
+
+“知识库”和“错题库”打开同一个右侧卡片库的 `knowledge_card` / `problem_card` 过滤视图，不替换底层中央会话或合集状态。右栏关闭后恢复底层中央内容对应的导航高亮；会话头的“全部卡片”只是工具入口，不改变主导航归属。试卷实体/API、`paper_id` / `paper_name` 和左侧快速树继续服务图片批量建会话；中央合集不新增缩略图字段或 N+1 请求。
 
 ## 5. 右侧卡片系统
 
-右侧卡片库继续承载知识卡、题目卡、文件夹、剪贴板、编辑、移动、删除、导出和清空。知识库/错题库只是同一右栏的类型过滤，不拆成新页面。列表视觉见 [`apps/web/styles/cards.css`](apps/web/styles/cards.css)，完整卡片与弹层视觉见 [`apps/web/styles/dialogs.css`](apps/web/styles/dialogs.css)。
+右侧卡片库继续承载知识卡、题目卡、文件夹、剪贴板、编辑、移动、删除、导出和清空。知识库/错题库是同一右栏的类型过滤，不拆成中央页面；两者都渲染完整的共享目录树，但目录计数和卡片列表只统计当前类型。同一“按试卷归档 / `<试卷名>`”目录因此可在知识库显示知识卡、在错题库显示题目卡。单类型视图隐藏全局清空入口，并把导出明确标为“导出全部学习卡片”；只有“全部卡片”视图保留“清空全部学习卡片”。列表视觉见 [`apps/web/styles/cards.css`](apps/web/styles/cards.css)，完整卡片与弹层视觉见 [`apps/web/styles/dialogs.css`](apps/web/styles/dialogs.css)。
+
+“按试卷归档”根目录及其试卷子目录属于受管目录：不能重命名、移动或删除，也不能在受管根下新建或移入普通目录；卡片本身仍可移入、移出、复制和删除。受管目录的稳定身份不依赖当前 `exam_papers` 行；试卷删除后目录继续保留，同名试卷重建时复用原目录和旧卡。
 
 ### 5.1 主题映射
 
@@ -148,9 +153,9 @@
 
 打开的 `.flashcardPresentation` 圆角 `14px`，标题 `22px`，内容区块标题/正文 `14px`，最大高度为 `min(460px, calc(100vh - 320px))`；卡体内部滚动，不能因视觉改造截断背面内容。正面像学习索引，背面像结构化复盘页；允许优化色彩、纸感、区块和阴影，但不允许改变字段语义。
 
-## 6. 不可变的卡片交互合同
+## 6. 卡片窗口与收纳交互合同
 
-这是后续视觉改造的硬边界。实现链路位于 [`apps/web/app/page.tsx`](apps/web/app/page.tsx)、[`apps/web/components/workspace/CardShelfTabs.tsx`](apps/web/components/workspace/CardShelfTabs.tsx)、[`apps/web/components/StudyCardModal.tsx`](apps/web/components/StudyCardModal.tsx)、[`apps/web/styles/shell.css`](apps/web/styles/shell.css)、[`apps/web/styles/conversation.css`](apps/web/styles/conversation.css) 和 [`apps/web/styles/responsive.css`](apps/web/styles/responsive.css)。
+这是后续视觉改造的硬边界。实现链路位于 [`apps/web/app/page.tsx`](apps/web/app/page.tsx)、[`apps/web/components/workspace/CardShelfTabs.tsx`](apps/web/components/workspace/CardShelfTabs.tsx)、[`apps/web/components/workspace/DraggableCardWindow.tsx`](apps/web/components/workspace/DraggableCardWindow.tsx)、[`apps/web/components/workspace/MessageTimeline.tsx`](apps/web/components/workspace/MessageTimeline.tsx)、[`apps/web/components/StudyCardModal.tsx`](apps/web/components/StudyCardModal.tsx)、[`apps/web/lib/card-window-geometry.ts`](apps/web/lib/card-window-geometry.ts)、[`apps/web/styles/shell.css`](apps/web/styles/shell.css)、[`apps/web/styles/conversation.css`](apps/web/styles/conversation.css) 和 [`apps/web/styles/responsive.css`](apps/web/styles/responsive.css)。
 
 ### 6.1 右侧竖向收纳
 
@@ -160,7 +165,18 @@
 - 角度依次为 `-7/5/-4/7deg`，水平偏移依次为 `0/10/3/12px`；层叠由 `calc(8 - var(--shelf-index))` 决定。hover/focus 只把当前卡签扶正，不改变收纳几何。
 - 打开的源卡签使用 `.shelfCardSourceHidden` 隐藏且不可点击；不能删除占位、改变尺寸，或用另一套列表替代。
 
-### 6.2 从点击源滑出与滑回
+### 6.2 唯一浮动窗口与拖动
+
+- 当前会话最新的 pending 卡片，以及从卡片架或右侧卡片库打开的归档卡片，共用唯一的 `DraggableCardWindow`。历史消息中其他卡片仍锚定在来源消息之后，不同时变成自由窗口。
+- 视口宽度 `> 900px` 时，卡片标题区提供至少 `44 × 44px` 的专用可聚焦拖动把手。Pointer Events 配合 pointer capture 支持鼠标、触控笔和触屏；`touch-action: none` 只作用于把手，不妨碍正文选择、卡内滚动或消息滚动。
+- 高频位移保存在 ref，并通过 `requestAnimationFrame` 写入内层 drag layer 的 `transform`。外层 motion layer 独占入场与 FLIP 的 `transform`，两层不得争用同一变换。
+- 拖动边界是 `.messageViewport` 的可视矩形并保留 `12px` 内边距；至少完整标题栏始终可见。窗口、边界或内容尺寸变化时重新夹取位置，卡体超长内容在窗口内部滚动。
+- 拖动把手支持方向键每次移动 `16px`、`Shift+方向键` 每次移动 `4px`、`Home` 复位，并提供可访问说明。切换 session 或 pending 卡时复位；归档卡只在本次打开期间保留位置，不写入持久存储。
+- `≤ 900px` 隐藏拖动把手并使用全宽安全位置。`prefers-reduced-motion` 关闭入场位移与 FLIP，但在 `> 900px` 不禁用用户直接拖动。
+- 消息正文始终使用完整可用宽度；不得再添加卡片避让 class、宽度变量或监听浮动卡片尺寸的布局 observer。卡片可以覆盖消息区域，用户通过拖动调整位置。
+- Escape 对归档卡执行正常关闭；对 pending 卡只取消当前拖动、复位并把焦点交还把手，不能绕过保存、舍弃或继续命令卸载卡片。
+
+### 6.3 从点击源滑出与滑回
 
 收纳卡签点击必须保留以下状态机：
 
@@ -175,13 +191,15 @@ idle → preparing（同步挂载、先隐藏）
 - `openShelfCard` 保存点击源的 `getBoundingClientRect()` 与触发器焦点，使用 `flushSync` 先挂载目标；`useLayoutEffect` 再测量 dock，计算 `x/y/scaleX/scaleY`。
 - 打开动画固定为 `480ms cubic-bezier(0.22, 0.82, 0.24, 1)`；关闭动画固定为 `440ms cubic-bezier(0.4, 0, 0.2, 1)`，路径互为源/目标矩形的自然往返。
 - 新生成、非归档卡片走独立的 `activeCardDockEnter 420ms cubic-bezier(0.22, 0.82, 0.24, 1)`，从右侧入场；不能与收纳卡签打开链路合并。
-- 右栏 `.cardOpenButton` 保持直接打开。关闭时若找不到当前会话的来源卡签，直接关闭，不伪造返回动画。
-- 动画结束只接受 `event.target === event.currentTarget`；关闭阶段容器设为 `inert`。打开后焦点进入“关闭卡片”，关闭后焦点回到原触发卡签。
+- 关闭已拖动的归档卡时，关闭动画首帧继承当前可见矩形，再在同一个交接中清零内层 drag offset；不能先跳回默认位置再飞回来源。
+- 从右栏 `.cardOpenButton` 打开时，`>= 1320px` 的持久右栏保持可见并可作为回程来源；`<= 1319px` 的抽屉先关闭，卡片关闭时采用轻量退场、不自动重开抽屉，并把焦点恢复到会话头的卡片库按钮。
+- 若来源卡签已经不存在，直接关闭并恢复到可用的上级焦点，不伪造返回动画。
+- 动画结束只接受 `event.target === event.currentTarget`；关闭阶段容器设为 `inert`。宽屏打开后焦点进入拖动把手，窄屏进入首个可用卡片操作；关闭后焦点回到原触发卡签或当前可见的导航入口。
 - `.appShell`、`.conversationPanel`、`.activeKnowledgeCardDock` 的祖先不得新增 `transform`、`scale` 或 `filter`，否则 `getBoundingClientRect()` 坐标系会改变。光场只能通过背景、尺寸、边框和局部 `backdrop-filter` 实现。
 
-### 6.3 正反面与字段映射
+### 6.4 正反面与字段映射
 
-`showBack` 是唯一翻面状态，卡片 `id` 改变时重置为正面。顶部 `.cardFlipButton` 与闪卡底部 `.flashcardFlipBar` 都保留 `aria-pressed`、既有文案和点击切换；不得改成 hover、拖拽或自动翻面。
+`showBack` 是唯一翻面状态，卡片 `id` 改变时重置为正面。顶部 `.cardFlipButton` 与闪卡底部 `.flashcardFlipBar` 都保留 `aria-pressed`、既有文案和点击切换；拖动窗口不能触发翻面，也不得改成 hover 或自动翻面。
 
 | 卡片 | 正面 | 背面 |
 | --- | --- | --- |
@@ -197,7 +215,7 @@ idle → preparing（同步挂载、先隐藏）
 - 全局 `:focus-visible` 使用 `2px solid var(--primary-600)` 和 `2px` 外偏移。图标按钮必须有可访问名称；主要操作目标尽量达到 `44 × 44px`。
 - 正文与背景对比度至少 `4.5:1`。成功、错误、生成中、禁用和确认状态同时使用文字或图标，不只使用色点。
 - 消息、公式、卡体和抽屉各自在需要处滚动；使用 `overscroll-behavior: contain`，避免滚动穿透与横向溢出。
-- `prefers-reduced-motion: reduce` 下，全局动画/过渡压缩至 `0.01ms`、单次执行并关闭平滑滚动；卡片开合降至 `1ms`，不删除最终状态和焦点交接。
+- `prefers-reduced-motion: reduce` 下，全局动画/过渡压缩至 `0.01ms`、单次执行并关闭平滑滚动；卡片开合降至 `1ms`，不删除最终状态、直接拖动能力和焦点交接。
 - 手机端通过 `env(safe-area-inset-top, 0px)` 与 `env(safe-area-inset-bottom, 0px)` 保护顶栏、抽屉、遮罩、卡片层和输入器；始终保留 `100vh` 回退与 `100dvh` 实际高度。
 - 环境纹理和无语义伪元素必须 `pointer-events: none`，不进入可访问树。
 
@@ -226,16 +244,17 @@ npm.cmd test
 npm.cmd run build
 ```
 
-`npm.cmd test` 必须覆盖 [`apps/web/tests/ui-visual-contract.test.ts`](apps/web/tests/ui-visual-contract.test.ts) 与 [`apps/web/tests/workspace-components.test.tsx`](apps/web/tests/workspace-components.test.tsx)，并核对 C4 工作台令牌、环境渐变、向日葵黄文件夹及五组完整卡片主题对象。如改动卡片合同相关文件，还需核对测试中冻结文件 SHA-256，并确认 `.cardShelfTabs`、`.shelfCardSourceHidden`、`shelfCardOpen`、`shelfCardClose`、`activeCardDockEnter`、`translateX(105%)` 与 reduced-motion 规则未漂移。
+`npm.cmd test` 必须覆盖 [`apps/web/tests/ui-visual-contract.test.ts`](apps/web/tests/ui-visual-contract.test.ts)、[`apps/web/tests/workspace-components.test.tsx`](apps/web/tests/workspace-components.test.tsx) 以及拖动几何/窗口合同测试，并核对 C4 工作台令牌、环境渐变、向日葵黄文件夹及五组完整卡片主题对象。卡片测试同时确认 `.cardShelfTabs`、`.shelfCardSourceHidden`、`shelfCardOpen`、`shelfCardClose`、`activeCardDockEnter`、`translateX(105%)`、边界夹取、键盘拖动、`900/901px` 分界与 reduced-motion 规则。
 
-浏览器至少检查 `1440 / 1280 / 1024 / 768 / 390 / 375px`：
+浏览器至少检查 `1440 / 1320 / 1319 / 1024 / 901 / 900 / 768 / 390px`：
 
 1. 欢迎态、已有会话、长数学回复、题图、生成中、错误和空状态。
-2. 左侧历史搜索、恢复会话、单条删除与清空全部会话。
-3. 左右抽屉、遮罩、知识/错题过滤、文件夹、编辑、移动、删除和导出。
-4. 收纳卡签从点击源滑出、翻到背面、翻回、沿原路径关闭；同时验证右栏直接打开与无来源直接关闭。
-5. 仅用键盘完成打开/关闭/翻面，确认焦点进入卡片并回到来源；开启 reduced motion 后状态仍完整。
-6. 手机安全区域、软键盘、`100dvh`、公式横向滚动和工具栏自身滚动，无页面级横向溢出。
+2. 历史快速树、错题库父子导航、错题合集总览/详情、恢复会话、单条删除与清空全部会话。
+3. 左右抽屉、遮罩、知识/错题类型过滤、共享目录、受管目录保护、编辑、移动、删除和导出。
+4. 收纳卡签从点击源滑出、拖动、翻面并从当前位置沿自然路径关闭；同时验证持久右栏、抽屉来源和无来源关闭。
+5. 仅用键盘完成打开、拖动、复位、关闭和翻面，确认焦点交接；开启 reduced motion 后状态仍完整。
+6. `901px` 可拖、`900px` 无拖动把手；卡片内容变化、侧栏开合与窗口 resize 后仍在边界内，消息正文不发生避让或宽度抖动。
+7. 手机安全区域、软键盘、`100dvh`、公式横向滚动和工具栏自身滚动，无页面级横向溢出。
 
 视觉复核同时以批准构图的空间关系和 C4 色彩增强规格的亮度、饱和度及语义映射为准，不要求逐像素复制 mock 中的示例内容。绿色与向日葵黄应更鲜活，薰衣草紫应保持高明度、低饱和，中央暖白正文面的可读性不得下降。
 

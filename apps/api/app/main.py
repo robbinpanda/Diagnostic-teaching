@@ -16,6 +16,7 @@ from app.routes import (
     checkpoints,
     exam_papers,
     inputs,
+    mistake_sets,
     model_profiles,
     problem_images,
     problem_intake,
@@ -121,6 +122,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router)
     app.include_router(checkpoints.router)
     app.include_router(exam_papers.router)
+    app.include_router(mistake_sets.router)
     app.include_router(card_folders.router)
     app.include_router(cards.router)
     app.include_router(speech.router)

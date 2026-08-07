@@ -20,6 +20,10 @@ class CardFolderProtectedError(PermissionError):
     pass
 
 
+def is_protected_card_folder(folder: sqlite3.Row) -> bool:
+    return bool(folder["is_system"]) or folder["managed_kind"] is not None
+
+
 def default_folder_id(card_type: str) -> str:
     if card_type == "knowledge_card":
         return DEFAULT_KNOWLEDGE_FOLDER_ID
@@ -28,11 +32,43 @@ def default_folder_id(card_type: str) -> str:
     raise ValueError(f"不支持的卡片类型：{card_type}")
 
 
-def resolve_card_folder(conn: sqlite3.Connection, folder_id: str | None, card_type: str) -> str:
-    resolved = folder_id or default_folder_id(card_type)
+def resolve_card_folder(
+    conn: sqlite3.Connection,
+    folder_id: str | None,
+    card_type: str,
+    *,
+    preferred_folder_id: str | None = None,
+) -> str:
+    resolved = folder_id or preferred_folder_id or default_folder_id(card_type)
     if conn.execute("SELECT 1 FROM card_folders WHERE id = ?", (resolved,)).fetchone() is None:
         raise KeyError(resolved)
     return resolved
+
+
+def session_card_folder_id(
+    conn: sqlite3.Connection,
+    session_id: str,
+    card_type: str,
+) -> str:
+    row = conn.execute(
+        """
+        SELECT s.paper_id, p.card_folder_id
+        FROM sessions s
+        LEFT JOIN exam_papers p ON p.id = s.paper_id
+        WHERE s.id = ?
+        """,
+        (session_id,),
+    ).fetchone()
+    if row is None:
+        raise KeyError(session_id)
+    if row["paper_id"] is not None and row["card_folder_id"] is None:
+        raise KeyError(row["paper_id"])
+    return resolve_card_folder(
+        conn,
+        None,
+        card_type,
+        preferred_folder_id=row["card_folder_id"],
+    )
 
 
 class CardFolderRepositoryMixin:
@@ -52,10 +88,14 @@ class CardFolderRepositoryMixin:
         ts = now_iso()
         folder_id = new_id("folder")
         with self.db.connect() as conn:
-            if parent_id is not None and conn.execute(
-                "SELECT 1 FROM card_folders WHERE id = ?", (parent_id,)
-            ).fetchone() is None:
-                raise KeyError(parent_id)
+            if parent_id is not None:
+                parent = conn.execute(
+                    "SELECT * FROM card_folders WHERE id = ?", (parent_id,)
+                ).fetchone()
+                if parent is None:
+                    raise KeyError(parent_id)
+                if parent["managed_kind"] == "paper_archive_root":
+                    raise CardFolderProtectedError(parent_id)
             try:
                 conn.execute(
                     """
@@ -85,7 +125,7 @@ class CardFolderRepositoryMixin:
             ).fetchone()
             if folder is None:
                 raise KeyError(folder_id)
-            if folder["is_system"]:
+            if is_protected_card_folder(folder):
                 raise CardFolderProtectedError(folder_id)
 
             next_name = name.strip() if name is not None else folder["name"]
@@ -96,10 +136,12 @@ class CardFolderRepositoryMixin:
                 raise CardFolderConflictError("文件夹不能放进自己")
             if next_parent is not None:
                 parent = conn.execute(
-                    "SELECT parent_id FROM card_folders WHERE id = ?", (next_parent,)
+                    "SELECT * FROM card_folders WHERE id = ?", (next_parent,)
                 ).fetchone()
                 if parent is None:
                     raise KeyError(next_parent)
+                if parent["managed_kind"] == "paper_archive_root":
+                    raise CardFolderProtectedError(next_parent)
                 visited = {folder_id}
                 cursor_id: str | None = next_parent
                 while cursor_id is not None:
@@ -132,7 +174,7 @@ class CardFolderRepositoryMixin:
             ).fetchone()
             if folder is None:
                 raise KeyError(folder_id)
-            if folder["is_system"]:
+            if is_protected_card_folder(folder):
                 raise CardFolderProtectedError(folder_id)
             child = conn.execute(
                 "SELECT 1 FROM card_folders WHERE parent_id = ? LIMIT 1", (folder_id,)

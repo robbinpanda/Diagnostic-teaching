@@ -370,6 +370,7 @@ class ExamPaperCreateRequest(BaseModel):
 class ExamPaperPublic(BaseModel):
     id: str
     name: str
+    card_folder_id: str
     session_count: int = 0
     created_at: str
     updated_at: str
@@ -377,6 +378,36 @@ class ExamPaperPublic(BaseModel):
 
 class ExamPaperListResponse(BaseModel):
     papers: list[ExamPaperPublic]
+
+
+class MistakeSetCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80, pattern=r".*\S.*")
+    session_ids: list[str] = Field(min_length=1)
+
+
+class MistakeSetItemPublic(BaseModel):
+    id: str
+    source_session_id: str | None = None
+    source_paper_name: str | None = None
+    title: str
+    problem_text: str
+    problem_image_data_url: str | None = None
+    position: int
+    created_at: str
+
+
+class MistakeSetPublic(BaseModel):
+    id: str
+    name: str
+    items: list[MistakeSetItemPublic]
+    created_at: str
+    updated_at: str
+
+
+class MistakeSetListResponse(BaseModel):
+    mistake_sets: list[MistakeSetPublic]
 
 
 RunStatus = Literal["queued", "running", "completed", "failed", "interrupted"]
@@ -556,6 +587,7 @@ class CardFolderPublic(BaseModel):
     parent_id: str | None = None
     is_system: bool = False
     default_card_type: Literal["knowledge_card", "problem_card"] | None = None
+    managed_kind: Literal["paper_archive_root", "paper_archive"] | None = None
     created_at: str
     updated_at: str
 

@@ -3,6 +3,7 @@ export * from "./api/chat";
 export * from "./api/exam-papers";
 export { API_BASE, ApiResponseError, isApiResponseError } from "./api/http";
 export * from "./api/model-profiles";
+export * from "./api/mistake-sets";
 export * from "./api/problem-images";
 export * from "./api/problem-intake";
 export * from "./api/sessions";
