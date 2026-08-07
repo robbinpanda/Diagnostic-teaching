@@ -10,6 +10,7 @@ import { FolderLocationSelect } from "../components/FolderLocationSelect";
 import { StudyCardModal } from "../components/StudyCardModal";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import { HistoryWorkspace } from "../components/workspace/HistoryWorkspace";
+import { KnowledgeWorkspace } from "../components/workspace/KnowledgeWorkspace";
 import {
   anchoredInteractionScrollTop,
   MessageTimeline,
@@ -298,7 +299,7 @@ test("history workspace renders overview and paper detail from real session meta
     /<button class="historyWorkspaceBack"[\s\S]*?<\/button>/
   )?.[0] ?? "";
 
-  assert.match(overview, /错题合集/);
+  assert.match(overview, /错题卡片库/);
   assert.match(overview, /按试卷回看与整理答疑题目/);
   assert.doesNotMatch(overview, /<h1>历史搜题<\/h1>/);
   assert.match(overview, /搜索试卷或题目/);
@@ -424,6 +425,28 @@ test("workspace sidebar omits session dates and message counts", () => {
   assert.doesNotMatch(result.stdout, /2026年|2026-08|条消息/);
 });
 
+test("knowledge card library owns the migrated learning-card export entry", () => {
+  const markup = renderToStaticMarkup(
+    <KnowledgeWorkspace
+      view={{ mode: "overview" }}
+      cards={[cardFixture]}
+      folders={[knowledgeFolderFixture]}
+      leftOpen
+      onExpandLeft={() => {}}
+      onOpenGroup={() => {}}
+      onBackToOverview={() => {}}
+      onOpenCard={() => {}}
+      onMoveCard={() => {}}
+      onExport={() => {}}
+    />
+  );
+  const exportButton = markup.match(/<button[^>]*historyExportAction[^>]*>/)?.[0] ?? "";
+
+  assert.match(markup, /知识卡片库/);
+  assert.match(markup, /导出知识卡片/);
+  assert.doesNotMatch(exportButton, /disabled=""/);
+});
+
 test("history workspace renders loading empty no-result error and emptied-paper states", () => {
   const loading = renderToStaticMarkup(<HistoryWorkspace {...historyWorkspaceProps} items={[]} historyBusy view={{ mode: "overview" }} />);
   const empty = renderToStaticMarkup(<HistoryWorkspace {...historyWorkspaceProps} items={[]} view={{ mode: "overview" }} />);
@@ -466,7 +489,6 @@ test("workspace header and timeline preserve teaching context labels", () => {
       streamBusy
       problemImageUrl="data:image/png;base64,AAAA"
       onExpandLeft={() => {}}
-      onToggleCards={() => {}}
       onViewProblemImage={() => {}}
     />
   );
@@ -485,7 +507,6 @@ test("workspace header and timeline preserve teaching context labels", () => {
       streamBusy
       progressLabel="正在核对你的思路"
       onExpandLeft={() => {}}
-      onToggleCards={() => {}}
       onViewProblemImage={() => {}}
     />
   );
@@ -815,13 +836,13 @@ test("workspace sidebars render active sessions and filtered cards", () => {
   assert.doesNotMatch(sessions, /lucide-folder/);
   assert.match(sessions, /historyNavigationGroup expanded/);
   assert.ok(sessions.indexOf("historyTree") > sessions.indexOf("historyNavigationRow"));
-  assert.ok(sessions.indexOf("historyTree") < sessions.indexOf('title="知识库"'));
+  assert.ok(sessions.indexOf("historyTree") < sessions.indexOf('title="知识卡片库"'));
   assert.match(sessions, /主要导航/);
   assert.match(sessions, /开始答疑/);
   assert.match(sessions, /历史搜题/);
-  assert.match(sessions, /知识库/);
-  assert.match(sessions, /错题合集/);
-  assert.match(sessions, /错题库/);
+  assert.match(sessions, /知识卡片库/);
+  assert.match(sessions, /错题卡片库/);
+  assert.match(sessions, /错题集/);
   assert.match(sessions, /搜索历史答疑/);
   assert.doesNotMatch(sessions, /条消息/);
   assert.doesNotMatch(sessions, /2026|2025|2024/);
@@ -914,10 +935,10 @@ test("clearing sessions keeps collection ownership or returns a history session 
   assert.match(clearSource, /setHistoryView\(clearingFromCollection \? \{ mode: "overview" \} : null\)/);
   assert.match(clearSource, /setContentNavigation\(clearingFromCollection \? "mistake_collection" : "start"\)/);
   assert.doesNotMatch(clearSource, /setCardLibraryNavigation/);
-  assert.match(clearSource, /setRightOpen\(false\)/);
+  assert.doesNotMatch(clearSource, /setRightOpen/);
 });
 
-test("history quick tree remains while mistake library exposes two canonical children", () => {
+test("history quick tree remains while card libraries are canonical top-level destinations", () => {
   const markup = renderToStaticMarkup(
     <SessionSidebar
       historyItems={historyWorkspaceItems}
@@ -938,12 +959,12 @@ test("history quick tree remains while mistake library exposes two canonical chi
   );
 
   assert.match(markup, /历史搜题/);
-  assert.match(markup, /错题合集/);
-  assert.match(markup, /aria-label="错题库分组"/);
-  assert.match(markup, /aria-label="打开错题集"/);
+  assert.match(markup, /知识卡片库/);
+  assert.match(markup, /错题卡片库/);
+  assert.match(markup, /错题集/);
   assert.match(markup, /<div class="primaryNavButton historyNavigationMain" aria-label="历史搜题导航">/);
   assert.doesNotMatch(markup, /<button[^>]*historyNavigationMain/);
-  assert.doesNotMatch(markup, /aria-label="打开错题库"/);
+  assert.doesNotMatch(markup, /mistakeNavigationGroup|mistakeNavigationChildren|错题库分组/);
   assert.equal((markup.match(/aria-current="page"/g) ?? []).length, 1);
 });
 
@@ -1148,8 +1169,8 @@ test("card save and export dialogs expose folder-based navigation", () => {
       onExport={() => {}}
     />
   );
-  assert.match(exportDialog, /从卡片库导出/);
-  assert.match(exportDialog, /全部卡片/);
+  assert.match(exportDialog, /从知识卡片库导出/);
+  assert.match(exportDialog, /全部知识卡片/);
   assert.match(exportDialog, /默认知识卡片/);
 });
 

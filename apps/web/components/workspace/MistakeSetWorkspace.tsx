@@ -96,7 +96,7 @@ export function MistakeSetWorkspace({
           {busy && mistakeSets.length === 0 ? (
             <div className="historyWorkspaceState"><Loader2 className="spin" size={20} /><strong>正在加载错题集</strong></div>
           ) : mistakeSets.length === 0 ? (
-            <div className="historyWorkspaceState"><strong>还没有错题集</strong><p>在错题合集中多选题目并保存后，会出现在这里。</p></div>
+            <div className="historyWorkspaceState"><strong>还没有错题集</strong><p>在错题卡片库中多选题目并保存后，会出现在这里。</p></div>
           ) : visibleSets.length === 0 ? (
             <div className="historyWorkspaceState"><strong>没有匹配的错题集</strong><p>换一个名称或题目关键词。</p></div>
           ) : (

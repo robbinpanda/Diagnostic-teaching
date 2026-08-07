@@ -104,7 +104,7 @@ test("desktop shell uses the approved atrium proportions", () => {
   );
   assert.match(
     shell,
-    /grid-template-columns:\s*260px minmax\(0, 1fr\) 312px/
+    /grid-template-columns:\s*260px minmax\(0, 1fr\)/
   );
   assert.match(shell, /border-radius:\s*var\(--shell-radius\)/);
 });
@@ -143,7 +143,7 @@ test("conversation keeps measurement hooks while using the bright stage", () => 
   );
 });
 
-test("medium widths use full drawers and preserve responsive card flow", () => {
+test("medium widths keep the session drawer and remove the card-library drawer", () => {
   const css = text("styles/responsive.css");
   const page = text("app/page.tsx");
   const timeline = text("components/workspace/MessageTimeline.tsx");
@@ -154,22 +154,32 @@ test("medium widths use full drawers and preserve responsive card flow", () => {
     css,
     /\.sessionSidebar\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?height:\s*auto;[\s\S]*?width:\s*min\(292px, 88vw\)/
   );
-  assert.match(
-    css,
-    /\.cardSidebar\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?height:\s*auto;[\s\S]*?width:\s*min\(330px, 88vw\)/
-  );
+  assert.doesNotMatch(css, /\.cardSidebar|rightClosed|rightOpen/);
+  assert.doesNotMatch(page, /StudyCardSidebar|cardPanelToggle|rightOpen|setRightOpen/);
   assert.match(page, /matchMedia\("\(max-width: 1319px\)"\)/);
   assert.match(css, /height:\s*100dvh/);
   assert.match(css, /env\(safe-area-inset-top, 0px\)/);
   assert.match(css, /env\(safe-area-inset-bottom, 0px\)/);
   assert.doesNotMatch(css, /\.leftClosed \.sessionSidebar\s*\{[^}]*visibility:\s*visible/);
-  assert.doesNotMatch(css, /\.rightClosed \.cardSidebar\s*\{[^}]*visibility:\s*visible/);
   assert.match(
     css,
     /@media \(min-width: 761px\) and \(max-width: 900px\)[\s\S]*?\.activeKnowledgeCardDock\s*\{[\s\S]*?position:\s*relative/
   );
   assert.match(draggableCard, /matchMedia\("\(min-width: 901px\)"\)/);
   assert.doesNotMatch(timeline, /floatingObstacle|avoidsKnowledgeCard/);
+});
+
+test("knowledge export replaces the removed global card drawer", () => {
+  const page = text("app/page.tsx");
+  const knowledgeWorkspace = text("components/workspace/KnowledgeWorkspace.tsx");
+
+  assert.match(
+    page,
+    /knowledgeLibraryCards[\s\S]*?card\.card_type === "knowledge_card" && Boolean\(card\.saved_at\)/
+  );
+  assert.match(page, /<LearningCardExportDialog[\s\S]*?cards=\{knowledgeLibraryCards\}/);
+  assert.match(knowledgeWorkspace, /onExport[\s\S]*?导出知识卡片/);
+  assert.doesNotMatch(page, /StudyCardSidebar|cardPanelToggle|rightOpen|setRightOpen/);
 });
 
 test("shelf card state machine transfers focus and restores the source trigger", () => {
@@ -197,7 +207,8 @@ test("shelf card state machine transfers focus and restores the source trigger",
   assert.match(page, /shelfCardTriggerRef/);
   assert.match(page, /cardWindowRef\.current\?\.focusHandle\(\)/);
   assert.match(page, /consumeOffsetAndReset\(\)/);
-  assert.match(page, /cardPanelToggleRef/);
+  assert.match(page, /historyWorkspaceNav\[aria-label="展开会话栏"\]/);
+  assert.doesNotMatch(page, /cardPanelToggleRef/);
   assert.match(page, /restoreShelfCardFocus\(\)/);
   assert.match(page, /inert=\{displayedDockCardIsArchived && \(/);
 });
@@ -288,7 +299,7 @@ test("history workspace reuses C4 tokens and responsive paper grids", () => {
   );
   assert.match(
     shell,
-    /\.historyTreeToggle,\s*\.mistakeTreeToggle\s*\{[\s\S]*?width:\s*44px;[\s\S]*?height:\s*44px/
+    /\.historyTreeToggle\s*\{[\s\S]*?width:\s*44px;[\s\S]*?height:\s*44px/
   );
   assert.match(
     shell,

@@ -159,8 +159,8 @@ export function LearningCardExportDialog({ open, cards, folders, onClose, onExpo
         <header className="knowledgeExportHeader">
           <div>
             <span className="knowledgeExportKicker"><FileDown size={14} />EXPORT WORKSPACE</span>
-            <h2 id="learning-card-export-title">从卡片库导出</h2>
-            <p>像浏览文件一样进入文件夹，选择要打印的学习卡片。</p>
+            <h2 id="learning-card-export-title">从知识卡片库导出</h2>
+            <p>像浏览文件一样进入文件夹，选择要打印的知识卡片。</p>
           </div>
           <button aria-label="关闭导出窗口" className="dialogIconButton" onClick={onClose} type="button"><X size={20} /></button>
         </header>
@@ -179,14 +179,14 @@ export function LearningCardExportDialog({ open, cards, folders, onClose, onExpo
               <nav className="exportFolderTree" aria-label="导出文件夹">
                 <button className={`exportFolderTreeItem root${selectedFolderId === null ? " active" : ""}`} type="button" onClick={() => setSelectedFolderId(null)}>
                   {selectedFolderId === null ? <FolderOpen size={15} /> : <Folder size={15} />}
-                  <span>全部卡片</span><small>{learningCards.length}</small>
+                  <span>全部知识卡片</span><small>{learningCards.length}</small>
                 </button>
                 <FolderTreeBranch folders={folders} cards={learningCards} parentId={null} selectedFolderId={selectedFolderId} onOpen={setSelectedFolderId} />
               </nav>
 
               <div className="exportFolderContents">
                 <div className="exportFolderPath">
-                  <button type="button" onClick={() => setSelectedFolderId(null)}>全部卡片</button>
+                  <button type="button" onClick={() => setSelectedFolderId(null)}>全部知识卡片</button>
                   {breadcrumbs.map((folder) => (
                     <span key={folder.id}><ChevronRight size={11} /><button type="button" onClick={() => setSelectedFolderId(folder.id)}>{folder.name}</button></span>
                   ))}

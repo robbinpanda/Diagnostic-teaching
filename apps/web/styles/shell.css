@@ -5,7 +5,7 @@
   height: calc(100dvh - (var(--shell-inset) * 2));
   margin: var(--shell-inset);
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 312px;
+  grid-template-columns: 260px minmax(0, 1fr);
   grid-template-rows: var(--shell-topbar) minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.72);
@@ -16,15 +16,7 @@
 }
 
 .appShell.leftClosed {
-  grid-template-columns: 0 minmax(0, 1fr) 312px;
-}
-
-.appShell.rightClosed {
-  grid-template-columns: 260px minmax(0, 1fr) 0;
-}
-
-.appShell.leftClosed.rightClosed {
-  grid-template-columns: 0 minmax(0, 1fr) 0;
+  grid-template-columns: 0 minmax(0, 1fr);
 }
 
 .appTopbar {
@@ -119,8 +111,7 @@
   background: var(--primary-500);
 }
 
-.sessionSidebar,
-.cardSidebar {
+.sessionSidebar {
   grid-row: 2;
   min-width: 0;
   height: 100%;
@@ -132,12 +123,7 @@
   grid-column: 1;
 }
 
-.cardSidebar {
-  grid-column: 3;
-}
-
-.leftClosed .sessionSidebar,
-.rightClosed .cardSidebar {
+.leftClosed .sessionSidebar {
   visibility: hidden;
   opacity: 0;
 }
@@ -209,8 +195,7 @@
   scrollbar-color: var(--neutral-300) transparent;
 }
 
-.historyNavigationGroup,
-.mistakeNavigationGroup {
+.historyNavigationGroup {
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -268,8 +253,7 @@
   transform: scaleY(1);
 }
 
-.historyNavigationRow,
-.mistakeNavigationRow {
+.historyNavigationRow {
   min-width: 0;
   border-radius: 10px;
   display: grid;
@@ -277,22 +261,19 @@
   align-items: center;
 }
 
-.historyNavigationRow .historyNavigationMain,
-.mistakeNavigationRow .mistakeNavigationMain {
+.historyNavigationRow .historyNavigationMain {
   min-width: 0;
   border-radius: 10px 0 0 10px;
   cursor: default;
 }
 
-.primaryNavigation .historyNavigationMain:hover,
-.primaryNavigation .mistakeNavigationMain:hover {
+.primaryNavigation .historyNavigationMain:hover {
   color: inherit;
   background: transparent;
   transform: none;
 }
 
-.historyTreeToggle,
-.mistakeTreeToggle {
+.historyTreeToggle {
   width: 44px;
   height: 44px;
   border: 0;
@@ -303,24 +284,9 @@
   background: transparent;
 }
 
-.historyTreeToggle:hover,
-.mistakeTreeToggle:hover {
+.historyTreeToggle:hover {
   color: var(--primary-800);
   background: var(--primary-100);
-}
-
-.mistakeNavigationChildren {
-  display: grid;
-  gap: 2px;
-  margin: 2px 0 2px 20px;
-  padding-left: 9px;
-  border-left: 1px solid var(--neutral-200);
-}
-
-.primaryNavigation .mistakeChildNavButton {
-  min-height: 40px;
-  padding-left: var(--space-3);
-  font-size: 13px;
 }
 
 .historyTree {
@@ -584,12 +550,6 @@
   width: 82px;
   padding: 14px 0 28px;
   transition: opacity 180ms var(--ease-standard), transform 180ms var(--ease-standard);
-}
-
-.rightOpen .cardShelfTabs {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(12px);
 }
 
 .cardShelfTabs button {

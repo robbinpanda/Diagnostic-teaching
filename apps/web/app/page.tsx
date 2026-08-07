@@ -34,7 +34,6 @@ import {
   type WorkspaceNavigation
 } from "../components/workspace/SessionSidebar";
 import { MistakeSetWorkspace, type MistakeSetView } from "../components/workspace/MistakeSetWorkspace";
-import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
 import { TutorComposer } from "../components/workspace/TutorComposer";
 import { useModelProfiles } from "../hooks/useModelProfiles";
 import { useMistakeSets } from "../hooks/useMistakeSets";
@@ -270,11 +269,9 @@ export default function Home() {
   const [deleteSessionBusyId, setDeleteSessionBusyId] = useState("");
   const [deleteAllSessionsBusy, setDeleteAllSessionsBusy] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
-  const [rightOpen, setRightOpen] = useState(false);
   const [responsiveReady, setResponsiveReady] = useState(false);
   const [contentNavigation, setContentNavigation] = useState<WorkspaceContentNavigation>("start");
-  const [cardLibraryMode, setCardLibraryMode] = useState<"all" | "knowledge" | "problem">("all");
-  const [learningCardExportOpen, setLearningCardExportOpen] = useState(false);
+  const [knowledgeCardExportOpen, setKnowledgeCardExportOpen] = useState(false);
   const [learningCardPrintJob, setLearningCardPrintJob] = useState<LearningCardPrintJob | null>(null);
   const [mistakeSetPrintJob, setMistakeSetPrintJob] = useState<MistakeSetPrintJob | null>(null);
   const [imageSelection, setImageSelection] = useState<PendingImageSelection | null>(null);
@@ -291,7 +288,6 @@ export default function Home() {
   const historyWorkspaceRef = useRef<HTMLElement | null>(null);
   const knowledgeCardDockRef = useRef<HTMLDivElement | null>(null);
   const cardWindowRef = useRef<DraggableCardWindowHandle | null>(null);
-  const cardPanelToggleRef = useRef<HTMLButtonElement | null>(null);
   const shelfCardOriginRef = useRef<DOMRectReadOnly | null>(null);
   const shelfCardTriggerRef = useRef<HTMLElement | null>(null);
   const sendInFlightKeysRef = useRef(new Set<string>());
@@ -330,7 +326,6 @@ export default function Home() {
     const syncCompactState = (matches: boolean) => {
       if (matches) {
         setLeftOpen(false);
-        setRightOpen(false);
       }
       setResponsiveReady(true);
     };
@@ -439,35 +434,19 @@ export default function Home() {
   const {
     cards,
     folders,
-    currentFolderId,
-    setCurrentFolderId,
-    visibleFolders,
-    visibleCards,
     viewingCard,
     setViewingCard,
     movingCard,
     setMovingCard,
-    clipboard,
-    setClipboard,
     cardBusyId,
-    folderBusyId,
-    pasteBusy,
-    deleteAllCardsBusy,
     refreshCards,
     invalidateCardRefresh,
     upsertCard,
-    createFolder,
-    renameFolder,
-    deleteFolder,
-    moveCardToFolder,
-    pasteCard,
-    deleteCard: handleDeleteCard,
-    deleteAllCards: handleDeleteAllCards
+    moveCardToFolder
   } = cardsState;
   const startBusy = workflow.mode === "composer" && workflow.activity === "start";
   const imageBusy = workflow.mode === "composer" && workflow.activity === "image";
   const stopBusy = workflow.mode === "run" && workflow.phase === "stopping";
-  const anySessionRunning = runningSessionIds.length > 0;
   const activeNavigation: WorkspaceNavigation = contentNavigation;
   const centralWorkspaceActive = Boolean(
     historyView || mistakeSetView || knowledgeView || mistakeExportDraft
@@ -476,6 +455,10 @@ export default function Home() {
   const activeHistory = useMemo(
     () => historyItems.find((item) => item.session_id === sessionId),
     [historyItems, sessionId]
+  );
+  const knowledgeLibraryCards = useMemo(
+    () => cards.filter((card) => card.card_type === "knowledge_card" && Boolean(card.saved_at)),
+    [cards]
   );
   const dockedActiveCard = useMemo(
     () => [...activeCards].reverse().find((card) => (
@@ -532,13 +515,11 @@ export default function Home() {
     openShelfCard(nextCard, origin, trigger);
     if (window.matchMedia("(max-width: 1319px)").matches) {
       setLeftOpen(false);
-      setRightOpen(false);
     }
   }
 
   function cardReturnFallback() {
     const candidates = [
-      cardPanelToggleRef.current,
       document.querySelector<HTMLElement>('.historyWorkspaceNav[aria-label="展开会话栏"]'),
       document.querySelector<HTMLElement>('.primaryNavButton[aria-current="page"]')
     ];
@@ -618,7 +599,6 @@ export default function Home() {
     refreshMistakeSets();
     void refreshExamPapers();
     void restoreWorkspaceAfterRefresh(bootstrapNavigationToken);
-    if (window.innerWidth <= 1319) setRightOpen(false);
     if (window.innerWidth <= 760) setLeftOpen(false);
     // Initial bootstrap only; later refreshes are triggered by explicit mutations.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -738,7 +718,6 @@ export default function Home() {
     setKnowledgeView(null);
     setMistakeExportDraft(null);
     setContentNavigation("history");
-    setRightOpen(false);
     setSelectedProfileId(opened.model_profile_id);
     setGradeBand(opened.grade_band);
     saveActiveSessionId(window.localStorage, opened.session_id);
@@ -1094,7 +1073,6 @@ export default function Home() {
     setKnowledgeView(null);
     setMistakeExportDraft(null);
     setContentNavigation("history");
-    setRightOpen(false);
     closeNavigationOnMobile();
     void handleOpenSession(targetSessionId);
   }
@@ -1106,7 +1084,6 @@ export default function Home() {
     setKnowledgeView(null);
     setMistakeExportDraft(null);
     setContentNavigation("start");
-    setRightOpen(false);
     clearCurrentSessionState();
     closeNavigationOnMobile();
   }
@@ -1135,7 +1112,7 @@ export default function Home() {
         setHistoryView((current) => current?.mode === "paper" && current.paperId === item.paper_id
           ? { mode: "overview" }
           : current);
-        setCollectionNotice(`“${item.paper_name || "这份试卷"}”已没有题目，已返回错题合集。`);
+        setCollectionNotice(`“${item.paper_name || "这份试卷"}”已没有题目，已返回错题卡片库。`);
       }
     } catch (nextError) {
       runtime.setError(nextError instanceof Error ? nextError.message : "删除会话失败");
@@ -1164,7 +1141,6 @@ export default function Home() {
       setExamPapers([]);
       setHistoryView(clearingFromCollection ? { mode: "overview" } : null);
       setContentNavigation(clearingFromCollection ? "mistake_collection" : "start");
-      setRightOpen(false);
       setCollectionNotice(clearingFromCollection
         ? "全部会话与活动试卷已清空，已归档卡片仍会保留。"
         : "");
@@ -1818,7 +1794,7 @@ export default function Home() {
   }
 
   function handleLearningCardExport(selectedCards: StudyCard[], layout: LearningCardExportLayout) {
-    setLearningCardExportOpen(false);
+    setKnowledgeCardExportOpen(false);
     setLearningCardPrintJob({ cards: selectedCards, layout });
   }
 
@@ -1906,14 +1882,14 @@ export default function Home() {
 
   return (
     <>
-    <main className={`appShell ${responsiveReady ? "responsiveReady" : ""} ${leftOpen ? "leftOpen" : "leftClosed"} ${rightOpen ? "rightOpen" : "rightClosed"}`}>
+    <main className={`appShell ${responsiveReady ? "responsiveReady" : ""} ${leftOpen ? "leftOpen" : "leftClosed"}`}>
       <AppTopbar />
-      {(leftOpen || rightOpen) && (
+      {leftOpen && (
         <button
           className="mobileScrim"
           type="button"
           aria-label="关闭侧栏"
-          onClick={() => { setLeftOpen(false); setRightOpen(false); }}
+          onClick={() => setLeftOpen(false)}
         />
       )}
       <SessionSidebar
@@ -1932,7 +1908,6 @@ export default function Home() {
           setContentNavigation(navigation);
           setViewingCard(null);
           setMistakeExportDraft(null);
-          setRightOpen(false);
           if (navigation === "mistake_collection") {
             setHistoryView({ mode: "overview" });
             setMistakeSetView(null);
@@ -2049,13 +2024,13 @@ export default function Home() {
               onBackToOverview={() => setKnowledgeView({ mode: "overview" })}
               onOpenCard={openLibraryCard}
               onMoveCard={setMovingCard}
+              onExport={() => setKnowledgeCardExportOpen(true)}
             />
             {activeCardDock ? <div className="historyCardOverlayStage">{activeCardDock}</div> : null}
           </>
         ) : (
           <>
         <ConversationHeader
-          cardPanelToggleRef={cardPanelToggleRef}
           leftOpen={leftOpen}
           title={activeHistory?.title || "新答疑"}
           sessionId={sessionId}
@@ -2067,10 +2042,6 @@ export default function Home() {
             ? runtime.timeline.run.progress?.label
             : undefined}
           onExpandLeft={() => setLeftOpen(true)}
-          onToggleCards={() => {
-            setCardLibraryMode("all");
-            setRightOpen((value) => !value);
-          }}
           onViewProblemImage={() => {
             if (originalProblemImage) setViewerImageUrl(originalProblemImage);
           }}
@@ -2171,37 +2142,6 @@ export default function Home() {
         )}
       </section>
 
-      <StudyCardSidebar
-        cards={cards}
-        folders={folders}
-        currentFolderId={currentFolderId}
-        visibleFolders={visibleFolders}
-        visibleCards={visibleCards}
-        clipboard={clipboard}
-        cardBusyId={cardBusyId}
-        folderBusyId={folderBusyId}
-        pasteBusy={pasteBusy}
-        deleteAllCardsBusy={deleteAllCardsBusy}
-        composerBlocked={composerBlocked || anySessionRunning}
-        libraryMode={cardLibraryMode}
-        onCollapse={() => {
-          setRightOpen(false);
-        }}
-        onOpenFolder={setCurrentFolderId}
-        onCreateFolder={createFolder}
-        onRenameFolder={renameFolder}
-        onDeleteFolder={(folder) => void deleteFolder(folder)}
-        onOpenCard={openLibraryCard}
-        onCopyCard={(card) => setClipboard((current) => current?.mode === "copy" && current.card.id === card.id ? null : { card, mode: "copy" })}
-        onCutCard={(card) => setClipboard((current) => current?.mode === "cut" && current.card.id === card.id ? null : { card, mode: "cut" })}
-        onClearClipboard={() => setClipboard(null)}
-        onPasteCard={() => void pasteCard()}
-        onMoveCard={setMovingCard}
-        onDeleteCard={handleDeleteCard}
-        onExport={() => setLearningCardExportOpen(true)}
-        onDeleteAllCards={handleDeleteAllCards}
-      />
-
       <ModelConfigDialog
         open={dialogOpen}
         profile={editingProfile}
@@ -2228,10 +2168,10 @@ export default function Home() {
         <ProblemImageViewer imageUrl={viewerImageUrl} onClose={() => setViewerImageUrl(null)} />
       )}
       <LearningCardExportDialog
-        cards={cards}
+        cards={knowledgeLibraryCards}
         folders={folders}
-        open={learningCardExportOpen}
-        onClose={() => setLearningCardExportOpen(false)}
+        open={knowledgeCardExportOpen}
+        onClose={() => setKnowledgeCardExportOpen(false)}
         onExport={handleLearningCardExport}
       />
       <CardMoveDialog

@@ -254,7 +254,7 @@ checkpoint 类似一次需要结果的调用，但结果来自学生，而不是
 
 生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null` 并预绑定默认文件夹：有试卷归属时使用该试卷稳定的“按试卷归档 / `<试卷名>`”目录，无试卷归属时使用对应卡片类型的系统默认目录；`study_cards.folder_id` 与 `card.ready.folder_id` 必须一致。知识卡片随消息时间线内嵌展示，保存时带最终 `content/folder_id` 的 `CARD_DISMISSED_CONTINUE` 原子更新内容、位置与归档时间；二次确认舍弃会写控制命令后删除待归档卡片。Problem card 选择位置后只归档、不继续。客户端可以为当前卡片改选其他目录；未显式选择时后端依次沿用卡片已有目录和类型默认目录。刚生成且尚未 deferred 的当前卡片仍会阻止无新增学生输入的直接续跑；一旦学生发送新消息并原子写入 `deferred_at`，该卡片不再限制后续生成。
 
-全局卡片库中的查看不属于阻塞教学工作流。知识库中央页按受管试卷目录分组展示已归档 knowledge card，进入试卷后展示知识点；右侧完整卡片管理器仍可查看两种卡片。待归档与已归档的 knowledge/problem card 都能选择新的试卷目录；新建试卷时复用 `POST /api/exam-papers` 创建实体和受管目录。已归档 knowledge card 可在浮动窗口中编辑并通过 `PUT /api/cards/{id}` 更新，已归档卡片的位置通过 move 接口更新。
+全局卡片库中的查看不属于阻塞教学工作流。知识卡片库中央页按受管试卷目录分组展示已归档 knowledge card，进入试卷后展示知识点，并提供只针对已归档 knowledge card 的原样式导出弹窗；答疑页不再提供右侧完整卡片管理器入口。待归档与已归档的 knowledge/problem card 仍能在卡片交互中选择新的试卷目录；新建试卷时复用 `POST /api/exam-papers` 创建实体和受管目录。已归档 knowledge card 可在浮动窗口中编辑并通过 `PUT /api/cards/{id}` 更新，已归档卡片的位置通过 move 接口更新。
 
 Checkpoint 同样嵌入消息时间线，只有点击“提交答案”才调用 answer 接口。
 
@@ -272,7 +272,7 @@ DELETE /api/cards/{card_id}
 
 `DELETE /api/cards` 会清空全部已归档和待归档卡片，但不删除 session、message、checkpoint 或日志。清理在 `BEGIN IMMEDIATE` 事务内复查 `session_runs`；任一 run 仍为 `queued/running` 时整体返回 409，不依赖浏览器流是否仍连接，也不会删除部分卡片。`session_id` 仍保存在卡片记录中作为来源审计字段，但全局卡片库的查询与删除不依赖当前会话。删除 session 或删除其最后一条引用后同步清理试卷实体，都不会清空已归档卡片或受管试卷目录；该 session 的 `saved_at=null` 卡片则随会话删除。其余多张待归档卡片通过 `pending_cards` 恢复到各自的消息锚点，但不会形成生成锁。
 
-错题合集导出不改变 session 或 card 工作流。`POST /api/mistake-sets` 接收有序 `session_ids`，在单个 SQLite 写事务中把题目文字、原始题图和来源试卷名称复制到 `mistake_set_items`；`GET /api/mistake-sets` 和 `GET /api/mistake-sets/{id}` 只读取该快照。`source_session_id` 删除时置空，已经保存或打印的错题集仍可恢复并再次打印。
+错题卡片库导出不改变 session 或 card 工作流。`POST /api/mistake-sets` 接收有序 `session_ids`，在单个 SQLite 写事务中把题目文字、原始题图和来源试卷名称复制到 `mistake_set_items`；`GET /api/mistake-sets` 和 `GET /api/mistake-sets/{id}` 只读取该快照。`source_session_id` 删除时置空，已经保存或打印的错题集仍可恢复并再次打印。
 
 ## 9. SSE 事件顺序与 durable 边界
 

@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Archive,
   BookOpen,
   ChevronDown,
   ChevronLeft,
@@ -68,7 +67,6 @@ export function SessionSidebar({
 }: Props) {
   const runningSessions = new Set(runningSessionIds);
   const [historyExpanded, setHistoryExpanded] = useState(true);
-  const [mistakeLibraryExpanded, setMistakeLibraryExpanded] = useState(true);
   const [historyQuery, setHistoryQuery] = useState("");
   const [expandedPaperIds, setExpandedPaperIds] = useState<Set<string>>(new Set());
   const normalizedQuery = historyQuery.trim().toLocaleLowerCase("zh-CN");
@@ -200,53 +198,30 @@ export function SessionSidebar({
             </section>
           ) : null}
         </div>
-        <button className={`primaryNavButton ${activeNavigation === "knowledge" ? "active" : ""}`} type="button" onClick={() => navigate("knowledge")} aria-current={activeNavigation === "knowledge" ? "page" : undefined} title="知识库">
+        <button className={`primaryNavButton ${activeNavigation === "knowledge" ? "active" : ""}`} type="button" onClick={() => navigate("knowledge")} aria-current={activeNavigation === "knowledge" ? "page" : undefined} title="知识卡片库">
           <BookOpen size={20} />
-          <span className="sidebarNavLabel">知识库</span>
+          <span className="sidebarNavLabel">知识卡片库</span>
         </button>
-        <div className={`mistakeNavigationGroup ${mistakeLibraryExpanded ? "expanded" : ""}`}>
-          <div className="mistakeNavigationRow">
-            <div className="primaryNavButton mistakeNavigationMain" aria-label="错题库分组">
-              <Archive size={20} />
-              <span className="sidebarNavLabel">错题库</span>
-            </div>
-            <button
-              className="mistakeTreeToggle"
-              type="button"
-              onClick={() => setMistakeLibraryExpanded((value) => !value)}
-              aria-expanded={mistakeLibraryExpanded}
-              aria-label={mistakeLibraryExpanded ? "收起错题库下级" : "展开错题库下级"}
-              title={mistakeLibraryExpanded ? "收起错题库下级" : "展开错题库下级"}
-            >
-              {mistakeLibraryExpanded ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
-            </button>
-          </div>
-          {mistakeLibraryExpanded ? (
-            <div className="mistakeNavigationChildren">
-              <button
-                className={`primaryNavButton mistakeChildNavButton ${activeNavigation === "mistake_collection" ? "active" : ""}`}
-                type="button"
-                onClick={() => navigate("mistake_collection")}
-                aria-current={activeNavigation === "mistake_collection" ? "page" : undefined}
-                title="错题合集"
-              >
-                <Files size={18} />
-                <span className="sidebarNavLabel">错题合集</span>
-              </button>
-              <button
-                className={`primaryNavButton mistakeChildNavButton ${activeNavigation === "mistake_sets" ? "active" : ""}`}
-                type="button"
-                onClick={() => navigate("mistake_sets")}
-                aria-current={activeNavigation === "mistake_sets" ? "page" : undefined}
-                aria-label="打开错题集"
-                title="打开错题集"
-              >
-                <NotebookTabs size={18} />
-                <span className="sidebarNavLabel">错题集</span>
-              </button>
-            </div>
-          ) : null}
-        </div>
+        <button
+          className={`primaryNavButton ${activeNavigation === "mistake_collection" ? "active" : ""}`}
+          type="button"
+          onClick={() => navigate("mistake_collection")}
+          aria-current={activeNavigation === "mistake_collection" ? "page" : undefined}
+          title="错题卡片库"
+        >
+          <Files size={20} />
+          <span className="sidebarNavLabel">错题卡片库</span>
+        </button>
+        <button
+          className={`primaryNavButton ${activeNavigation === "mistake_sets" ? "active" : ""}`}
+          type="button"
+          onClick={() => navigate("mistake_sets")}
+          aria-current={activeNavigation === "mistake_sets" ? "page" : undefined}
+          title="错题集"
+        >
+          <NotebookTabs size={20} />
+          <span className="sidebarNavLabel">错题集</span>
+        </button>
       </nav>
 
       <div className="sidebarFooterNote">

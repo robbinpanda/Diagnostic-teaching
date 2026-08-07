@@ -79,7 +79,7 @@ test("drag styles preserve outer FLIP and collapse safely at 900px", () => {
   assert.doesNotMatch(responsive, /\.cardWindowDragHandle\b/);
 });
 
-test("card launchers expose their exact trigger and origin rectangle", () => {
+test("card launchers expose their exact trigger while the conversation header omits the removed drawer toggle", () => {
   const shelf = source("components/workspace/CardShelfTabs.tsx");
   const sidebar = source("components/workspace/StudyCardSidebar.tsx");
   const header = source("components/workspace/ConversationHeader.tsx");
@@ -93,8 +93,7 @@ test("card launchers expose their exact trigger and origin rectangle", () => {
     /onOpenCard\(card, event\.currentTarget\.getBoundingClientRect\(\), event\.currentTarget\)/
   );
   assert.match(sidebar, /data-library-card-id=\{card\.id\}/);
-  assert.match(header, /cardPanelToggleRef/);
-  assert.match(header, /ref=\{cardPanelToggleRef\}/);
+  assert.doesNotMatch(header, /cardPanelToggle|切换卡片栏|onToggleCards/);
 });
 
 test("library cards keep their source ids in rendered markup", () => {
@@ -131,7 +130,7 @@ test("library cards keep their source ids in rendered markup", () => {
   assert.match(markup, new RegExp(`data-library-card-id="${cardFixture.id}"`));
 });
 
-test("conversation header accepts a stable fallback focus ref", () => {
+test("conversation header no longer renders the card drawer control", () => {
   const markup = renderToStaticMarkup(
     <ConversationHeader
       leftOpen
@@ -139,12 +138,10 @@ test("conversation header accepts a stable fallback focus ref", () => {
       sessionId="session-a"
       gradeBand="junior"
       streamBusy={false}
-      cardPanelToggleRef={{ current: null }}
       onExpandLeft={() => {}}
-      onToggleCards={() => {}}
       onViewProblemImage={() => {}}
     />
   );
 
-  assert.match(markup, /aria-label="切换卡片栏"/);
+  assert.doesNotMatch(markup, /切换卡片栏|cardPanelToggle/);
 });

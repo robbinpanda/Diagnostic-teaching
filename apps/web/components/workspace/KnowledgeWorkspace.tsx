@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, BookOpen, ChevronRight, FolderInput, Search } from "lucide-react";
+import { ArrowLeft, BookOpen, ChevronRight, FileDown, FolderInput, Search } from "lucide-react";
 import { useMemo, useState, type Ref } from "react";
 
 import type { CardFolder, StudyCard } from "../../lib/api";
@@ -24,6 +24,7 @@ type Props = {
   onBackToOverview: () => void;
   onOpenCard: (card: StudyCard, origin: DOMRectReadOnly, trigger: HTMLButtonElement) => void;
   onMoveCard: (card: StudyCard) => void;
+  onExport: () => void;
 };
 
 const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
@@ -44,7 +45,8 @@ export function KnowledgeWorkspace({
   onOpenGroup,
   onBackToOverview,
   onOpenCard,
-  onMoveCard
+  onMoveCard,
+  onExport
 }: Props) {
   const [query, setQuery] = useState("");
   const groups = useMemo(() => buildKnowledgePaperGroups(cards, folders), [cards, folders]);
@@ -62,7 +64,7 @@ export function KnowledgeWorkspace({
     : [];
 
   return (
-    <section ref={workspaceRef} className="historyWorkspace" aria-label="知识库工作区">
+    <section ref={workspaceRef} className="historyWorkspace" aria-label="知识卡片库工作区">
       <header className={`historyWorkspaceHeader${view.mode === "paper" ? " historyWorkspaceHeaderDetail" : ""}`}>
         {leftOpen ? null : (
           <button className="historyWorkspaceNav" type="button" onClick={onExpandLeft} aria-label="展开会话栏">
@@ -70,19 +72,25 @@ export function KnowledgeWorkspace({
           </button>
         )}
         {view.mode === "paper" ? (
-          <button className="historyWorkspaceBack" type="button" onClick={onBackToOverview} aria-label="返回知识库全部试卷">
+          <button className="historyWorkspaceBack" type="button" onClick={onBackToOverview} aria-label="返回知识卡片库全部试卷">
             <ArrowLeft size={18} />
           </button>
         ) : null}
         <div className="historyWorkspaceTitle">
-          <h1>{selectedGroup?.name || "知识库"}</h1>
+          <h1>{selectedGroup?.name || "知识卡片库"}</h1>
           <p>{selectedGroup ? `${selectedGroup.cards.length} 个知识点` : "按试卷整理已收纳知识卡片"}</p>
         </div>
-        <label className="historyWorkspaceSearch">
-          <Search size={17} />
-          <span className="srOnly">搜索试卷或知识点</span>
-          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索试卷或知识点" />
-        </label>
+        <div className="historyWorkspaceToolbar">
+          <button className="historyWorkspaceAction historyExportAction" type="button" onClick={onExport} disabled={groups.length === 0}>
+            <FileDown size={16} />
+            导出知识卡片
+          </button>
+          <label className="historyWorkspaceSearch">
+            <Search size={17} />
+            <span className="srOnly">搜索试卷或知识点</span>
+            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索试卷或知识点" />
+          </label>
+        </div>
       </header>
       <div className="historyWorkspaceBody">
         <div className="historyWorkspaceBodyInner">
@@ -111,7 +119,7 @@ export function KnowledgeWorkspace({
               </div>
             )
           ) : !selectedGroup ? (
-            <div className="historyWorkspaceState"><strong>这份知识归档已经不存在</strong><button className="historyWorkspaceAction" type="button" onClick={onBackToOverview}>返回知识库</button></div>
+            <div className="historyWorkspaceState"><strong>这份知识归档已经不存在</strong><button className="historyWorkspaceAction" type="button" onClick={onBackToOverview}>返回知识卡片库</button></div>
           ) : visibleCards.length === 0 ? (
             <div className="historyWorkspaceState"><strong>没有匹配的知识点</strong><p>清除搜索后查看全部内容。</p></div>
           ) : (

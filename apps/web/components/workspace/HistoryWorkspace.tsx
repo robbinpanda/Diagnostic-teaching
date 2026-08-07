@@ -136,7 +136,7 @@ export function HistoryWorkspace({
   const loadFailedWithoutContent = Boolean(historyLoadError) && items.length === 0;
 
   return (
-    <section ref={workspaceRef} className="historyWorkspace" aria-label="错题合集工作区" aria-busy={historyBusy}>
+    <section ref={workspaceRef} className="historyWorkspace" aria-label="错题卡片库工作区" aria-busy={historyBusy}>
       <header
         className={`historyWorkspaceHeader${view.mode === "paper" ? " historyWorkspaceHeaderDetail" : ""}`}
       >
@@ -164,7 +164,7 @@ export function HistoryWorkspace({
         ) : null}
 
         <div className="historyWorkspaceTitle">
-          <h1>{view.mode === "overview" ? "错题合集" : detailPaperName}</h1>
+          <h1>{view.mode === "overview" ? "错题卡片库" : detailPaperName}</h1>
           <p>
             {view.mode === "overview"
               ? "按试卷回看与整理答疑题目"
@@ -211,7 +211,7 @@ export function HistoryWorkspace({
           {view.mode === "overview" ? (
             <select
               className="historyWorkspaceSort"
-              aria-label="错题合集排序"
+              aria-label="错题卡片库排序"
               value={sortMode}
               onChange={(event) => onSortModeChange(event.target.value as HistorySortMode)}
             >
@@ -266,7 +266,7 @@ export function HistoryWorkspace({
 
           {loadFailedWithoutContent ? (
             <div className="historyWorkspaceState" role="alert">
-              <strong>错题合集加载失败</strong>
+              <strong>错题卡片库加载失败</strong>
               <p>{historyLoadError}</p>
               <button className="historyWorkspaceAction" type="button" onClick={onRetry}>
                 <RefreshCw size={17} />
@@ -275,7 +275,7 @@ export function HistoryWorkspace({
             </div>
           ) : view.mode === "overview" ? (
             historyBusy && items.length === 0 ? (
-              <div className="historySkeletonGrid" aria-label="正在加载错题合集">
+              <div className="historySkeletonGrid" aria-label="正在加载错题卡片库">
                 {historySkeletonIds.map((id) => (
                   <div className="historyPaperSkeleton" key={id} aria-hidden="true" />
                 ))}
@@ -355,7 +355,7 @@ export function HistoryWorkspace({
           ) : historyBusy && items.length === 0 ? (
             <div className="historyWorkspaceState">
               <Loader2 size={20} className="spin" />
-              <strong>正在加载错题合集</strong>
+              <strong>正在加载错题卡片库</strong>
             </div>
           ) : !selectedGroup ? (
             <div className="historyWorkspaceState">
