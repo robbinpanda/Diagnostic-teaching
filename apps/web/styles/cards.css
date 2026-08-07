@@ -4,7 +4,7 @@
   gap: var(--space-3);
   padding: var(--space-4) var(--space-3) var(--space-3);
   border-left: 1px solid var(--stage-line);
-  background: var(--stage-wing);
+  background: var(--panda-canvas);
   box-shadow: -12px 0 30px rgba(54, 70, 57, 0.035);
   backdrop-filter: blur(10px);
 }

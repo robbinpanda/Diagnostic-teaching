@@ -91,6 +91,13 @@ export function TutorComposer({
       : speechPhase === "transcribing"
         ? "SenseVoiceSmall 正在确认最终文字"
         : "使用本地 SenseVoiceSmall 实时语音输入";
+  const speechStatus = speechPhase === "requesting"
+    ? "正在启动麦克风和本地 SenseVoiceSmall"
+    : speechPhase === "recording"
+      ? `实时转写中，已录制 ${speechElapsedSeconds.toFixed(1)} 秒`
+      : speechPhase === "transcribing"
+        ? "SenseVoiceSmall 正在确认最后一段语音"
+        : "";
   return (
     <div className="composerDock">
       {error && <div className="inlineError"><span>{error}</span><button type="button" onClick={onClearError}><X size={15} /></button></div>}
@@ -208,17 +215,7 @@ export function TutorComposer({
           </button>
         </div>
       </div>
-      <p className={`composerHint${speechPhase === "recording" ? " recording" : ""}`}>
-        {speechPhase === "requesting"
-          ? "正在启动麦克风和本地 SenseVoiceSmall…"
-          : speechPhase === "recording"
-            ? `实时转写中 ${speechElapsedSeconds.toFixed(1)} 秒 · 不限时 · 思考停顿 2.5 秒后确认 · 再点一次停止`
-            : speechPhase === "transcribing"
-              ? "SenseVoiceSmall 正在确认最后一段语音…"
-              : sessionId
-                ? "Enter 发送 · 麦克风本地准实时转写 · 可随时粘贴或上传补充图片"
-                : "Enter 发送 · 麦克风本地准实时转写 · 首张图片确认框选后按题目数创建答疑"}
-      </p>
+      <span className="srOnly" role="status" aria-live="polite">{speechStatus}</span>
     </div>
   );
 }

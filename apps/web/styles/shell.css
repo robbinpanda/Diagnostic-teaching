@@ -10,7 +10,7 @@
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: var(--shell-radius);
-  background: rgba(255, 255, 248, 0.92);
+  background: var(--panda-canvas);
   box-shadow: var(--stage-shadow);
   transition: grid-template-columns 200ms var(--ease-standard);
 }
@@ -546,6 +546,10 @@
   display: grid;
   grid-template-rows: 56px minmax(0, 1fr) auto;
   background: var(--stage-canvas);
+}
+
+.conversationPanel.welcomeConversationPanel {
+  grid-template-rows: minmax(0, 1fr) auto;
 }
 
 .cardShelfTabs {

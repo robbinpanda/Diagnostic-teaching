@@ -64,7 +64,7 @@ test("problem flashcards preserve the original back-face teaching fields", () =>
   );
 });
 
-test("C4 bright atrium tokens, folders, and ambient grain are wired", () => {
+test("panda ivory canvas, folders, and ambient grain are wired", () => {
   const layout = text("app/layout.tsx");
   const base = text("styles/base.css");
   const shell = text("styles/shell.css");
@@ -79,10 +79,12 @@ test("C4 bright atrium tokens, folders, and ambient grain are wired", () => {
   assert.match(base, /--stage-yellow:\s*#e9b72d/i);
   assert.match(base, /--stage-yellow-soft:\s*#fff0a8/i);
   assert.match(base, /--stage-yellow-ink:\s*#765400/i);
-  assert.match(base, /rgba\(105, 204, 105, 0\.68\)/);
-  assert.match(base, /rgba\(183, 168, 212, 0\.58\)/);
-  assert.match(base, /linear-gradient\(122deg, #c6edc3 0%, #fffce9 51%, #eae4f5 100%\)/i);
+  assert.match(base, /--panda-canvas:\s*#f7f4ea/i);
+  assert.match(base, /--stage-canvas:\s*var\(--panda-canvas\)/i);
+  assert.match(base, /body\s*\{[\s\S]*?background:\s*var\(--panda-canvas\)/i);
+  assert.doesNotMatch(base, /linear-gradient\(122deg, #c6edc3/i);
   assert.match(base, /url\(["']?\/ambient-grain\.webp/);
+  assert.match(cards, /\.cardSidebar\s*\{[\s\S]*?background:\s*var\(--panda-canvas\)/);
   assert.match(
     cards,
     /\.cardIcon\.problem\s*\{[\s\S]*?color:\s*var\(--stage-yellow-ink\);[\s\S]*?background:\s*var\(--stage-yellow-soft\);/

@@ -53,7 +53,8 @@
   --stage-yellow: #e9b72d;
   --stage-yellow-soft: #fff0a8;
   --stage-yellow-ink: #765400;
-  --stage-canvas: #fffef8;
+  --panda-canvas: #f7f4ea;
+  --stage-canvas: var(--panda-canvas);
   --stage-wing: rgba(249, 255, 245, 0.84);
   --stage-line: rgba(30, 94, 43, 0.14);
   --stage-shadow: 0 28px 80px rgba(35, 92, 46, 0.2);
@@ -90,10 +91,7 @@ body {
 body {
   margin: 0;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 6% 2%, rgba(105, 204, 105, 0.68), transparent 38%),
-    radial-gradient(circle at 96% 100%, rgba(183, 168, 212, 0.58), transparent 40%),
-    linear-gradient(122deg, #c6edc3 0%, #fffce9 51%, #eae4f5 100%);
+  background: var(--panda-canvas);
   color: var(--ink);
   font-family: "Segoe UI Variable", "HarmonyOS Sans SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;

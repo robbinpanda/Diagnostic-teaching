@@ -1,17 +1,15 @@
 import {
   BookOpen,
-  Bot,
-  Camera,
   ChevronDown,
   ClipboardCheck,
-  MessageCircleMore,
-  PencilLine,
   RotateCcw
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { ChatMessage } from "../../lib/timeline";
 import { CheckpointModal } from "../CheckpointModal";
 import { MathText } from "../MathText";
+import { PandaAvatar } from "./PandaArtwork";
+import { PandaWelcome } from "./PandaWelcome";
 
 const ACTION_LABELS: Record<string, string> = {
   ASK_OPEN_QUESTION: "开放提问",
@@ -44,6 +42,8 @@ type Props = {
   retryableMessageId?: string | null;
   retryBusy?: boolean;
   onRetryMessage?: (message: ChatMessage) => void;
+  welcomePhase?: "visible" | "leaving" | "hidden";
+  onWelcomeTransitionComplete?: () => void;
 };
 
 export function anchoredInteractionScrollTop(
@@ -150,14 +150,83 @@ export function MessageTimeline({
   onOpenImage,
   retryableMessageId,
   retryBusy = false,
-  onRetryMessage
+  onRetryMessage,
+  welcomePhase = "hidden",
+  onWelcomeTransitionComplete
 }: Props) {
+  const welcomeCharacterRef = useRef<SVGGElement | null>(null);
+  const handoffTargetRef = useRef<HTMLDivElement | null>(null);
+  const completedHandoffRef = useRef(false);
+  const transitionCompleteRef = useRef(onWelcomeTransitionComplete);
   const internalViewportRef = useRef<HTMLDivElement | null>(null);
   const resolvedViewportRef = viewportRef ?? internalViewportRef;
   const [pastInteractionIds, setPastInteractionIds] = useState<string[]>([]);
   const [forceExpandedIds, setForceExpandedIds] = useState<string[]>([]);
   const returnCallbacks = useRef(new Map<string, () => void>());
   const pinnedInteractions = anchoredInteractions.filter((item) => pastInteractionIds.includes(item.id));
+  const latestAssistantId = messages.findLast((message) => message.role === "assistant")?.id;
+  const firstAssistantId = messages.find((message) => message.role === "assistant")?.id;
+
+  useEffect(() => {
+    transitionCompleteRef.current = onWelcomeTransitionComplete;
+  }, [onWelcomeTransitionComplete]);
+
+  useEffect(() => {
+    if (welcomePhase === "visible") completedHandoffRef.current = false;
+  }, [welcomePhase]);
+
+  useLayoutEffect(() => {
+    if (welcomePhase !== "leaving" || !firstAssistantId || completedHandoffRef.current) return;
+    const source = welcomeCharacterRef.current;
+    const target = handoffTargetRef.current;
+    if (!source || !target) return;
+    completedHandoffRef.current = true;
+
+    const sourceRect = source.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (
+      reducedMotion
+      || sourceRect.width <= 0
+      || targetRect.width <= 0
+      || typeof target.animate !== "function"
+    ) {
+      transitionCompleteRef.current?.();
+      return;
+    }
+
+    const sourceCenterX = sourceRect.left + sourceRect.width / 2;
+    const sourceCenterY = sourceRect.top + sourceRect.height / 2;
+    const targetCenterX = targetRect.left + targetRect.width / 2;
+    const targetCenterY = targetRect.top + targetRect.height / 2;
+    const scale = sourceRect.width / targetRect.width;
+    source.style.opacity = "0";
+    target.classList.add("pandaAvatarHandoff");
+    const animation = target.animate(
+      [
+        {
+          transform: `translate3d(${sourceCenterX - targetCenterX}px, ${sourceCenterY - targetCenterY}px, 0) scale(${scale})`,
+          opacity: 1
+        },
+        { transform: "translate3d(0, 0, 0) scale(1)", opacity: 1 }
+      ],
+      { duration: 720, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "both" }
+    );
+    let cancelled = false;
+    animation.finished
+      .catch(() => undefined)
+      .then(() => {
+        if (cancelled) return;
+        target.classList.remove("pandaAvatarHandoff");
+        transitionCompleteRef.current?.();
+      });
+    return () => {
+      cancelled = true;
+      animation.cancel();
+      source.style.removeProperty("opacity");
+      target.classList.remove("pandaAvatarHandoff");
+    };
+  }, [firstAssistantId, welcomePhase]);
 
   const handlePastChange = useCallback((id: string, past: boolean) => {
     setPastInteractionIds((ids) => past
@@ -194,6 +263,9 @@ export function MessageTimeline({
   const anchoredSourceIds = new Set(messages.map((message) => message.actionId));
   return (
     <div className="messageViewport" ref={resolvedViewportRef}>
+      {welcomePhase !== "hidden" ? (
+        <PandaWelcome phase={welcomePhase} characterRef={welcomeCharacterRef} />
+      ) : null}
       <div className="messageColumn">
         {pinnedInteractions.length > 0 && (
           <nav className="pinnedCardStack" aria-label="已折叠的待处理卡片">
@@ -209,33 +281,18 @@ export function MessageTimeline({
             ))}
           </nav>
         )}
-        {messages.length === 0 && !interaction && (
-          <div className="welcomeState">
-            <div className="welcomeCopy">
-              <h1>今天想解决什么问题？</h1>
-              <p>上传或输入题目，AI 会循着你的思路逐步分析，陪你真正弄懂每一道题。</p>
-              <div className="welcomeExamples" aria-label="支持的答疑方式">
-                <span><Camera size={16} />拍照 / 上传题目</span>
-                <span><PencilLine size={16} />输入题目</span>
-                <span><MessageCircleMore size={16} />连续追问</span>
-              </div>
-            </div>
-            <div className="knowledgeOrbit" aria-hidden="true">
-              <span className="orbit orbitOne" />
-              <span className="orbit orbitTwo" />
-              <span className="orbitDot dotOne" />
-              <span className="orbitDot dotTwo" />
-              <span className="orbitDot dotThree" />
-              <span className="paperShape paperOne" />
-              <span className="paperShape paperTwo" />
-            </div>
-          </div>
-        )}
-
-        {messages.map((message) => (<div className="timelineEntry" key={message.id}>
+        {messages.map((message) => {
+          const isAssistant = message.role === "assistant";
+          const isLatestAssistant = message.id === latestAssistantId;
+          const isHandoffTarget = welcomePhase === "leaving" && message.id === firstAssistantId;
+          return (<div className="timelineEntry" key={message.id}>
           <article className={`chatMessage ${message.role} ${message.checkpointResult ? "checkpointResponseMessage" : ""}`.trim()}>
-            <div className="messageAvatar">
-              {message.role === "assistant" ? <Bot size={17} /> : message.role === "student" ? "你" : "·"}
+            <div
+              className={`messageAvatar${isAssistant ? " pandaMessageAvatar" : ""}${isLatestAssistant && message.streamState === "streaming" ? " pandaAvatarHop" : ""}`}
+              ref={isHandoffTarget ? handoffTargetRef : undefined}
+              aria-label={isAssistant ? "熊猫助教" : undefined}
+            >
+              {isAssistant ? <PandaAvatar /> : message.role === "student" ? "你" : "·"}
             </div>
             <div className="messageBody">
               {message.checkpointResult ? (
@@ -281,7 +338,8 @@ export function MessageTimeline({
             </div>
           )}
           {anchoredNodesFor(message.actionId)}
-        </div>))}
+        </div>);
+        })}
         {anchoredInteractions
           .filter((item) => !anchoredSourceIds.has(item.sourceActionId))
           .map((item) => (
