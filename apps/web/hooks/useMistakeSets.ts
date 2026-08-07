@@ -34,11 +34,11 @@ export function useMistakeSets({ onError, onClearError }: Options) {
     }
   }, [onError]);
 
-  const saveMistakeSet = useCallback(async (name: string, sessionIds: string[]) => {
+  const saveMistakeSet = useCallback(async (name: string, cardIds: string[]) => {
     onClearError();
     setMistakeSetSaveBusy(true);
     try {
-      const created = await createMistakeSet({ name, session_ids: sessionIds });
+      const created = await createMistakeSet({ name, card_ids: cardIds });
       mutationRef.current += 1;
       requestRef.current += 1;
       setMistakeSets((current) => [created, ...current.filter((item) => item.id !== created.id)]);

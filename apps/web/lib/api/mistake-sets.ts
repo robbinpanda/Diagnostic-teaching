@@ -12,7 +12,7 @@ export async function fetchMistakeSets(): Promise<MistakeSet[]> {
 
 export async function createMistakeSet(input: {
   name: string;
-  session_ids: string[];
+  card_ids: string[];
 }): Promise<MistakeSet> {
   const response = await fetch(`${API_BASE}/api/mistake-sets`, {
     method: "POST",

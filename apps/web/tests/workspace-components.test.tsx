@@ -94,34 +94,67 @@ const historyWorkspaceItems: SessionHistoryItem[] = [
   }
 ];
 
+function historyProblemCard(sessionId: string, title: string, savedAt: string): StudyCard {
+  return {
+    id: `problem-card-${sessionId}`,
+    session_id: sessionId,
+    card_type: "problem_card",
+    source_action_id: `action-${sessionId}`,
+    source_message_id: `message-${sessionId}`,
+    folder_id: "paper-a",
+    content: {
+      type: "problem_card",
+      title,
+      problem_summary: `${title}的题目摘要`,
+      solution_overview: "先识别关系，再完成计算。",
+      solution_steps: [{ step: 1, title: "建立关系", reasoning: "根据题意。", result: "得到关键等式" }],
+      how_to_think: ["先找不变量"],
+      pitfalls: ["注意单位"],
+      final_answer: "答案"
+    },
+    created_at: savedAt,
+    saved_at: savedAt
+  };
+}
+
+const historyProblemCards = [
+  historyProblemCard("session-current", "当前题目", "2026-08-03T00:00:00Z"),
+  historyProblemCard("session-delete", "可删除题目", "2026-08-01T00:00:00Z")
+];
+
+const historyProblemFolder: CardFolder = {
+  id: "paper-a",
+  name: "期中数学卷",
+  parent_id: "paper-archive-root",
+  is_system: false,
+  default_card_type: null,
+  managed_kind: "paper_archive",
+  created_at: "2026-08-01T00:00:00Z",
+  updated_at: "2026-08-03T00:00:00Z"
+};
+
 const historyWorkspaceProps = {
-  items: historyWorkspaceItems,
+  cards: historyProblemCards,
+  folders: [historyProblemFolder],
   overviewQuery: "",
   sortMode: "recent" as const,
-  selectedPaperName: "期中数学卷",
-  historyBusy: false,
-  historyLoadError: "",
   actionError: "",
   leftOpen: true,
-  activeSessionId: "session-current",
-  runningSessionIds: ["session-running"],
-  openSessionBusyId: "",
-  deleteSessionBusyId: "",
+  cardBusyId: "",
   onExpandLeft: () => {},
   onOverviewQueryChange: () => {},
   onSortModeChange: () => {},
   onOpenPaper: () => {},
   onBackToOverview: () => {},
-  onOpenSession: () => {},
-  onDeleteSession: () => {},
+  onOpenCard: () => {},
+  onDeleteCard: () => {},
   onStartNewChat: () => {},
-  onRetry: () => {},
   onClearActionError: () => {}
 };
 
 function historyDeleteButton(markup: string, title: string) {
   const match = markup.match(new RegExp(
-    `<button(?=[^>]*class="historyQuestionDelete")(?=[^>]*aria-label="删除会话：${title}")[^>]*>`
+    `<button(?=[^>]*class="historyQuestionDelete")(?=[^>]*aria-label="删除题目卡片：${title}")[^>]*>`
   ));
   assert.ok(match);
   return match[0];
@@ -164,7 +197,7 @@ test("history navigation owns a three-state central view and separate load error
   assert.match(openHistorySessionSource, /closeNavigationOnMobile/);
   assert.equal(
     (pageSource.match(/onOpenSession=\{handleOpenHistorySession\}/g) ?? []).length,
-    2
+    1
   );
 });
 
@@ -290,7 +323,7 @@ test("history bootstrap restoration yields to explicit navigation", () => {
   );
 });
 
-test("history workspace renders overview and paper detail from real session metadata", () => {
+test("mistake card workspace only renders archived problem cards", () => {
   const overview = renderToStaticMarkup(
     <HistoryWorkspace {...historyWorkspaceProps} view={{ mode: "overview" }} />
   );
@@ -302,7 +335,7 @@ test("history workspace renders overview and paper detail from real session meta
   )?.[0] ?? "";
 
   assert.match(overview, /错题卡片库/);
-  assert.match(overview, /按试卷回看与整理答疑题目/);
+  assert.match(overview, /卡片入库后永久保留，与答疑会话相互独立/);
   assert.doesNotMatch(overview, /<h1>历史搜题<\/h1>/);
   assert.match(overview, /搜索试卷或题目/);
   assert.match(overview, /最近更新/);
@@ -310,14 +343,28 @@ test("history workspace renders overview and paper detail from real session meta
   assert.doesNotMatch(overview, /<img/);
   assert.doesNotMatch(overview, /historyQuestionDelete/);
   assert.match(detail, /historyWorkspaceHeader historyWorkspaceHeaderDetail/);
-  assert.match(backButton, /aria-label="返回全部试卷"/);
+  assert.match(backButton, /aria-label="返回错题卡片库全部试卷"/);
   assert.match(backButton, /title="返回全部试卷"/);
   assert.match(backButton, /<svg/);
   assert.doesNotMatch(backButton, /<span>/);
   assert.match(detail, /返回全部试卷/);
-  assert.match(detail, /正在思考/);
-  assert.match(detail, /3 条消息/);
-  assert.match(detail, /1 个检查点/);
+  assert.match(detail, /当前题目的题目摘要/);
+  assert.match(detail, /可删除题目的题目摘要/);
+  assert.doesNotMatch(detail, /生成中题目/);
+  assert.doesNotMatch(detail, /条消息|个检查点|正在思考/);
+});
+
+test("mistake card rows open cards instead of reopening tutoring sessions", () => {
+  const componentSource = readFileSync(
+    resolve(__dirname, "../../../components/workspace/HistoryWorkspace.tsx"),
+    "utf8"
+  );
+  const pageSource = readFileSync(resolve(__dirname, "../../../app/page.tsx"), "utf8");
+
+  assert.match(componentSource, /onClick=\{\(event\) => onOpenCard\(card, event\.currentTarget\.getBoundingClientRect\(\), event\.currentTarget\)\}/);
+  assert.doesNotMatch(componentSource, /SessionHistoryItem|onOpenSession|session_id/);
+  assert.match(pageSource, /cards=\{problemLibraryCards\}/);
+  assert.match(pageSource, /onOpenCard=\{openLibraryCard\}/);
 });
 
 test("history workspace formats SSR dates in Asia Shanghai", () => {
@@ -329,41 +376,49 @@ test("history workspace formats SSR dates in Asia Shanghai", () => {
     const noop = () => {};
     const markup = renderToStaticMarkup(React.createElement(HistoryWorkspace, {
       view: { mode: "overview" },
-      items: [{
+      cards: [{
+        id: "problem-card-midnight",
         session_id: "session-midnight",
-        paper_id: "paper-midnight",
-        paper_name: "午夜试卷",
-        title: "跨日题目",
-        grade_band: "junior",
-        model_profile_id: "profile-1",
-        model_display_name: "本地演示",
-        message_count: 1,
-        checkpoint_count: 0,
-        state_hint: "diagnosing",
-        context_status: "ready",
+        card_type: "problem_card",
+        source_action_id: "action-midnight",
+        source_message_id: "message-midnight",
+        folder_id: "folder-midnight",
+        content: {
+          type: "problem_card",
+          title: "跨日题目",
+          problem_summary: "跨日题目摘要",
+          solution_overview: "解题思路",
+          solution_steps: [],
+          how_to_think: [],
+          pitfalls: [],
+          final_answer: "答案"
+        },
+        created_at: "2026-08-05T16:30:00Z",
+        saved_at: "2026-08-05T16:30:00Z"
+      }],
+      folders: [{
+        id: "folder-midnight",
+        name: "午夜试卷",
+        parent_id: "paper-archive-root",
+        is_system: false,
+        default_card_type: null,
+        managed_kind: "paper_archive",
         created_at: "2026-08-05T16:00:00Z",
         updated_at: "2026-08-05T16:30:00Z"
       }],
       overviewQuery: "",
       sortMode: "recent",
-      selectedPaperName: "午夜试卷",
-      historyBusy: false,
-      historyLoadError: "",
       actionError: "",
       leftOpen: true,
-      activeSessionId: "",
-      runningSessionIds: [],
-      openSessionBusyId: "",
-      deleteSessionBusyId: "",
+      cardBusyId: "",
       onExpandLeft: noop,
       onOverviewQueryChange: noop,
       onSortModeChange: noop,
       onOpenPaper: noop,
       onBackToOverview: noop,
-      onOpenSession: noop,
-      onDeleteSession: noop,
+      onOpenCard: noop,
+      onDeleteCard: noop,
       onStartNewChat: noop,
-      onRetry: noop,
       onClearActionError: noop
     }));
     process.stdout.write(markup);
@@ -473,35 +528,31 @@ test("knowledge card library selects cards before opening the export dialog", ()
   assert.doesNotMatch(selectedExportButton, /disabled=""/);
 });
 
-test("history workspace renders loading empty no-result error and emptied-paper states", () => {
-  const loading = renderToStaticMarkup(<HistoryWorkspace {...historyWorkspaceProps} items={[]} historyBusy view={{ mode: "overview" }} />);
-  const empty = renderToStaticMarkup(<HistoryWorkspace {...historyWorkspaceProps} items={[]} view={{ mode: "overview" }} />);
+test("mistake card workspace renders empty no-result and removed-folder states", () => {
+  const empty = renderToStaticMarkup(<HistoryWorkspace {...historyWorkspaceProps} cards={[]} view={{ mode: "overview" }} />);
   const noResult = renderToStaticMarkup(<HistoryWorkspace {...historyWorkspaceProps} overviewQuery="不存在" view={{ mode: "overview" }} />);
-  const failed = renderToStaticMarkup(<HistoryWorkspace {...historyWorkspaceProps} items={[]} historyLoadError="连接失败" view={{ mode: "overview" }} />);
-  const emptiedPaper = renderToStaticMarkup(<HistoryWorkspace {...historyWorkspaceProps} items={[]} view={{ mode: "paper", paperId: "paper-a" }} />);
+  const removedFolder = renderToStaticMarkup(<HistoryWorkspace {...historyWorkspaceProps} view={{ mode: "paper", paperId: "paper-missing" }} />);
 
-  assert.equal((loading.match(/class="historyPaperSkeleton"/g) ?? []).length, 6);
-  assert.match(empty, /还没有收录题目/);
+  assert.match(empty, /还没有题目卡片/);
+  assert.match(empty, /完成答疑并归档题目卡片后/);
+  assert.match(empty, /未生成或未入库的题目不会显示/);
   assert.match(empty, /开始答疑/);
-  assert.match(noResult, /没有匹配的试卷或题目/);
-  assert.match(noResult, /清除搜索/);
-  assert.match(failed, /重新加载/);
-  assert.match(emptiedPaper, /这份试卷暂无收录题目/);
-  assert.match(emptiedPaper, /返回全部试卷/);
+  assert.match(noResult, /没有匹配的试卷或题目卡片/);
+  assert.match(removedFolder, /这份题目卡片归档已经不存在/);
+  assert.match(removedFolder, /返回错题卡片库/);
 });
 
-test("history workspace disables deletion for current running and concurrent sessions", () => {
+test("mistake card workspace deletes cards without touching sessions", () => {
   const detail = renderToStaticMarkup(
     <HistoryWorkspace {...historyWorkspaceProps} view={{ mode: "paper", paperId: "paper-a" }} />
   );
-  assert.match(historyDeleteButton(detail, "当前题目"), /disabled=""/);
-  assert.match(historyDeleteButton(detail, "生成中题目"), /disabled=""/);
+  assert.doesNotMatch(historyDeleteButton(detail, "当前题目"), /disabled=""/);
   assert.doesNotMatch(historyDeleteButton(detail, "可删除题目"), /disabled=""/);
 
-  const opening = renderToStaticMarkup(
-    <HistoryWorkspace {...historyWorkspaceProps} openSessionBusyId="session-other" view={{ mode: "paper", paperId: "paper-a" }} />
+  const deleting = renderToStaticMarkup(
+    <HistoryWorkspace {...historyWorkspaceProps} cardBusyId={historyProblemCards[0].id} view={{ mode: "paper", paperId: "paper-a" }} />
   );
-  assert.match(historyDeleteButton(opening, "可删除题目"), /disabled=""/);
+  assert.match(historyDeleteButton(deleting, "可删除题目"), /disabled=""/);
 });
 
 test("workspace header and timeline preserve teaching context labels", () => {

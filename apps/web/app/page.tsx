@@ -62,8 +62,9 @@ import {
   StudyCard,
   updateKnowledgeCard
 } from "../lib/api";
-import type { HistoryPaperGroup, HistorySortMode, HistoryView } from "../lib/history-view";
-import { selectedHistoryItems, toggleMistakeSelection, togglePaperMistakeSelection } from "../lib/mistake-selection";
+import type { HistorySortMode, HistoryView } from "../lib/history-view";
+import { toggleMistakeCardGroupSelection, toggleMistakeCardSelection } from "../lib/mistake-selection";
+import type { ProblemPaperGroup } from "../lib/problem-view";
 import {
   clearAllRequestRecovery,
   clearComposerDraft,
@@ -118,7 +119,7 @@ type MistakeSetPrintJob = {
 };
 
 type MistakeExportDraft = MistakeSetPrintJob & {
-  sessionIds: string[];
+  cardIds: string[];
 };
 
 type PendingImageSelection = {
@@ -255,12 +256,11 @@ export default function Home() {
   const [knowledgeSelectionMode, setKnowledgeSelectionMode] = useState(false);
   const [selectedKnowledgeCardIds, setSelectedKnowledgeCardIds] = useState<string[]>([]);
   const [mistakeSelectionMode, setMistakeSelectionMode] = useState(false);
-  const [selectedMistakeSessionIds, setSelectedMistakeSessionIds] = useState<string[]>([]);
+  const [selectedMistakeCardIds, setSelectedMistakeCardIds] = useState<string[]>([]);
   const [mistakeExportBusy, setMistakeExportBusy] = useState(false);
   const [mistakeExportDraft, setMistakeExportDraft] = useState<MistakeExportDraft | null>(null);
   const [historyOverviewQuery, setHistoryOverviewQuery] = useState("");
   const [historySortMode, setHistorySortMode] = useState<HistorySortMode>("recent");
-  const [historySelectedPaperName, setHistorySelectedPaperName] = useState("");
   const [collectionNotice, setCollectionNotice] = useState("");
   const [historyLoadError, setHistoryLoadError] = useState("");
   const [historyBusy, setHistoryBusy] = useState(true);
@@ -441,7 +441,8 @@ export default function Home() {
     refreshCards,
     invalidateCardRefresh,
     upsertCard,
-    moveCardToFolder
+    moveCardToFolder,
+    deleteCard
   } = cardsState;
   const startBusy = workflow.mode === "composer" && workflow.activity === "start";
   const imageBusy = workflow.mode === "composer" && workflow.activity === "image";
@@ -457,6 +458,10 @@ export default function Home() {
   );
   const knowledgeLibraryCards = useMemo(
     () => cards.filter((card) => card.card_type === "knowledge_card" && Boolean(card.saved_at)),
+    [cards]
+  );
+  const problemLibraryCards = useMemo(
+    () => cards.filter((card) => card.card_type === "problem_card" && Boolean(card.saved_at)),
     [cards]
   );
   const selectedKnowledgeCards = useMemo(() => {
@@ -1067,8 +1072,7 @@ export default function Home() {
     }
   }
 
-  function handleOpenHistoryPaper(group: HistoryPaperGroup) {
-    setHistorySelectedPaperName(group.name);
+  function handleOpenHistoryPaper(group: ProblemPaperGroup) {
     setHistoryView({ mode: "paper", paperId: group.id });
   }
 
@@ -1757,35 +1761,29 @@ export default function Home() {
   }
 
   async function handleBeginMistakeExport() {
-    const selectedItems = selectedHistoryItems(historyItems, selectedMistakeSessionIds);
-    if (!selectedItems.length || mistakeExportBusy) return;
+    const cardsById = new Map(problemLibraryCards.map((card) => [card.id, card]));
+    const selectedCards = selectedMistakeCardIds.flatMap((cardId) => {
+      const card = cardsById.get(cardId);
+      return card ? [card] : [];
+    });
+    if (!selectedCards.length || mistakeExportBusy) return;
     setMistakeExportBusy(true);
     runtime.clearError();
     try {
-      const openedSessions = await Promise.all(selectedItems.map((item) => fetchSession(item.session_id)));
-      const savedProblemCardsBySession = new Map<string, StudyCard>();
-      for (const card of cards) {
-        if (card.card_type === "problem_card" && !savedProblemCardsBySession.has(card.session_id)) {
-          savedProblemCardsBySession.set(card.session_id, card);
-        }
-      }
+      const foldersById = new Map(folders.map((folder) => [folder.id, folder]));
       setMistakeExportDraft({
         name: defaultMistakeSetName(),
         practiceMode: false,
-        sessionIds: selectedItems.map((item) => item.session_id),
-        items: openedSessions.map((opened, index) => {
-          const pendingProblemCard = [...(opened.pending_cards || [])]
-            .reverse()
-            .find((card) => card.card_type === "problem_card");
-          const problemCard = savedProblemCardsBySession.get(selectedItems[index].session_id)
-            || pendingProblemCard;
+        cardIds: selectedCards.map((card) => card.id),
+        items: selectedCards.map((card, index) => {
+          const folder = card.folder_id ? foldersById.get(card.folder_id) : undefined;
           return {
-            id: selectedItems[index].session_id,
-            source_paper_name: selectedItems[index].paper_name || "未分类题目",
-            title: problemCard?.content.title || selectedItems[index].title || opened.problem_text || "未命名题目",
-            problem_text: opened.problem_text,
-            problem_image_data_url: opened.problem_image_data_url ?? null,
-            problem_card: problemCard?.content.type === "problem_card" ? problemCard.content : null,
+            id: card.id,
+            source_paper_name: folder?.managed_kind === "paper_archive" ? folder.name : "其他题目卡片",
+            title: card.content.title,
+            problem_text: card.content.type === "problem_card" ? card.content.problem_summary : card.content.title,
+            problem_image_data_url: null,
+            problem_card: card.content.type === "problem_card" ? card.content : null,
             position: index
           };
         })
@@ -1799,14 +1797,14 @@ export default function Home() {
 
   async function persistMistakeExport(shouldPrint: boolean) {
     if (!mistakeExportDraft || mistakeSetSaveBusy) return;
-    const created = await saveMistakeSet(mistakeExportDraft.name.trim(), mistakeExportDraft.sessionIds);
+    const created = await saveMistakeSet(mistakeExportDraft.name.trim(), mistakeExportDraft.cardIds);
     if (!created) return;
     const printJob = {
       name: created.name,
       items: created.items,
       practiceMode: mistakeExportDraft.practiceMode
     };
-    setSelectedMistakeSessionIds([]);
+    setSelectedMistakeCardIds([]);
     setMistakeSelectionMode(false);
     setMistakeExportDraft(null);
     setHistoryView(null);
@@ -1939,6 +1937,7 @@ export default function Home() {
         historyItems={historyItems}
         activeSessionId={sessionId}
         historyBusy={historyBusy}
+        historyLoadError={historyLoadError}
         openSessionBusyId={openSessionBusyId}
         deleteSessionBusyId={deleteSessionBusyId}
         deleteAllSessionsBusy={deleteAllSessionsBusy}
@@ -2003,42 +2002,36 @@ export default function Home() {
               key={historyView.mode === "paper" ? historyView.paperId : "overview"}
               workspaceRef={historyWorkspaceRef}
               view={historyView}
-              items={historyItems}
+              cards={problemLibraryCards}
+              folders={folders}
               overviewQuery={historyOverviewQuery}
               sortMode={historySortMode}
-              selectedPaperName={historySelectedPaperName}
-              historyBusy={historyBusy}
-              historyLoadError={historyLoadError}
               actionError={error ?? ""}
               notice={collectionNotice}
               leftOpen={leftOpen}
-              activeSessionId={sessionId}
-              runningSessionIds={runningSessionIds}
-              openSessionBusyId={openSessionBusyId}
-              deleteSessionBusyId={deleteSessionBusyId}
+              cardBusyId={cardBusyId}
               selectionMode={mistakeSelectionMode}
-              selectedSessionIds={selectedMistakeSessionIds}
+              selectedCardIds={selectedMistakeCardIds}
               exportBusy={mistakeExportBusy}
               onExpandLeft={() => setLeftOpen(true)}
               onOverviewQueryChange={setHistoryOverviewQuery}
               onSortModeChange={setHistorySortMode}
               onOpenPaper={handleOpenHistoryPaper}
               onBackToOverview={() => setHistoryView({ mode: "overview" })}
-              onOpenSession={handleOpenHistorySession}
-              onDeleteSession={(item) => void handleDeleteSession(item)}
+              onOpenCard={openLibraryCard}
+              onDeleteCard={(card) => void deleteCard(card)}
               onToggleSelectionMode={() => {
                 setMistakeSelectionMode((current) => !current);
-                if (mistakeSelectionMode) setSelectedMistakeSessionIds([]);
+                if (mistakeSelectionMode) setSelectedMistakeCardIds([]);
               }}
-              onToggleSessionSelection={(targetSessionId) => setSelectedMistakeSessionIds((current) => (
-                toggleMistakeSelection(current, targetSessionId)
+              onToggleCardSelection={(targetCardId) => setSelectedMistakeCardIds((current) => (
+                toggleMistakeCardSelection(current, targetCardId)
               ))}
-              onTogglePaperSelection={(sessionIds) => setSelectedMistakeSessionIds((current) => (
-                togglePaperMistakeSelection(current, sessionIds)
+              onToggleGroupSelection={(cardIds) => setSelectedMistakeCardIds((current) => (
+                toggleMistakeCardGroupSelection(current, cardIds)
               ))}
               onExportSelection={() => void handleBeginMistakeExport()}
               onStartNewChat={handleStartNewChat}
-              onRetry={() => void refreshHistory()}
               onClearActionError={runtime.clearError}
               onClearNotice={() => setCollectionNotice("")}
             />

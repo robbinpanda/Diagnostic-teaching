@@ -343,7 +343,7 @@ source_action_id / source_message_id / created_at / saved_at / deferred_at
 
 卡片生成时即确定默认目录，不能推迟到保存接口才猜测。若来源 session 有 `paper_id`，后端读取活动 `exam_papers.card_folder_id`，并把同一目录 ID 同时写入 `study_cards.folder_id` 与稳定 `card.ready` 事件；没有试卷归属时，仍按 `card_type` 使用“默认知识卡片”或“默认题目卡片”。保存知识卡或题目卡时目录选择优先级统一为：客户端明确提交的目录 → 卡片生成时已写入的目录 → 对应类型系统默认目录。用户在保存弹窗改选其他目录只影响当前卡片，不改变该试卷后续卡片的默认位置。
 
-前端启动时并行调用 `GET /api/cards` 与 `GET /api/card-folders`。答疑页不再挂载右侧卡片文件管理器；“知识卡片库”按受管目录展示已归档 `knowledge_card`，并在中央页面提供与“错题卡片库”一致的跨试卷多选入口。“错题卡片库”继续展示按试卷整理的 session 题目并沿用现有多选导出样式。点击知识卡片或当前 session 卡片架中的卡片后，仍在无暗色遮罩的浮动窗口中查看或编辑；宽度 `>900px` 时窗口可拖动，消息正文不再为它缩窄或绕排。已归档 knowledge card 通过 `PUT /api/cards/{id}` 提交完整 `content`；待归档卡片和 problem card 不允许走该更新接口。
+前端启动时并行调用 `GET /api/cards` 与 `GET /api/card-folders`。答疑页不再挂载右侧卡片文件管理器；“知识卡片库”和“错题卡片库”分别以已归档 `knowledge_card`、`problem_card` 为唯一数据源，并按受管目录提供跨试卷多选。错题卡片库不再从 session history 派生：未生成/未保存题目卡片的会话不会显示，已入库卡片在来源会话删除后继续存在。点击两类库内卡片都直接打开无暗色遮罩的浮动卡片窗口，不切回答疑 session；宽度 `>900px` 时窗口可拖动。已归档 knowledge card 通过 `PUT /api/cards/{id}` 提交完整 `content`；待归档卡片和 problem card 不允许走该更新接口。
 
 `card_folders` 以可空 `parent_id` 自关联形成目录树；`0006_card_folders` 创建两个默认根目录，并把旧卡片按类型迁入对应目录。`0013_paper_archive_folders` 增加只读的 `managed_kind`/内部稳定 `managed_key`：受管根“按试卷归档”下，每份试卷对应一个稳定的同名受管目录。知识卡与题目卡共用该目录；目录不随 `exam_papers` 删除，同名试卷重建后复用原目录及其中旧卡。受管根和试卷目录不可重命名、移动或删除，但卡片仍可移入、移出、复制和删除。
 
@@ -351,7 +351,7 @@ source_action_id / source_message_id / created_at / saved_at / deferred_at
 
 “知识卡片库”先进入多选模式：总览页可按整份试卷选择，试卷详情页可逐张选择，并按点击顺序维护跨卷选择。导出弹窗不再重复选择卡片或版式，知识卡片固定使用 A4 纵向双列紧凑排版，并与答疑卡片一致输出关键关系、核心原理、推导、适用场景、易错点和题目连接。导出完全使用前端已有的结构化卡片数据和 KaTeX 渲染，不新增副本、不修改 SQLite，也不把卡片上传到外部服务。
 
-`0015_mistake_set_problem_cards` 为 `mistake_set_items` 增加 `problem_card_json`。创建错题集时，后端在同一事务中快照每个来源 session 最新的 `problem_card` 内容；再次打开或打印时不依赖来源 session/card 是否仍存在。错题打印与知识卡片共用固定双列紧凑卡片版式，并输出题目摘要、解题思路、关键步骤、思考来源、易错提醒和最终答案；“只看题目摘要”仅改变本次预览/打印，把其余解析替换为空白练习区，不修改快照。
+`0015_mistake_set_problem_cards` 为 `mistake_set_items` 增加 `problem_card_json`。创建错题集时，客户端提交有序 `card_ids`，后端只接纳已归档题目卡片并在同一事务中快照完整 `problem_card`；卡片即使已因来源 session 删除而把 `live_session_id` 置空，仍可创建错题集。再次打开或打印只依赖快照。错题打印与知识卡片共用固定双列紧凑卡片版式，并输出题目摘要、解题思路、关键步骤、思考来源、易错提醒和最终答案；“只看题目摘要”仅改变本次预览/打印，把其余解析替换为空白练习区，不修改快照。
 
 assistant 历史消息的 `metadata_json` 同时保存 `card_id` 和结构化 card，保证模型历史仍是完整 `TutorTurn` 格式；会话恢复时会重建 card ID、action ID 和 message ID 的引用。
 

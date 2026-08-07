@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 
 from app.storage.database import with_sqlite_busy_retry
 from app.storage.repository_utils import new_id, now_iso
 
 
-class DuplicateMistakeSetSessionError(ValueError):
+class DuplicateMistakeSetCardError(ValueError):
     pass
 
 
@@ -59,41 +60,44 @@ class MistakeSetRepositoryMixin:
     def create_mistake_set(
         self,
         name: str,
-        session_ids: list[str],
+        card_ids: list[str],
     ) -> tuple[sqlite3.Row, list[sqlite3.Row]]:
         normalized_name = normalize_mistake_set_name(name)
-        if not session_ids:
+        if not card_ids:
             raise ValueError("请至少选择一道题目")
-        if len(set(session_ids)) != len(session_ids):
-            raise DuplicateMistakeSetSessionError
+        if len(set(card_ids)) != len(card_ids):
+            raise DuplicateMistakeSetCardError
 
         mistake_set_id = new_id("mistake_set")
         ts = now_iso()
         with self.db.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            sources: list[sqlite3.Row] = []
-            for session_id in session_ids:
+            sources: list[tuple[sqlite3.Row, dict]] = []
+            for card_id in card_ids:
                 source = conn.execute(
                     """
-                    SELECT s.*,
-                           p.name AS paper_name,
-                           (SELECT m.content FROM messages m
-                            WHERE m.session_id = s.id AND m.role = 'student'
-                            ORDER BY m.created_at ASC, m.rowid ASC LIMIT 1)
-                             AS first_student_message
-                           ,(SELECT c.content_json FROM study_cards c
-                             WHERE c.session_id = s.id AND c.card_type = 'problem_card'
-                             ORDER BY c.created_at DESC, c.rowid DESC LIMIT 1)
-                             AS problem_card_json
-                    FROM sessions s
-                    LEFT JOIN exam_papers p ON p.id = s.paper_id
-                    WHERE s.id = ?
+                    SELECT c.id AS card_id, c.live_session_id, c.title AS card_title,
+                           c.content_json AS problem_card_json,
+                           f.name AS folder_name, f.managed_kind,
+                           s.problem_image_data_url
+                    FROM study_cards c
+                    LEFT JOIN card_folders f ON f.id = c.folder_id
+                    LEFT JOIN sessions s ON s.id = c.live_session_id
+                    WHERE c.id = ?
+                      AND c.card_type = 'problem_card'
+                      AND c.saved_at IS NOT NULL
                     """,
-                    (session_id,),
+                    (card_id,),
                 ).fetchone()
                 if source is None:
-                    raise MistakeSetSourceNotFoundError(session_id)
-                sources.append(source)
+                    raise MistakeSetSourceNotFoundError(card_id)
+                try:
+                    content = json.loads(source["problem_card_json"])
+                except (TypeError, json.JSONDecodeError) as exc:
+                    raise MistakeSetSourceNotFoundError(card_id) from exc
+                if not isinstance(content, dict) or content.get("type") != "problem_card":
+                    raise MistakeSetSourceNotFoundError(card_id)
+                sources.append((source, content))
 
             conn.execute(
                 """
@@ -102,13 +106,10 @@ class MistakeSetRepositoryMixin:
                 """,
                 (mistake_set_id, normalized_name, ts, ts),
             )
-            for position, source in enumerate(sources):
-                problem_text = source["problem_text"].strip()
-                title = (
-                    problem_text
-                    or (source["first_student_message"] or "").strip()
-                    or "未命名题目"
-                ).replace("\n", " ")
+            for position, (source, content) in enumerate(sources):
+                problem_text = str(content.get("problem_summary") or "").strip()
+                title = str(content.get("title") or source["card_title"] or problem_text or "未命名题目").strip()
+                paper_name = source["folder_name"] if source["managed_kind"] == "paper_archive" else "其他题目卡片"
                 conn.execute(
                     """
                     INSERT INTO mistake_set_items (
@@ -120,8 +121,8 @@ class MistakeSetRepositoryMixin:
                     (
                         new_id("mistake_item"),
                         mistake_set_id,
-                        source["id"],
-                        source["paper_name"],
+                        source["live_session_id"],
+                        paper_name,
                         title,
                         problem_text,
                         source["problem_image_data_url"],

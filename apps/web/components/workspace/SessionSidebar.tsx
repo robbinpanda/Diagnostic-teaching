@@ -29,6 +29,7 @@ type Props = {
   historyItems: SessionHistoryItem[];
   activeSessionId: string;
   historyBusy: boolean;
+  historyLoadError?: string;
   openSessionBusyId: string;
   deleteSessionBusyId: string;
   deleteAllSessionsBusy: boolean;
@@ -52,6 +53,7 @@ export function SessionSidebar({
   historyItems,
   activeSessionId,
   historyBusy,
+  historyLoadError = "",
   openSessionBusyId,
   deleteSessionBusyId,
   deleteAllSessionsBusy,
@@ -143,8 +145,9 @@ export function SessionSidebar({
           </div>
 
           <div className="paperTreeScroll">
-            {historyBusy && historyItems.length === 0 ? <div className="sidebarEmpty"><Loader2 size={16} className="spin" /> 正在读取题目</div> : null}
-            {!historyBusy && historyItems.length === 0 ? <div className="sidebarEmpty">还没有答疑记录</div> : null}
+            {historyLoadError ? <div className="sidebarEmpty" role="alert">{historyLoadError}</div> : null}
+            {!historyLoadError && historyBusy && historyItems.length === 0 ? <div className="sidebarEmpty"><Loader2 size={16} className="spin" /> 正在读取题目</div> : null}
+            {!historyLoadError && !historyBusy && historyItems.length === 0 ? <div className="sidebarEmpty">还没有答疑记录</div> : null}
             {!historyBusy && historyItems.length > 0 && paperGroups.length === 0 ? <div className="sidebarEmpty">没有匹配的试卷或题目</div> : null}
             {paperGroups.map((group) => {
               const open = Boolean(normalizedQuery)

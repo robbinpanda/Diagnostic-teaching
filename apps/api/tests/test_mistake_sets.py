@@ -72,6 +72,15 @@ def _add_problem_card(client: TestClient, session_id: str):
         "final_answer": "$|a-b|<c<a+b$",
     }
     with client.app.state.db.connect() as conn:
+        folder_id = conn.execute(
+            """
+            SELECT p.card_folder_id
+            FROM sessions s
+            JOIN exam_papers p ON p.id = s.paper_id
+            WHERE s.id = ?
+            """,
+            (session_id,),
+        ).fetchone()["card_folder_id"]
         conn.execute(
             """
             INSERT INTO study_cards (
@@ -89,10 +98,14 @@ def _add_problem_card(client: TestClient, session_id: str):
                 f"message_{session_id}",
                 "2026-08-07T00:00:00Z",
                 "2026-08-07T00:00:00Z",
-                "folder_default_problem",
+                folder_id,
             ),
         )
     return content
+
+
+def _problem_card_id(session_id: str) -> str:
+    return f"card_{session_id}"
 
 
 def test_mistake_set_api_snapshots_cross_paper_sessions_in_request_order(tmp_path: Path):
@@ -112,11 +125,12 @@ def test_mistake_set_api_snapshots_cross_paper_sessions_in_request_order(tmp_pat
         problem_text="求三角形第三边范围",
         image_data_url="data:image/png;base64,c25hcHNob3Q=",
     )
+    _add_problem_card(client, session_a["id"])
     problem_card = _add_problem_card(client, session_b["id"])
 
     response = client.post(
         "/api/mistake-sets",
-        json={"name": "  期末复习  ", "session_ids": [session_b["id"], session_a["id"]]},
+        json={"name": "  期末复习  ", "card_ids": [_problem_card_id(session_b["id"]), _problem_card_id(session_a["id"])]},
     )
 
     assert response.status_code == 201
@@ -129,7 +143,7 @@ def test_mistake_set_api_snapshots_cross_paper_sessions_in_request_order(tmp_pat
     assert [item["source_paper_name"] for item in payload["items"]] == ["几何卷", "代数卷"]
     assert payload["items"][0]["problem_image_data_url"] == "data:image/png;base64,c25hcHNob3Q="
     assert payload["items"][0]["problem_card"] == problem_card
-    assert payload["items"][1]["problem_card"] is None
+    assert payload["items"][1]["problem_card"] is not None
     assert [item["position"] for item in payload["items"]] == [0, 1]
 
     listed = client.get("/api/mistake-sets")
@@ -150,22 +164,24 @@ def test_mistake_set_snapshot_survives_source_session_and_paper_deletion(tmp_pat
         problem_text="保留下来的题目",
     )
     problem_card = _add_problem_card(client, session["id"])
-    created = client.post(
-        "/api/mistake-sets",
-        json={"name": "长期错题集", "session_ids": [session["id"]]},
-    ).json()
-
     deleted = client.delete(f"/api/sessions/{session['id']}")
+    cards_after_delete = client.get("/api/cards", params={"card_type": "problem_card"})
+    created_response = client.post(
+        "/api/mistake-sets",
+        json={"name": "长期错题集", "card_ids": [_problem_card_id(session["id"])]},
+    )
+    created = created_response.json()
     opened = client.get(f"/api/mistake-sets/{created['id']}")
 
     assert deleted.status_code == 204
+    assert cards_after_delete.status_code == 200
+    assert [card["id"] for card in cards_after_delete.json()["cards"]] == [_problem_card_id(session["id"])]
+    assert created_response.status_code == 201
     assert opened.status_code == 200
-    assert opened.json()["items"][0] == {
-        **created["items"][0],
-        "source_session_id": None,
-    }
+    assert opened.json()["items"][0] == created["items"][0]
+    assert opened.json()["items"][0]["source_session_id"] is None
     assert opened.json()["items"][0]["source_paper_name"] == "会被删除的试卷"
-    assert opened.json()["items"][0]["problem_text"] == "保留下来的题目"
+    assert opened.json()["items"][0]["problem_text"] == problem_card["problem_summary"]
     assert opened.json()["items"][0]["problem_card"] == problem_card
 
 
@@ -181,21 +197,21 @@ def test_mistake_set_create_rejects_duplicates_missing_sessions_and_blank_names(
 
     duplicate = client.post(
         "/api/mistake-sets",
-        json={"name": "重复", "session_ids": [session["id"], session["id"]]},
+        json={"name": "重复", "card_ids": [_problem_card_id(session["id"]), _problem_card_id(session["id"])]},
     )
     missing = client.post(
         "/api/mistake-sets",
-        json={"name": "缺失", "session_ids": ["sess_missing"]},
+        json={"name": "缺失", "card_ids": ["card_missing"]},
     )
     blank = client.post(
         "/api/mistake-sets",
-        json={"name": "   ", "session_ids": [session["id"]]},
+        json={"name": "   ", "card_ids": [_problem_card_id(session["id"])]},
     )
 
     assert duplicate.status_code == 400
     assert duplicate.json()["detail"] == "错题集不能重复选择同一题目"
     assert missing.status_code == 404
-    assert missing.json()["detail"] == "部分题目已经不存在，请刷新错题合集后重试"
+    assert missing.json()["detail"] == "部分题目卡片已经不存在，请刷新错题卡片库后重试"
     assert blank.status_code == 422
 
 

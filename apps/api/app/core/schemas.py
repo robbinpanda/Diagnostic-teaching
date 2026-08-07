@@ -384,7 +384,7 @@ class MistakeSetCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=80, pattern=r".*\S.*")
-    session_ids: list[str] = Field(min_length=1)
+    card_ids: list[str] = Field(min_length=1)
 
 
 class MistakeSetItemPublic(BaseModel):

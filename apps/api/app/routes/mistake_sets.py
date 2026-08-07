@@ -11,7 +11,7 @@ from app.core.schemas import (
     MistakeSetPublic,
 )
 from app.storage.mistake_set_repository import (
-    DuplicateMistakeSetSessionError,
+    DuplicateMistakeSetCardError,
     MistakeSetSourceNotFoundError,
 )
 
@@ -72,9 +72,9 @@ def create_mistake_set(
     try:
         row, items = request.app.state.sessions.create_mistake_set(
             payload.name,
-            payload.session_ids,
+            payload.card_ids,
         )
-    except DuplicateMistakeSetSessionError as exc:
+    except DuplicateMistakeSetCardError as exc:
         raise HTTPException(
             status_code=400,
             detail="错题集不能重复选择同一题目",
@@ -82,7 +82,7 @@ def create_mistake_set(
     except MistakeSetSourceNotFoundError as exc:
         raise HTTPException(
             status_code=404,
-            detail="部分题目已经不存在，请刷新错题合集后重试",
+            detail="部分题目卡片已经不存在，请刷新错题卡片库后重试",
         ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
