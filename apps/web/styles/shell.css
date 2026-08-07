@@ -36,7 +36,7 @@
   justify-content: space-between;
   padding: 0 22px 0 24px;
   border-bottom: 1px solid var(--stage-line);
-  background: color-mix(in srgb, var(--panda-canvas) 94%, white);
+  background: rgba(255, 255, 248, 0.86);
   backdrop-filter: blur(16px);
   z-index: 20;
 }

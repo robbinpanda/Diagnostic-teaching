@@ -105,13 +105,13 @@
 
 @media (max-width: 1100px) and (min-width: 761px) {
   .pandaWelcomeCopy {
-    left: 10%;
-    top: 23%;
-    width: 67%;
+    left: 14.5%;
+    top: 31.5%;
+    width: 56%;
   }
 
   .pandaWelcomeCopy h1 {
-    font-size: clamp(31px, 4.1vw, 44px);
+    font-size: clamp(31px, 3.55vw, 40px);
   }
 
   .pandaWelcomeCopy p {
@@ -119,24 +119,25 @@
   }
 
   .pandaHeroStage {
-    right: -5%;
-    bottom: -18%;
-    width: 47%;
+    right: 2%;
+    bottom: -4%;
+    width: 43%;
   }
 
   .pandaBambooScene {
-    left: -7%;
-    width: 39%;
+    left: -2.5%;
+    bottom: 10%;
+    width: 37%;
   }
 }
 
 @media (min-width: 1101px) and (min-height: 800px) {
   .pandaWelcomeCopy {
-    top: 21%;
+    top: 31.5%;
   }
 
   .pandaHeroStage {
-    bottom: -14.5%;
+    bottom: -3%;
   }
 }
 
@@ -268,15 +269,15 @@
 
   .pandaWelcomeCopy {
     left: 20px;
-    top: 13%;
+    top: 18%;
     width: calc(100% - 40px);
     gap: 12px;
   }
 
   .pandaWelcomeCopy h1 {
-    font-size: clamp(27px, 8vw, 38px);
+    font-size: clamp(22px, 6.7vw, 30px);
     line-height: 1.12;
-    white-space: normal;
+    white-space: nowrap;
   }
 
   .pandaWelcomeCopy p {
@@ -287,15 +288,20 @@
 
   .pandaHeroStage {
     right: -12%;
-    bottom: -15%;
+    bottom: -6%;
     width: min(78%, 430px);
   }
 
   .pandaBambooScene {
     left: -16%;
-    bottom: -1%;
+    bottom: 4%;
     width: min(61%, 330px);
     opacity: 0.72;
+  }
+
+  .pandaWelcomeLabel {
+    top: 8%;
+    left: 50%;
   }
 
   .composerDock {
