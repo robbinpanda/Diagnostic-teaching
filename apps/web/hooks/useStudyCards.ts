@@ -6,6 +6,7 @@ import {
   createCardFolder as createCardFolderRequest,
   deleteAllCards as deleteAllCardsRequest,
   deleteCard as deleteCardRequest,
+  deleteCards as deleteCardsRequest,
   deleteCardFolder as deleteCardFolderRequest,
   fetchCardFolders,
   fetchCards,
@@ -37,6 +38,7 @@ export function useStudyCards({ onError, onClearError }: Options) {
   const [folderBusyId, setFolderBusyId] = useState("");
   const [pasteBusy, setPasteBusy] = useState(false);
   const [deleteAllCardsBusy, setDeleteAllCardsBusy] = useState(false);
+  const [deleteCardsBusy, setDeleteCardsBusy] = useState(false);
   const cardsRequestRef = useRef(0);
   const cardsMutationRef = useRef(0);
   const foldersMutationRef = useRef(0);
@@ -211,6 +213,32 @@ export function useStudyCards({ onError, onClearError }: Options) {
     }
   }, [onClearError, onError]);
 
+  const deleteCards = useCallback(async (cardIds: string[]) => {
+    if (
+      deleteCardsBusy
+      || cardIds.length === 0
+      || !window.confirm(`删除选中的 ${cardIds.length} 张卡片？删除后无法恢复。`)
+    ) return false;
+    setDeleteCardsBusy(true);
+    onClearError();
+    try {
+      await deleteCardsRequest(cardIds);
+      const deletedIds = new Set(cardIds);
+      cardsMutationRef.current += 1;
+      cardsRequestRef.current += 1;
+      setCards((current) => current.filter((item) => !deletedIds.has(item.id)));
+      setViewingCard((current) => current && deletedIds.has(current.id) ? null : current);
+      setMovingCard((current) => current && deletedIds.has(current.id) ? null : current);
+      setClipboard((current) => current && deletedIds.has(current.card.id) ? null : current);
+      return true;
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "批量删除学习卡片失败");
+      return false;
+    } finally {
+      setDeleteCardsBusy(false);
+    }
+  }, [deleteCardsBusy, onClearError, onError]);
+
   return {
     cards,
     folders,
@@ -228,6 +256,7 @@ export function useStudyCards({ onError, onClearError }: Options) {
     folderBusyId,
     pasteBusy,
     deleteAllCardsBusy,
+    deleteCardsBusy,
     refreshCards,
     invalidateCardRefresh,
     upsertCard,
@@ -237,6 +266,7 @@ export function useStudyCards({ onError, onClearError }: Options) {
     moveCardToFolder,
     pasteCard,
     deleteCard,
+    deleteCards,
     deleteAllCards
   };
 }

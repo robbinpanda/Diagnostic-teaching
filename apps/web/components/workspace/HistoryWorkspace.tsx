@@ -35,6 +35,7 @@ type Props = {
   selectionMode?: boolean;
   selectedCardIds?: string[];
   exportBusy?: boolean;
+  deleteSelectionBusy?: boolean;
   onExpandLeft: () => void;
   onOverviewQueryChange: (value: string) => void;
   onSortModeChange: (mode: HistorySortMode) => void;
@@ -46,6 +47,7 @@ type Props = {
   onToggleCardSelection?: (cardId: string) => void;
   onToggleGroupSelection?: (cardIds: string[]) => void;
   onExportSelection?: () => void;
+  onDeleteSelection?: () => void;
   onStartNewChat: () => void;
   onClearActionError: () => void;
   onClearNotice?: () => void;
@@ -74,6 +76,7 @@ export function HistoryWorkspace({
   selectionMode = false,
   selectedCardIds = [],
   exportBusy = false,
+  deleteSelectionBusy = false,
   onExpandLeft,
   onOverviewQueryChange,
   onSortModeChange,
@@ -85,6 +88,7 @@ export function HistoryWorkspace({
   onToggleCardSelection = () => undefined,
   onToggleGroupSelection = () => undefined,
   onExportSelection = () => undefined,
+  onDeleteSelection = () => undefined,
   onStartNewChat,
   onClearActionError,
   onClearNotice
@@ -131,6 +135,10 @@ export function HistoryWorkspace({
           <div className="historySelectionActions">
             <button className={`historyWorkspaceAction${selectionMode ? " active" : ""}`} type="button" onClick={onToggleSelectionMode} disabled={groups.length === 0} aria-pressed={selectionMode}>
               <CheckSquare2 size={16} />{selectionMode ? "退出多选" : "多选"}
+            </button>
+            <button className="historyWorkspaceAction historyDeleteSelectionAction" type="button" onClick={onDeleteSelection} disabled={selectedCardIds.length === 0 || deleteSelectionBusy}>
+              {deleteSelectionBusy ? <Loader2 className="spin" size={16} /> : <Trash2 size={16} />}
+              删除{selectedCardIds.length > 0 ? ` (${selectedCardIds.length})` : ""}
             </button>
             <button className="historyWorkspaceAction historyExportAction" type="button" onClick={onExportSelection} disabled={selectedCardIds.length === 0 || exportBusy}>
               {exportBusy ? <Loader2 className="spin" size={16} /> : <FileDown size={16} />}
@@ -231,9 +239,11 @@ export function HistoryWorkspace({
                       <span>保存于 {dateFormatter.format(new Date(card.saved_at || card.created_at))}</span>
                     </span>
                   </button>
-                  <button className="historyQuestionDelete" type="button" onClick={() => onDeleteCard(card)} disabled={Boolean(cardBusyId)} aria-label={`删除题目卡片：${card.content.title}`}>
-                    {cardBusyId === card.id ? <Loader2 size={17} className="spin" /> : <Trash2 size={17} />}
-                  </button>
+                  {selectionMode ? null : (
+                    <button className="historyQuestionDelete" type="button" onClick={() => onDeleteCard(card)} disabled={Boolean(cardBusyId)} aria-label={`删除题目卡片：${card.content.title}`}>
+                      {cardBusyId === card.id ? <Loader2 size={17} className="spin" /> : <Trash2 size={17} />}
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

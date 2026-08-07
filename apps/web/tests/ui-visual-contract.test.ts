@@ -15,7 +15,7 @@ const frozenFiles = new Map([
   ["components/StudyCardModal.tsx", "D99C7B18F89F7275CC5190F249DF865D4BE317B56C5A424E0C38D32CE1E9C267"],
   ["components/workspace/CardShelfTabs.tsx", "977F00E8C48617D094E2388E3413337B97398A225202F00A32901CF491EFC063"],
   ["components/workspace/StudyCardSidebar.tsx", "32EF1C14C81C6E9877E36DA24B432A149B6D4F6ACF353DB7B7EA5114EF003AB6"],
-  ["hooks/useStudyCards.ts", "CBD75FD8B7932D9406F0B5131644E02F9114C345A7788640E33E7E3C0F85593C"],
+  ["hooks/useStudyCards.ts", "00D555A146FB2304209289C96EB8FA6135B02D27BC4336CBE76019C087EB4C34"],
   ["hooks/useSessionRuntime.ts", "8C96D17076D1840158ED4D51B52C5E0EE18F6F4B99F350D080D3335F32960697"]
 ]);
 
@@ -259,6 +259,8 @@ test("history workspace reuses C4 tokens and responsive paper grids", () => {
   assert.match(history, /\.historyPaperCoverTitle\s*\{/);
   assert.match(history, /\.historyPaperPreview\s*\{[\s\S]*?min-height:\s*210px;[\s\S]*?aspect-ratio:\s*2\s*\/\s*1/);
   assert.match(history, /\.problemCardLibraryWorkspace \.historyPaperQuestionPreview\s*\{[\s\S]*?max-height:\s*1\.5em;[\s\S]*?overflow:\s*hidden/);
+  assert.match(history, /\.mistakeSetLibraryWorkspace \.historyPaperQuestionPreview\s*\{[\s\S]*?max-height:\s*1\.5em;[\s\S]*?overflow:\s*hidden/);
+  assert.match(history, /\.historyDeleteSelectionAction:hover:not\(:disabled\)[\s\S]*?background:\s*var\(--danger-soft\)/);
   assert.match(
     history,
     /\.historyWorkspaceHeader\.historyWorkspaceHeaderDetail\s*\{[\s\S]*?width:\s*min\(1184px,\s*100%\)/

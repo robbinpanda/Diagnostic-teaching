@@ -222,3 +222,59 @@ def test_get_missing_mistake_set_returns_404(tmp_path: Path):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "错题集不存在"
+
+
+def test_bulk_delete_cards_is_atomic_and_preserves_sessions(tmp_path: Path):
+    client, profile_id = _client(tmp_path)
+    paper = client.post("/api/exam-papers", json={"name": "批量卡片卷"}).json()
+    session_a = _session(client, profile_id, paper_id=paper["id"], problem_text="题目 A")
+    session_b = _session(client, profile_id, paper_id=paper["id"], problem_text="题目 B")
+    _add_problem_card(client, session_a["id"])
+    _add_problem_card(client, session_b["id"])
+    card_a = _problem_card_id(session_a["id"])
+    card_b = _problem_card_id(session_b["id"])
+
+    rejected = client.post(
+        "/api/cards/bulk-delete",
+        json={"card_ids": [card_a, "card_missing"]},
+    )
+    listed_after_rejection = client.get("/api/cards", params={"card_type": "problem_card"})
+    deleted = client.post(
+        "/api/cards/bulk-delete",
+        json={"card_ids": [card_a, card_b]},
+    )
+
+    assert rejected.status_code == 404
+    assert {card["id"] for card in listed_after_rejection.json()["cards"]} == {card_a, card_b}
+    assert deleted.status_code == 204
+    assert client.get("/api/cards", params={"card_type": "problem_card"}).json()["cards"] == []
+    assert client.get(f"/api/sessions/{session_a['id']}").status_code == 200
+    assert client.get(f"/api/sessions/{session_b['id']}").status_code == 200
+
+
+def test_bulk_delete_mistake_sets_cascades_snapshots_but_preserves_cards(tmp_path: Path):
+    client, profile_id = _client(tmp_path)
+    paper = client.post("/api/exam-papers", json={"name": "批量错题集卷"}).json()
+    session = _session(client, profile_id, paper_id=paper["id"], problem_text="保留题目卡片")
+    _add_problem_card(client, session["id"])
+    card_id = _problem_card_id(session["id"])
+    set_a = client.post("/api/mistake-sets", json={"name": "集合 A", "card_ids": [card_id]}).json()
+    set_b = client.post("/api/mistake-sets", json={"name": "集合 B", "card_ids": [card_id]}).json()
+
+    rejected = client.post(
+        "/api/mistake-sets/bulk-delete",
+        json={"mistake_set_ids": [set_a["id"], "mistake_set_missing"]},
+    )
+    listed_after_rejection = client.get("/api/mistake-sets")
+    deleted = client.post(
+        "/api/mistake-sets/bulk-delete",
+        json={"mistake_set_ids": [set_a["id"], set_b["id"]]},
+    )
+
+    assert rejected.status_code == 404
+    assert {item["id"] for item in listed_after_rejection.json()["mistake_sets"]} == {set_a["id"], set_b["id"]}
+    assert deleted.status_code == 204
+    assert client.get("/api/mistake-sets").json()["mistake_sets"] == []
+    assert [card["id"] for card in client.get("/api/cards").json()["cards"]] == [card_id]
+    with client.app.state.db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM mistake_set_items").fetchone()[0] == 0

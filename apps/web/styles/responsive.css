@@ -583,7 +583,7 @@
   }
 
   .historyQuestionRow.selectionMode {
-    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    grid-template-columns: 44px minmax(0, 1fr);
   }
 
   .mistakeSetPreviewToolbar {

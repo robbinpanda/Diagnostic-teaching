@@ -216,6 +216,27 @@ class StudyCardRepositoryMixin:
             conn.execute("DELETE FROM study_cards WHERE id = ?", (card_id,))
 
     @with_sqlite_busy_retry
+    def delete_cards(self, card_ids: list[str]) -> None:
+        unique_ids = list(dict.fromkeys(card_ids))
+        if not unique_ids or len(unique_ids) != len(card_ids):
+            raise ValueError("请选择不重复的学习卡片")
+        placeholders = ", ".join("?" for _ in unique_ids)
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                f"SELECT id, saved_at FROM study_cards WHERE id IN ({placeholders})",
+                unique_ids,
+            ).fetchall()
+            if len(rows) != len(unique_ids):
+                raise KeyError("missing_card")
+            if any(row["saved_at"] is None for row in rows):
+                raise PermissionError("pending_card")
+            conn.execute(
+                f"DELETE FROM study_cards WHERE id IN ({placeholders})",
+                unique_ids,
+            )
+
+    @with_sqlite_busy_retry
     def delete_all_cards(self) -> None:
         """Atomically delete cards only while no durable run is active."""
 

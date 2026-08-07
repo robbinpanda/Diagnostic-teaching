@@ -107,6 +107,15 @@ export async function deleteCard(cardId: string) {
   if (!response.ok) throw await responseError(response);
 }
 
+export async function deleteCards(cardIds: string[]) {
+  const response = await fetch(`${API_BASE}/api/cards/bulk-delete`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ card_ids: cardIds })
+  });
+  if (!response.ok) throw await responseError(response, "批量删除学习卡片失败");
+}
+
 export async function deleteAllCards() {
   const response = await fetch(`${API_BASE}/api/cards`, {
     method: "DELETE"

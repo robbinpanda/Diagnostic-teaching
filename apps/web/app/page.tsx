@@ -253,6 +253,8 @@ export default function Home() {
   const [examPapers, setExamPapers] = useState<ExamPaper[]>([]);
   const [historyView, setHistoryView] = useState<HistoryView>(null);
   const [mistakeSetView, setMistakeSetView] = useState<MistakeSetView | null>(null);
+  const [mistakeSetSelectionMode, setMistakeSetSelectionMode] = useState(false);
+  const [selectedMistakeSetIds, setSelectedMistakeSetIds] = useState<string[]>([]);
   const [knowledgeView, setKnowledgeView] = useState<KnowledgeView | null>(null);
   const [knowledgeSelectionMode, setKnowledgeSelectionMode] = useState(false);
   const [selectedKnowledgeCardIds, setSelectedKnowledgeCardIds] = useState<string[]>([]);
@@ -409,8 +411,10 @@ export default function Home() {
     mistakeSets,
     mistakeSetsBusy,
     mistakeSetSaveBusy,
+    mistakeSetDeleteBusy,
     refreshMistakeSets,
-    saveMistakeSet
+    saveMistakeSet,
+    deleteMistakeSets
   } = useMistakeSets({
     onError: runtime.setError,
     onClearError: runtime.clearError
@@ -440,11 +444,13 @@ export default function Home() {
     movingCard,
     setMovingCard,
     cardBusyId,
+    deleteCardsBusy,
     refreshCards,
     invalidateCardRefresh,
     upsertCard,
     moveCardToFolder,
-    deleteCard
+    deleteCard,
+    deleteCards
   } = cardsState;
   const startBusy = workflow.mode === "composer" && workflow.activity === "start";
   const imageBusy = workflow.mode === "composer" && workflow.activity === "image";
@@ -1851,6 +1857,30 @@ export default function Home() {
     });
   }
 
+  async function handleDeleteKnowledgeSelection() {
+    const deleted = await deleteCards(selectedKnowledgeCardIds);
+    if (!deleted) return;
+    setSelectedKnowledgeCardIds([]);
+    setKnowledgeSelectionMode(false);
+    setKnowledgeView({ mode: "overview" });
+  }
+
+  async function handleDeleteMistakeCardSelection() {
+    const deleted = await deleteCards(selectedMistakeCardIds);
+    if (!deleted) return;
+    setSelectedMistakeCardIds([]);
+    setMistakeSelectionMode(false);
+    setHistoryView({ mode: "overview" });
+  }
+
+  async function handleDeleteMistakeSetSelection() {
+    const deleted = await deleteMistakeSets(selectedMistakeSetIds);
+    if (!deleted) return;
+    setSelectedMistakeSetIds([]);
+    setMistakeSetSelectionMode(false);
+    setMistakeSetView({ mode: "overview" });
+  }
+
   const activeCardDock = displayedDockCard ? (
     <div
       className={`activeKnowledgeCardDock${displayedDockCardIsArchived ? " shelfTransitionDock" : ""}`}
@@ -1964,6 +1994,10 @@ export default function Home() {
           setMistakeExportDraft(null);
           setKnowledgeSelectionMode(false);
           setSelectedKnowledgeCardIds([]);
+          setMistakeSelectionMode(false);
+          setSelectedMistakeCardIds([]);
+          setMistakeSetSelectionMode(false);
+          setSelectedMistakeSetIds([]);
           setKnowledgeCardExportOpen(false);
           if (navigation === "mistake_collection") {
             setHistoryView({ mode: "overview" });
@@ -2029,6 +2063,7 @@ export default function Home() {
               selectionMode={mistakeSelectionMode}
               selectedCardIds={selectedMistakeCardIds}
               exportBusy={mistakeExportBusy}
+              deleteSelectionBusy={deleteCardsBusy}
               onExpandLeft={() => setLeftOpen(true)}
               onOverviewQueryChange={setHistoryOverviewQuery}
               onSortModeChange={setHistorySortMode}
@@ -2047,6 +2082,7 @@ export default function Home() {
                 toggleMistakeCardGroupSelection(current, cardIds)
               ))}
               onExportSelection={() => void handleBeginMistakeExport()}
+              onDeleteSelection={() => void handleDeleteMistakeCardSelection()}
               onStartNewChat={handleStartNewChat}
               onClearActionError={runtime.clearError}
               onClearNotice={() => setCollectionNotice("")}
@@ -2061,10 +2097,21 @@ export default function Home() {
               mistakeSets={mistakeSets}
               busy={mistakeSetsBusy}
               leftOpen={leftOpen}
+              selectionMode={mistakeSetSelectionMode}
+              selectedSetIds={selectedMistakeSetIds}
+              deleteBusy={mistakeSetDeleteBusy}
               onExpandLeft={() => setLeftOpen(true)}
               onOpenSet={(setId) => setMistakeSetView({ mode: "detail", setId })}
               onBackToOverview={() => setMistakeSetView({ mode: "overview" })}
               onPrint={(set, practiceMode) => setMistakeSetPrintJob({ name: set.name, items: set.items, practiceMode })}
+              onToggleSelectionMode={() => {
+                setMistakeSetSelectionMode((current) => !current);
+                if (mistakeSetSelectionMode) setSelectedMistakeSetIds([]);
+              }}
+              onToggleSetSelection={(setId) => setSelectedMistakeSetIds((current) => current.includes(setId)
+                ? current.filter((selectedId) => selectedId !== setId)
+                : [...current, setId])}
+              onDeleteSelection={() => void handleDeleteMistakeSetSelection()}
             />
             {activeCardDock ? <div className="historyCardOverlayStage">{activeCardDock}</div> : null}
           </>
@@ -2083,6 +2130,7 @@ export default function Home() {
               onMoveCard={setMovingCard}
               selectionMode={knowledgeSelectionMode}
               selectedCardIds={selectedKnowledgeCards.map((card) => card.id)}
+              deleteBusy={deleteCardsBusy}
               onToggleSelectionMode={() => {
                 setKnowledgeSelectionMode((current) => !current);
                 if (knowledgeSelectionMode) setSelectedKnowledgeCardIds([]);
@@ -2092,6 +2140,7 @@ export default function Home() {
               onExportSelection={() => {
                 if (selectedKnowledgeCards.length > 0) setKnowledgeCardExportOpen(true);
               }}
+              onDeleteSelection={() => void handleDeleteKnowledgeSelection()}
             />
             {activeCardDock ? <div className="historyCardOverlayStage">{activeCardDock}</div> : null}
           </>

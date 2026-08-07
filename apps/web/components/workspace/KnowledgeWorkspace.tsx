@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, BookOpen, CheckSquare2, ChevronRight, FileDown, FolderInput, Search } from "lucide-react";
+import { ArrowLeft, BookOpen, CheckSquare2, ChevronRight, FileDown, FolderInput, Loader2, Search, Trash2 } from "lucide-react";
 import { useMemo, useState, type Ref } from "react";
 
 import type { CardFolder, StudyCard } from "../../lib/api";
@@ -26,10 +26,12 @@ type Props = {
   onMoveCard: (card: StudyCard) => void;
   selectionMode?: boolean;
   selectedCardIds?: string[];
+  deleteBusy?: boolean;
   onToggleSelectionMode?: () => void;
   onToggleCardSelection?: (cardId: string) => void;
   onToggleGroupSelection?: (cardIds: string[]) => void;
   onExportSelection?: () => void;
+  onDeleteSelection?: () => void;
 };
 
 const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
@@ -53,10 +55,12 @@ export function KnowledgeWorkspace({
   onMoveCard,
   selectionMode = false,
   selectedCardIds = [],
+  deleteBusy = false,
   onToggleSelectionMode = () => undefined,
   onToggleCardSelection = () => undefined,
   onToggleGroupSelection = () => undefined,
-  onExportSelection = () => undefined
+  onExportSelection = () => undefined,
+  onDeleteSelection = () => undefined
 }: Props) {
   const [query, setQuery] = useState("");
   const groups = useMemo(() => buildKnowledgePaperGroups(cards, folders), [cards, folders]);
@@ -101,6 +105,15 @@ export function KnowledgeWorkspace({
             >
               <CheckSquare2 size={16} />
               {selectionMode ? "退出多选" : "多选"}
+            </button>
+            <button
+              className="historyWorkspaceAction historyDeleteSelectionAction"
+              type="button"
+              onClick={onDeleteSelection}
+              disabled={selectedCardIds.length === 0 || deleteBusy}
+            >
+              {deleteBusy ? <Loader2 className="spin" size={16} /> : <Trash2 size={16} />}
+              删除{selectedCardIds.length > 0 ? ` (${selectedCardIds.length})` : ""}
             </button>
             <button
               className="historyWorkspaceAction historyExportAction"

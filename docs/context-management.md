@@ -349,9 +349,9 @@ source_action_id / source_message_id / created_at / saved_at / deferred_at
 
 数据库内部另外使用可空的 `study_cards.live_session_id` 作为真实外键。卡片生成时它与来源 `session_id` 相同；删除会话时，触发器先删除 `saved_at=null` 的待归档卡片，已归档卡片则由 `ON DELETE SET NULL` 解除活动会话关系。不可变的来源 `session_id / source_action_id / source_message_id` 仍保留，因此全局卡片既不会被误删，也不会丢失来源审计文本。
 
-“知识卡片库”先进入多选模式：总览页可按整份试卷选择，试卷详情页可逐张选择，并按点击顺序维护跨卷选择。导出弹窗不再重复选择卡片或版式，知识卡片固定使用 A4 纵向双列紧凑排版，并与答疑卡片一致输出关键关系、核心原理、推导、适用场景、易错点和题目连接。导出完全使用前端已有的结构化卡片数据和 KaTeX 渲染，不新增副本、不修改 SQLite，也不把卡片上传到外部服务。
+“知识卡片库”和“错题卡片库”先进入多选模式：总览页可按整份试卷选择，试卷详情页可逐张选择，并按点击顺序维护跨卷选择。导出弹窗不再重复选择卡片或版式，知识卡片固定使用 A4 纵向双列紧凑排版，并与答疑卡片一致输出关键关系、核心原理、推导、适用场景、易错点和题目连接。导出完全使用前端已有的结构化卡片数据和 KaTeX 渲染，不新增副本、不修改 SQLite，也不把卡片上传到外部服务。两个卡片库的多选删除在用户确认后调用 `POST /api/cards/bulk-delete`；后端先在 `BEGIN IMMEDIATE` 中确认全部 ID 都是已归档卡片，再一次性删除，任一 ID 失效时不产生部分删除，来源 session、消息和日志保持不变。
 
-`0015_mistake_set_problem_cards` 为 `mistake_set_items` 增加 `problem_card_json`。创建错题集时，客户端提交有序 `card_ids`，后端只接纳已归档题目卡片并在同一事务中快照完整 `problem_card`；卡片即使已因来源 session 删除而把 `live_session_id` 置空，仍可创建错题集。再次打开或打印只依赖快照。错题打印与知识卡片共用固定双列紧凑卡片版式，并输出题目摘要、解题思路、关键步骤、思考来源、易错提醒和最终答案；“只看题目摘要”仅改变本次预览/打印，把其余解析替换为空白练习区，不修改快照。
+`0015_mistake_set_problem_cards` 为 `mistake_set_items` 增加 `problem_card_json`。创建错题集时，客户端提交有序 `card_ids`，后端只接纳已归档题目卡片并在同一事务中快照完整 `problem_card`；卡片即使已因来源 session 删除而把 `live_session_id` 置空，仍可创建错题集。再次打开或打印只依赖快照。错题集总览同样支持多选，并在用户确认后调用 `POST /api/mistake-sets/bulk-delete` 原子删除所选集合及其 item 快照；来源题目卡片不受影响。错题打印与知识卡片共用固定双列紧凑卡片版式，并输出题目摘要、解题思路、关键步骤、思考来源、易错提醒和最终答案；“只看题目摘要”仅改变本次预览/打印，把其余解析替换为空白练习区，不修改快照。
 
 assistant 历史消息的 `metadata_json` 同时保存 `card_id` 和结构化 card，保证模型历史仍是完整 `TutorTurn` 格式；会话恢复时会重建 card ID、action ID 和 message ID 的引用。
 

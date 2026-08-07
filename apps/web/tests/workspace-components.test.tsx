@@ -13,6 +13,7 @@ import { StudyCardModal } from "../components/StudyCardModal";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import { HistoryWorkspace } from "../components/workspace/HistoryWorkspace";
 import { KnowledgeWorkspace } from "../components/workspace/KnowledgeWorkspace";
+import { MistakeSetWorkspace } from "../components/workspace/MistakeSetWorkspace";
 import {
   anchoredInteractionScrollTop,
   MessageTimeline,
@@ -28,7 +29,7 @@ import { CardShelfTabs } from "../components/workspace/CardShelfTabs";
 import { SessionSidebar } from "../components/workspace/SessionSidebar";
 import { StudyCardSidebar } from "../components/workspace/StudyCardSidebar";
 import { getPastedImageFiles } from "../components/workspace/TutorComposer";
-import type { CardFolder, ModelProfile, SessionHistoryItem, StudyCard } from "../lib/api";
+import type { CardFolder, MistakeSet, ModelProfile, SessionHistoryItem, StudyCard } from "../lib/api";
 import { cardVisualTheme, stableCardThemeIndex } from "../lib/card-theme";
 import { cardFixture, checkpointFixture, knowledgeFolderFixture } from "./fixtures";
 
@@ -520,14 +521,69 @@ test("knowledge card library selects cards before opening the export dialog", ()
     />
   );
   const selectedExportButton = selectedMarkup.match(/<button[^>]*historyExportAction[^>]*>/)?.[0] ?? "";
+  const selectedDeleteButton = selectedMarkup.match(/<button[^>]*historyDeleteSelectionAction[^>]*>/)?.[0] ?? "";
 
   assert.match(idleMarkup, /知识卡片库/);
   assert.match(idleMarkup, /多选/);
   assert.match(idleExportButton, /disabled=""/);
   assert.match(selectedMarkup, /退出多选/);
   assert.match(selectedMarkup, /导出 \(1\)/);
+  assert.match(selectedMarkup, /删除 \(1\)/);
   assert.match(selectedMarkup, /取消整卷/);
   assert.doesNotMatch(selectedExportButton, /disabled=""/);
+  assert.doesNotMatch(selectedDeleteButton, /disabled=""/);
+});
+
+test("mistake card library exposes confirmed batch deletion beside multi-select", () => {
+  const markup = renderToStaticMarkup(
+    <HistoryWorkspace
+      {...historyWorkspaceProps}
+      view={{ mode: "overview" }}
+      selectionMode
+      selectedCardIds={[historyProblemCards[0].id]}
+    />
+  );
+  assert.match(markup, /退出多选/);
+  assert.match(markup, /删除 \(1\)/);
+  assert.match(markup, /导出 \(1\)/);
+});
+
+test("mistake-set library selects and batch deletes saved snapshots", () => {
+  const mistakeSet: MistakeSet = {
+    id: "mistake-set-1",
+    name: "错题复习",
+    items: [{
+      id: "mistake-item-1",
+      source_session_id: null,
+      source_paper_name: "代数卷",
+      title: "这是一个需要单行省略显示的很长题目标题",
+      problem_text: "题目摘要",
+      problem_image_data_url: null,
+      problem_card: problemCardFixture.content.type === "problem_card" ? problemCardFixture.content : null,
+      position: 0,
+      created_at: "2026-08-07T00:00:00Z"
+    }],
+    created_at: "2026-08-07T00:00:00Z",
+    updated_at: "2026-08-07T00:00:00Z"
+  };
+  const markup = renderToStaticMarkup(
+    <MistakeSetWorkspace
+      view={{ mode: "overview" }}
+      mistakeSets={[mistakeSet]}
+      busy={false}
+      leftOpen
+      selectionMode
+      selectedSetIds={[mistakeSet.id]}
+      onExpandLeft={() => {}}
+      onOpenSet={() => {}}
+      onBackToOverview={() => {}}
+      onPrint={() => {}}
+    />
+  );
+  assert.match(markup, /mistakeSetLibraryWorkspace/);
+  assert.match(markup, /退出多选/);
+  assert.match(markup, /删除 \(1\)/);
+  assert.match(markup, /取消选择：错题复习/);
 });
 
 test("mistake card workspace renders empty no-result and removed-folder states", () => {

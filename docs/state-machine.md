@@ -268,11 +268,13 @@ PATCH  /api/cards/{card_id}/move          # 修改已归档卡片的目录
 POST   /api/sessions/{session_id}/inputs  # CARD_DISMISSED_CONTINUE
 DELETE /api/cards
 DELETE /api/cards/{card_id}
+POST   /api/cards/bulk-delete            # 原子删除多张已归档卡片
+POST   /api/mistake-sets/bulk-delete     # 原子删除多个错题集快照
 ```
 
 `DELETE /api/cards` 会清空全部已归档和待归档卡片，但不删除 session、message、checkpoint 或日志。清理在 `BEGIN IMMEDIATE` 事务内复查 `session_runs`；任一 run 仍为 `queued/running` 时整体返回 409，不依赖浏览器流是否仍连接，也不会删除部分卡片。`session_id` 仍保存在卡片记录中作为来源审计字段，但全局卡片库的查询与删除不依赖当前会话。删除 session 或删除其最后一条引用后同步清理试卷实体，都不会清空已归档卡片或受管试卷目录；该 session 的 `saved_at=null` 卡片则随会话删除。其余多张待归档卡片通过 `pending_cards` 恢复到各自的消息锚点，但不会形成生成锁。
 
-错题卡片库以 `GET /api/cards` 返回的已归档 `problem_card` 为权威数据源，与 session history 解耦；卡片入库后即使来源 session 和活动试卷删除也继续显示，点击直接打开卡片。`POST /api/mistake-sets` 接收有序 `card_ids`，拒绝待归档、非题目类型或不存在的卡片，并在单个 SQLite 写事务中把完整 `problem_card`、来源卡片目录名及仍可用的题图复制到 `mistake_set_items`；来源 session 已删除时 `source_session_id` 直接保存为 `null`。`GET /api/mistake-sets` 和 `GET /api/mistake-sets/{id}` 只读取快照。打印固定为 A4 纵向双列；可选练习模式只保留题目摘要并把解析与答案替换为空白作答区，不写回数据库。
+错题卡片库以 `GET /api/cards` 返回的已归档 `problem_card` 为权威数据源，与 session history 解耦；卡片入库后即使来源 session 和活动试卷删除也继续显示，点击直接打开卡片。知识卡片库和错题卡片库通过 `POST /api/cards/bulk-delete` 在单一事务中删除已选归档卡片；请求中任一卡片不存在或仍待归档时整批回滚，来源 session 不受影响。`POST /api/mistake-sets` 接收有序 `card_ids`，拒绝待归档、非题目类型或不存在的卡片，并在单个 SQLite 写事务中把完整 `problem_card`、来源卡片目录名及仍可用的题图复制到 `mistake_set_items`；来源 session 已删除时 `source_session_id` 直接保存为 `null`。`GET /api/mistake-sets` 和 `GET /api/mistake-sets/{id}` 只读取快照；`POST /api/mistake-sets/bulk-delete` 原子删除已选快照并级联删除其 items，但不删除来源题目卡片。打印固定为 A4 纵向双列；可选练习模式只保留题目摘要并把解析与答案替换为空白作答区，不写回数据库。
 
 ## 9. SSE 事件顺序与 durable 边界
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 
-import { createMistakeSet, fetchMistakeSets, type MistakeSet } from "../lib/api";
+import { createMistakeSet, deleteMistakeSets as deleteMistakeSetsRequest, fetchMistakeSets, type MistakeSet } from "../lib/api";
 
 
 type Options = {
@@ -15,6 +15,7 @@ export function useMistakeSets({ onError, onClearError }: Options) {
   const [mistakeSets, setMistakeSets] = useState<MistakeSet[]>([]);
   const [mistakeSetsBusy, setMistakeSetsBusy] = useState(false);
   const [mistakeSetSaveBusy, setMistakeSetSaveBusy] = useState(false);
+  const [mistakeSetDeleteBusy, setMistakeSetDeleteBusy] = useState(false);
   const requestRef = useRef(0);
   const mutationRef = useRef(0);
 
@@ -40,7 +41,6 @@ export function useMistakeSets({ onError, onClearError }: Options) {
     try {
       const created = await createMistakeSet({ name, card_ids: cardIds });
       mutationRef.current += 1;
-      requestRef.current += 1;
       setMistakeSets((current) => [created, ...current.filter((item) => item.id !== created.id)]);
       return created;
     } catch (error) {
@@ -51,11 +51,35 @@ export function useMistakeSets({ onError, onClearError }: Options) {
     }
   }, [onClearError, onError]);
 
+  const deleteMistakeSets = useCallback(async (mistakeSetIds: string[]) => {
+    if (
+      mistakeSetDeleteBusy
+      || mistakeSetIds.length === 0
+      || !window.confirm(`删除选中的 ${mistakeSetIds.length} 个错题集？删除后无法恢复。`)
+    ) return false;
+    setMistakeSetDeleteBusy(true);
+    onClearError();
+    try {
+      await deleteMistakeSetsRequest(mistakeSetIds);
+      const deletedIds = new Set(mistakeSetIds);
+      mutationRef.current += 1;
+      setMistakeSets((current) => current.filter((item) => !deletedIds.has(item.id)));
+      return true;
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "批量删除错题集失败");
+      return false;
+    } finally {
+      setMistakeSetDeleteBusy(false);
+    }
+  }, [mistakeSetDeleteBusy, onClearError, onError]);
+
   return {
     mistakeSets,
     mistakeSetsBusy,
     mistakeSetSaveBusy,
+    mistakeSetDeleteBusy,
     refreshMistakeSets,
-    saveMistakeSet
+    saveMistakeSet,
+    deleteMistakeSets
   };
 }

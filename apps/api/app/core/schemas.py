@@ -387,6 +387,12 @@ class MistakeSetCreateRequest(BaseModel):
     card_ids: list[str] = Field(min_length=1)
 
 
+class MistakeSetBulkDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mistake_set_ids: list[str] = Field(min_length=1, max_length=200)
+
+
 class MistakeSetItemPublic(BaseModel):
     id: str
     source_session_id: str | None = None
@@ -571,6 +577,12 @@ class StudyCardPublic(BaseModel):
 
 class StudyCardListResponse(BaseModel):
     cards: list[StudyCardPublic]
+
+
+class StudyCardBulkDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    card_ids: list[str] = Field(min_length=1, max_length=200)
 
 
 class StudyCardSaveRequest(BaseModel):

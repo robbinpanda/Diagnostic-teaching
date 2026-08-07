@@ -22,3 +22,13 @@ export async function createMistakeSet(input: {
   if (!response.ok) throw await responseError(response, "错题集保存失败");
   return response.json();
 }
+
+
+export async function deleteMistakeSets(mistakeSetIds: string[]): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/mistake-sets/bulk-delete`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ mistake_set_ids: mistakeSetIds })
+  });
+  if (!response.ok) throw await responseError(response, "批量删除错题集失败");
+}

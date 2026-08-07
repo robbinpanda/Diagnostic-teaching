@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 
 from app.core.schemas import (
+    MistakeSetBulkDeleteRequest,
     MistakeSetCreateRequest,
     MistakeSetItemPublic,
     MistakeSetListResponse,
@@ -87,3 +88,17 @@ def create_mistake_set(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return mistake_set_from_rows(row, items)
+
+
+@router.post("/bulk-delete", status_code=204)
+def delete_mistake_sets(
+    payload: MistakeSetBulkDeleteRequest,
+    request: Request,
+) -> Response:
+    try:
+        request.app.state.sessions.delete_mistake_sets(payload.mistake_set_ids)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="部分错题集已经不存在，请刷新后重试") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(status_code=204)

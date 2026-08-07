@@ -374,6 +374,17 @@
   min-width: 0;
 }
 
+.historyDeleteSelectionAction:not(:disabled) {
+  color: var(--danger);
+}
+
+.historyDeleteSelectionAction:hover:not(:disabled),
+.historyDeleteSelectionAction:focus-visible:not(:disabled) {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--stage-line));
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
 .problemCardLibraryWorkspace .historyPaperCoverTitle {
   display: block;
   text-overflow: ellipsis;
@@ -394,6 +405,30 @@
 
 .problemCardLibraryWorkspace .historyPaperQuestionPreview .mathDisplay,
 .problemCardLibraryWorkspace .historyPaperQuestionPreview .katex-display {
+  display: inline;
+  margin: 0;
+}
+
+.mistakeSetLibraryWorkspace .historyPaperCoverTitle {
+  display: block;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mistakeSetLibraryWorkspace .historyPaperQuestionPreview {
+  max-height: 1.5em;
+  overflow: hidden;
+}
+
+.mistakeSetLibraryWorkspace .historyPaperQuestionPreview .mathText {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mistakeSetLibraryWorkspace .historyPaperQuestionPreview .mathDisplay,
+.mistakeSetLibraryWorkspace .historyPaperQuestionPreview .katex-display {
   display: inline;
   margin: 0;
 }
@@ -677,7 +712,7 @@
 }
 
 .historyQuestionRow.selectionMode {
-  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  grid-template-columns: 44px minmax(0, 1fr);
 }
 
 .historyQuestionSelect {

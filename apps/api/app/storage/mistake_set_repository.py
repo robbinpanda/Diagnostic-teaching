@@ -57,6 +57,25 @@ class MistakeSetRepositoryMixin:
             return row, _list_items(conn, mistake_set_id)
 
     @with_sqlite_busy_retry
+    def delete_mistake_sets(self, mistake_set_ids: list[str]) -> None:
+        unique_ids = list(dict.fromkeys(mistake_set_ids))
+        if not unique_ids or len(unique_ids) != len(mistake_set_ids):
+            raise ValueError("请选择不重复的错题集")
+        placeholders = ", ".join("?" for _ in unique_ids)
+        with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                f"SELECT id FROM mistake_sets WHERE id IN ({placeholders})",
+                unique_ids,
+            ).fetchall()
+            if len(rows) != len(unique_ids):
+                raise KeyError("missing_mistake_set")
+            conn.execute(
+                f"DELETE FROM mistake_sets WHERE id IN ({placeholders})",
+                unique_ids,
+            )
+
+    @with_sqlite_busy_retry
     def create_mistake_set(
         self,
         name: str,
