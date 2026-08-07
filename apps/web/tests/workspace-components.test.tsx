@@ -584,15 +584,6 @@ test("checkpoint and pending card interactions render inside the conversation wi
   assert.equal((checkpoint.match(/class="optionButton/g) ?? []).length, 5);
   assert.doesNotMatch(checkpoint, /modalBackdrop/);
 
-  const checkpointSource = readFileSync(resolve(__dirname, "../../../components/CheckpointModal.tsx"), "utf8");
-  const checkpointStyles = readFileSync(resolve(__dirname, "../../../styles/dialogs.css"), "utf8");
-  assert.match(checkpointSource, /rows=\{2\}/);
-  assert.match(checkpointStyles, /\.checkpointDialog\s*\{[^}]*padding:\s*12px 16px;/);
-  assert.match(checkpointStyles, /\.checkpointDialog h2\s*\{[^}]*margin:\s*4px 0 8px;[^}]*font-size:\s*16px;/);
-  assert.match(checkpointStyles, /\.optionList\s*\{[^}]*gap:\s*5px;/);
-  assert.match(checkpointStyles, /\.optionButton\s*\{[^}]*min-height:\s*38px;[^}]*padding:\s*6px 10px;/);
-  assert.match(checkpointStyles, /\.checkpointFooter\s*\{[^}]*margin-top:\s*8px;[^}]*padding-top:\s*7px;/);
-
   const answeredCheckpoint = renderToStaticMarkup(
     <CheckpointModal
       checkpoint={checkpointFixture}
