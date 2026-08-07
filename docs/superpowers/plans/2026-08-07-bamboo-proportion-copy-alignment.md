@@ -49,4 +49,4 @@ Run all static checks, standalone syntax checks, the interface detector, origina
 
 - [ ] **Step 6: Apply the reference-image vertical correction**
 
-Wrap the three `.bamboo-instance` groups in `<g class="bamboo-position-group" transform="translate(0 24)">`. Assert that the wrapper exists exactly once in both the fragment and standalone preview, while the three instance transforms remain unchanged.
+Wrap the three `.bamboo-instance` groups in `<g class="bamboo-position-group" transform="translate(0 48)">`. Assert that the wrapper exists exactly once in both the fragment and standalone preview, while the three instance transforms remain unchanged and the bamboo baseline matches the green book cover.
