@@ -111,7 +111,7 @@ export function HistoryWorkspace({
     : [];
 
   return (
-    <section ref={workspaceRef} className="historyWorkspace" aria-label="错题卡片库工作区">
+    <section ref={workspaceRef} className="historyWorkspace problemCardLibraryWorkspace" aria-label="错题卡片库工作区">
       <header className={`historyWorkspaceHeader${view.mode === "paper" ? " historyWorkspaceHeaderDetail" : ""}`}>
         {leftOpen ? null : (
           <button className="historyWorkspaceNav" type="button" onClick={onExpandLeft} aria-label="展开会话栏">

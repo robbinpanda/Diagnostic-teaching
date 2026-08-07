@@ -262,7 +262,8 @@
 .historyPaperPreview {
   position: relative;
   min-width: 0;
-  aspect-ratio: 8 / 5;
+  min-height: 210px;
+  aspect-ratio: 2 / 1;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   align-content: start;
@@ -373,6 +374,30 @@
   min-width: 0;
 }
 
+.problemCardLibraryWorkspace .historyPaperCoverTitle {
+  display: block;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.problemCardLibraryWorkspace .historyPaperQuestionPreview {
+  max-height: 1.5em;
+  overflow: hidden;
+}
+
+.problemCardLibraryWorkspace .historyPaperQuestionPreview .mathText {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.problemCardLibraryWorkspace .historyPaperQuestionPreview .mathDisplay,
+.problemCardLibraryWorkspace .historyPaperQuestionPreview .katex-display {
+  display: inline;
+  margin: 0;
+}
+
 .historyPaperQuestionPreview .mathDisplay,
 .historyQuestionTitle .mathDisplay {
   max-width: none;
@@ -384,8 +409,8 @@
   min-width: 0;
   display: grid;
   align-content: center;
-  gap: var(--space-2);
-  padding: var(--space-4) var(--space-5);
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-5);
   border-top: 1px solid var(--stage-line);
   background: var(--neutral-25);
 }

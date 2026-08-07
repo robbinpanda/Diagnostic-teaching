@@ -255,7 +255,8 @@ test("history workspace reuses C4 tokens and responsive paper grids", () => {
   assert.doesNotMatch(history, /\.titleMathText\b/);
   assert.doesNotMatch(history, /@font-face|@import|url\(/i);
   assert.match(history, /\.historyPaperCoverTitle\s*\{/);
-  assert.match(history, /\.historyPaperPreview\s*\{[\s\S]*?aspect-ratio:\s*8\s*\/\s*5/);
+  assert.match(history, /\.historyPaperPreview\s*\{[\s\S]*?min-height:\s*210px;[\s\S]*?aspect-ratio:\s*2\s*\/\s*1/);
+  assert.match(history, /\.problemCardLibraryWorkspace \.historyPaperQuestionPreview\s*\{[\s\S]*?max-height:\s*1\.5em;[\s\S]*?overflow:\s*hidden/);
   assert.match(
     history,
     /\.historyWorkspaceHeader\.historyWorkspaceHeaderDetail\s*\{[\s\S]*?width:\s*min\(1184px,\s*100%\)/
