@@ -255,6 +255,8 @@ export default function Home() {
   const [historyView, setHistoryView] = useState<HistoryView>(null);
   const [mistakeSetView, setMistakeSetView] = useState<MistakeSetView | null>(null);
   const [knowledgeView, setKnowledgeView] = useState<KnowledgeView | null>(null);
+  const [knowledgeSelectionMode, setKnowledgeSelectionMode] = useState(false);
+  const [selectedKnowledgeCardIds, setSelectedKnowledgeCardIds] = useState<string[]>([]);
   const [mistakeSelectionMode, setMistakeSelectionMode] = useState(false);
   const [selectedMistakeSessionIds, setSelectedMistakeSessionIds] = useState<string[]>([]);
   const [mistakeExportBusy, setMistakeExportBusy] = useState(false);
@@ -460,6 +462,13 @@ export default function Home() {
     () => cards.filter((card) => card.card_type === "knowledge_card" && Boolean(card.saved_at)),
     [cards]
   );
+  const selectedKnowledgeCards = useMemo(() => {
+    const cardsById = new Map(knowledgeLibraryCards.map((card) => [card.id, card]));
+    return selectedKnowledgeCardIds.flatMap((cardId) => {
+      const card = cardsById.get(cardId);
+      return card ? [card] : [];
+    });
+  }, [knowledgeLibraryCards, selectedKnowledgeCardIds]);
   const dockedActiveCard = useMemo(
     () => [...activeCards].reverse().find((card) => (
       card.card_type === "knowledge_card" || card.card_type === "problem_card"
@@ -1795,7 +1804,25 @@ export default function Home() {
 
   function handleLearningCardExport(selectedCards: StudyCard[], layout: LearningCardExportLayout) {
     setKnowledgeCardExportOpen(false);
+    setKnowledgeSelectionMode(false);
+    setSelectedKnowledgeCardIds([]);
     setLearningCardPrintJob({ cards: selectedCards, layout });
+  }
+
+  function toggleKnowledgeCardSelection(cardId: string) {
+    setSelectedKnowledgeCardIds((current) => current.includes(cardId)
+      ? current.filter((selectedId) => selectedId !== cardId)
+      : [...current, cardId]);
+  }
+
+  function toggleKnowledgeGroupSelection(cardIds: string[]) {
+    const groupIds = new Set(cardIds);
+    setSelectedKnowledgeCardIds((current) => {
+      const allSelected = cardIds.length > 0 && cardIds.every((cardId) => current.includes(cardId));
+      return allSelected
+        ? current.filter((selectedId) => !groupIds.has(selectedId))
+        : [...current, ...cardIds.filter((cardId) => !current.includes(cardId))];
+    });
   }
 
   const activeCardDock = displayedDockCard ? (
@@ -1908,6 +1935,9 @@ export default function Home() {
           setContentNavigation(navigation);
           setViewingCard(null);
           setMistakeExportDraft(null);
+          setKnowledgeSelectionMode(false);
+          setSelectedKnowledgeCardIds([]);
+          setKnowledgeCardExportOpen(false);
           if (navigation === "mistake_collection") {
             setHistoryView({ mode: "overview" });
             setMistakeSetView(null);
@@ -2024,7 +2054,17 @@ export default function Home() {
               onBackToOverview={() => setKnowledgeView({ mode: "overview" })}
               onOpenCard={openLibraryCard}
               onMoveCard={setMovingCard}
-              onExport={() => setKnowledgeCardExportOpen(true)}
+              selectionMode={knowledgeSelectionMode}
+              selectedCardIds={selectedKnowledgeCards.map((card) => card.id)}
+              onToggleSelectionMode={() => {
+                setKnowledgeSelectionMode((current) => !current);
+                if (knowledgeSelectionMode) setSelectedKnowledgeCardIds([]);
+              }}
+              onToggleCardSelection={toggleKnowledgeCardSelection}
+              onToggleGroupSelection={toggleKnowledgeGroupSelection}
+              onExportSelection={() => {
+                if (selectedKnowledgeCards.length > 0) setKnowledgeCardExportOpen(true);
+              }}
             />
             {activeCardDock ? <div className="historyCardOverlayStage">{activeCardDock}</div> : null}
           </>
@@ -2168,8 +2208,7 @@ export default function Home() {
         <ProblemImageViewer imageUrl={viewerImageUrl} onClose={() => setViewerImageUrl(null)} />
       )}
       <LearningCardExportDialog
-        cards={knowledgeLibraryCards}
-        folders={folders}
+        cards={selectedKnowledgeCards}
         open={knowledgeCardExportOpen}
         onClose={() => setKnowledgeCardExportOpen(false)}
         onExport={handleLearningCardExport}

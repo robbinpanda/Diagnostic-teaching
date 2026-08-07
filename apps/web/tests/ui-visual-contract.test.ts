@@ -177,8 +177,9 @@ test("knowledge export replaces the removed global card drawer", () => {
     page,
     /knowledgeLibraryCards[\s\S]*?card\.card_type === "knowledge_card" && Boolean\(card\.saved_at\)/
   );
-  assert.match(page, /<LearningCardExportDialog[\s\S]*?cards=\{knowledgeLibraryCards\}/);
-  assert.match(knowledgeWorkspace, /onExport[\s\S]*?导出知识卡片/);
+  assert.match(page, /<LearningCardExportDialog[\s\S]*?cards=\{selectedKnowledgeCards\}/);
+  assert.match(knowledgeWorkspace, /onToggleSelectionMode[\s\S]*?退出多选[\s\S]*?onExportSelection/);
+  assert.doesNotMatch(knowledgeWorkspace, /导出知识卡片/);
   assert.doesNotMatch(page, /StudyCardSidebar|cardPanelToggle|rightOpen|setRightOpen/);
 });
 

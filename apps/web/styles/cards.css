@@ -505,6 +505,10 @@
   box-shadow: 0 28px 90px rgba(20, 30, 35, 0.28);
 }
 
+.knowledgeExportLayoutDialog {
+  width: min(760px, 100%);
+}
+
 .knowledgeExportHeader {
   display: flex;
   align-items: flex-start;

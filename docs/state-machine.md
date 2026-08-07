@@ -254,7 +254,7 @@ checkpoint 类似一次需要结果的调用，但结果来自学生，而不是
 
 生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null` 并预绑定默认文件夹：有试卷归属时使用该试卷稳定的“按试卷归档 / `<试卷名>`”目录，无试卷归属时使用对应卡片类型的系统默认目录；`study_cards.folder_id` 与 `card.ready.folder_id` 必须一致。知识卡片随消息时间线内嵌展示，保存时带最终 `content/folder_id` 的 `CARD_DISMISSED_CONTINUE` 原子更新内容、位置与归档时间；二次确认舍弃会写控制命令后删除待归档卡片。Problem card 选择位置后只归档、不继续。客户端可以为当前卡片改选其他目录；未显式选择时后端依次沿用卡片已有目录和类型默认目录。刚生成且尚未 deferred 的当前卡片仍会阻止无新增学生输入的直接续跑；一旦学生发送新消息并原子写入 `deferred_at`，该卡片不再限制后续生成。
 
-全局卡片库中的查看不属于阻塞教学工作流。知识卡片库中央页按受管试卷目录分组展示已归档 knowledge card，进入试卷后展示知识点，并提供只针对已归档 knowledge card 的原样式导出弹窗；答疑页不再提供右侧完整卡片管理器入口。待归档与已归档的 knowledge/problem card 仍能在卡片交互中选择新的试卷目录；新建试卷时复用 `POST /api/exam-papers` 创建实体和受管目录。已归档 knowledge card 可在浮动窗口中编辑并通过 `PUT /api/cards/{id}` 更新，已归档卡片的位置通过 move 接口更新。
+全局卡片库中的查看不属于阻塞教学工作流。知识卡片库中央页按受管试卷目录分组展示已归档 knowledge card，进入试卷后展示知识点；导出时先在库内按整卷或逐张跨卷多选，再通过排版确认弹窗进入原有 PDF 打印流程。答疑页不再提供右侧完整卡片管理器入口。待归档与已归档的 knowledge/problem card 仍能在卡片交互中选择新的试卷目录；新建试卷时复用 `POST /api/exam-papers` 创建实体和受管目录。已归档 knowledge card 可在浮动窗口中编辑并通过 `PUT /api/cards/{id}` 更新，已归档卡片的位置通过 move 接口更新。
 
 Checkpoint 同样嵌入消息时间线，只有点击“提交答案”才调用 answer 接口。
 

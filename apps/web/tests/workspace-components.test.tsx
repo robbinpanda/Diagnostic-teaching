@@ -425,8 +425,8 @@ test("workspace sidebar omits session dates and message counts", () => {
   assert.doesNotMatch(result.stdout, /2026年|2026-08|条消息/);
 });
 
-test("knowledge card library owns the migrated learning-card export entry", () => {
-  const markup = renderToStaticMarkup(
+test("knowledge card library selects cards before opening the export dialog", () => {
+  const idleMarkup = renderToStaticMarkup(
     <KnowledgeWorkspace
       view={{ mode: "overview" }}
       cards={[cardFixture]}
@@ -437,14 +437,38 @@ test("knowledge card library owns the migrated learning-card export entry", () =
       onBackToOverview={() => {}}
       onOpenCard={() => {}}
       onMoveCard={() => {}}
-      onExport={() => {}}
     />
   );
-  const exportButton = markup.match(/<button[^>]*historyExportAction[^>]*>/)?.[0] ?? "";
+  const idleExportButton = idleMarkup.match(/<button[^>]*historyExportAction[^>]*>/)?.[0] ?? "";
 
-  assert.match(markup, /知识卡片库/);
-  assert.match(markup, /导出知识卡片/);
-  assert.doesNotMatch(exportButton, /disabled=""/);
+  const selectedMarkup = renderToStaticMarkup(
+    <KnowledgeWorkspace
+      view={{ mode: "overview" }}
+      cards={[cardFixture]}
+      folders={[knowledgeFolderFixture]}
+      leftOpen
+      selectionMode
+      selectedCardIds={[cardFixture.id]}
+      onExpandLeft={() => {}}
+      onOpenGroup={() => {}}
+      onBackToOverview={() => {}}
+      onOpenCard={() => {}}
+      onMoveCard={() => {}}
+      onToggleSelectionMode={() => {}}
+      onToggleCardSelection={() => {}}
+      onToggleGroupSelection={() => {}}
+      onExportSelection={() => {}}
+    />
+  );
+  const selectedExportButton = selectedMarkup.match(/<button[^>]*historyExportAction[^>]*>/)?.[0] ?? "";
+
+  assert.match(idleMarkup, /知识卡片库/);
+  assert.match(idleMarkup, /多选/);
+  assert.match(idleExportButton, /disabled=""/);
+  assert.match(selectedMarkup, /退出多选/);
+  assert.match(selectedMarkup, /导出 \(1\)/);
+  assert.match(selectedMarkup, /取消整卷/);
+  assert.doesNotMatch(selectedExportButton, /disabled=""/);
 });
 
 test("history workspace renders loading empty no-result error and emptied-paper states", () => {
@@ -1169,10 +1193,9 @@ test("scrolling grid lists keep intrinsic row heights", () => {
   assert.match(cardStyles, /\.cardList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.cardFileList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
   assert.match(cardStyles, /\.knowledgeExportBody\s*\{[^}]*grid-auto-rows:\s*max-content;/);
-  assert.match(cardStyles, /\.knowledgeExportCardList\s*\{[^}]*grid-auto-rows:\s*max-content;/);
 });
 
-test("card save and export dialogs expose folder-based navigation", () => {
+test("card save keeps folder navigation while knowledge export only confirms layout", () => {
   const saveDialog = renderToStaticMarkup(
     <StudyCardModal
       card={cardFixture}
@@ -1188,14 +1211,15 @@ test("card save and export dialogs expose folder-based navigation", () => {
     <LearningCardExportDialog
       open
       cards={[cardFixture]}
-      folders={[knowledgeFolderFixture]}
       onClose={() => {}}
       onExport={() => {}}
     />
   );
   assert.match(exportDialog, /从知识卡片库导出/);
-  assert.match(exportDialog, /全部知识卡片/);
-  assert.match(exportDialog, /默认知识卡片/);
+  assert.match(exportDialog, /已在知识卡片库选中 1 张卡片/);
+  assert.match(exportDialog, /选择 PDF 排版/);
+  assert.match(exportDialog, /将导出 <strong>1<\/strong> 张知识卡片/);
+  assert.doesNotMatch(exportDialog, /导出文件夹|type="checkbox"|默认知识卡片/);
 });
 
 test("model picker exposes image capability and batch management controls", () => {
