@@ -64,6 +64,33 @@
   .rightClosed .cardSidebar {
     transform: translateX(105%);
   }
+
+  .bambooLarge {
+    animation-name: bambooLargeCompactSway;
+  }
+
+  .bambooSmallOne {
+    animation-name: bambooSmallOneCompactSway;
+  }
+
+  .bambooSmallTwo {
+    animation-name: bambooSmallTwoCompactSway;
+  }
+}
+
+@keyframes bambooLargeCompactSway {
+  from { transform: translate(-8px, 64px) scale(0.76) rotate(-8.5deg); }
+  to { transform: translate(-8px, 64px) scale(0.76) rotate(-4.5deg); }
+}
+
+@keyframes bambooSmallOneCompactSway {
+  from { transform: translate(218px, 74px) scale(0.29) rotate(4deg); }
+  to { transform: translate(218px, 74px) scale(0.29) rotate(10deg); }
+}
+
+@keyframes bambooSmallTwoCompactSway {
+  from { transform: translate(302px, 74px) scale(0.2) rotate(-8deg); }
+  to { transform: translate(302px, 74px) scale(0.2) rotate(-1deg); }
 }
 
 @media (min-width: 761px) and (max-width: 900px) {
@@ -73,6 +100,43 @@
     bottom: auto;
     width: min(560px, calc(100% - 28px));
     margin: 0 auto 10px;
+  }
+}
+
+@media (max-width: 1100px) and (min-width: 761px) {
+  .pandaWelcomeCopy {
+    left: 10%;
+    top: 23%;
+    width: 67%;
+  }
+
+  .pandaWelcomeCopy h1 {
+    font-size: clamp(31px, 4.1vw, 44px);
+  }
+
+  .pandaWelcomeCopy p {
+    max-width: 510px;
+  }
+
+  .pandaHeroStage {
+    right: -5%;
+    bottom: -18%;
+    width: 47%;
+  }
+
+  .pandaBambooScene {
+    left: -7%;
+    width: 39%;
+  }
+}
+
+@media (min-width: 1101px) and (min-height: 800px) {
+  .pandaWelcomeCopy {
+    top: 21%;
+  }
+
+  .pandaHeroStage {
+    bottom: -14.5%;
   }
 }
 
@@ -202,18 +266,36 @@
     max-width: 100vw;
   }
 
-  .welcomeState {
-    min-height: calc(100dvh - 350px);
-    grid-template-columns: 1fr;
-    padding: 24px 0;
+  .pandaWelcomeCopy {
+    left: 20px;
+    top: 13%;
+    width: calc(100% - 40px);
+    gap: 12px;
   }
 
-  .knowledgeOrbit {
-    position: absolute;
-    inset: 8% -12% auto auto;
-    width: 260px;
-    opacity: 0.28;
-    z-index: -1;
+  .pandaWelcomeCopy h1 {
+    font-size: clamp(27px, 8vw, 38px);
+    line-height: 1.12;
+    white-space: normal;
+  }
+
+  .pandaWelcomeCopy p {
+    max-width: 33em;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .pandaHeroStage {
+    right: -12%;
+    bottom: -15%;
+    width: min(78%, 430px);
+  }
+
+  .pandaBambooScene {
+    left: -16%;
+    bottom: -1%;
+    width: min(61%, 330px);
+    opacity: 0.72;
   }
 
   .composerDock {
@@ -241,10 +323,6 @@
   .modelPickerMenu {
     right: 0;
     left: auto;
-  }
-
-  .composerHint {
-    display: none;
   }
 
   .inlineInteraction {

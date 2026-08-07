@@ -16,6 +16,8 @@ import {
   shouldCollapseAnchoredInteraction
 } from "../components/workspace/MessageTimeline";
 import { ModelProfilePicker } from "../components/workspace/ModelProfilePicker";
+import { PandaAvatar, PandaHeroArtwork } from "../components/workspace/PandaArtwork";
+import { PandaWelcome } from "../components/workspace/PandaWelcome";
 import { TutorComposer } from "../components/workspace/TutorComposer";
 import { boxFromPoints, ProblemImageSelector } from "../components/ProblemImageSelector";
 import { clampImageScale, ProblemImageViewer } from "../components/ProblemImageViewer";
@@ -492,6 +494,50 @@ test("workspace header and timeline preserve teaching context labels", () => {
   );
   assert.match(timeline, /先看等式两边/);
   assert.match(timeline, /原理讲解/);
+  assert.match(timeline, /data-panda-avatar="true"/);
+  assert.doesNotMatch(timeline, /lucide-bot/);
+});
+
+test("panda artwork separates the chat avatar from book and shadow layers", () => {
+  const avatar = renderToStaticMarkup(<PandaAvatar />);
+  const hero = renderToStaticMarkup(<PandaHeroArtwork />);
+
+  assert.match(avatar, /data-panda-avatar="true"/);
+  assert.match(avatar, /data-panda-part="body"/);
+  assert.doesNotMatch(avatar, /data-panda-part="book"/);
+  assert.doesNotMatch(avatar, /data-panda-part="book-shadow"/);
+  assert.doesNotMatch(avatar, /data-panda-part="panda-shadow"/);
+  assert.match(hero, /data-panda-part="book"/);
+  assert.match(hero, /data-panda-part="book-shadow"/);
+  assert.match(hero, /data-panda-part="panda-shadow"/);
+});
+
+test("panda welcome renders the approved copy, bamboo trio, and glyph sequence", () => {
+  const welcome = renderToStaticMarkup(
+    <PandaWelcome phase="visible" characterRef={{ current: null }} />
+  );
+
+  assert.match(welcome, /data-panda-welcome="visible"/);
+  assert.match(welcome, /今天你想要解决什么问题？/);
+  assert.match(welcome, /上传题目图片，熊猫会帮你理清当时错误思路，/);
+  assert.match(welcome, /陪你梳理真实思考逻辑顺序！/);
+  assert.equal((welcome.match(/bambooPlant /g) ?? []).length, 3);
+  assert.equal((welcome.match(/pandaTitleGlyph/g) ?? []).length, Array.from("今天你想要解决什么问题？").length);
+});
+
+test("assistant panda hop is limited to the newest streaming message", () => {
+  const timeline = renderToStaticMarkup(
+    <MessageTimeline
+      messages={[
+        { id: "assistant-old", role: "assistant", text: "上一条", streamState: "complete" },
+        { id: "assistant-new", role: "assistant", text: "新回复", streamState: "streaming" }
+      ]}
+      messageEndRef={{ current: null }}
+    />
+  );
+
+  assert.equal((timeline.match(/pandaAvatarHop/g) ?? []).length, 1);
+  assert.equal((timeline.match(/data-panda-avatar="true"/g) ?? []).length, 2);
 });
 
 test("problem image viewer exposes persistent access and bounded zoom controls", () => {
@@ -1138,12 +1184,24 @@ test("composer omits the grade picker and exposes complete reasoning effort labe
   assert.match(composer, /充分推理并仔细检查，优先回答质量/);
   assert.match(composer, /reasoningRecommendedBadge/);
   assert.doesNotMatch(composer, /<select[^>]*aria-label="推理强度"/);
+  assert.doesNotMatch(composer, /composerHint|Enter 发送/);
+  assert.match(composer, /role="status" aria-live="polite"/);
   assert.match(conversationStyles, /\.reasoningPicker\s*\{[^}]*min-width:\s*128px;/);
   assert.match(conversationStyles, /\.reasoningPickerCurrentLabel\s*\{[^}]*flex:\s*0\s+0\s+auto;/);
   assert.doesNotMatch(
     conversationStyles.match(/\.reasoningPickerCurrentLabel\s*\{[^}]*\}/)?.[0] ?? "",
     /text-overflow:\s*ellipsis|overflow:\s*hidden/
   );
+});
+
+test("empty workspace removes its header row and wires the welcome lifecycle", () => {
+  const pageSource = readFileSync(resolve(__dirname, "../../../app/page.tsx"), "utf8");
+
+  assert.match(pageSource, /type WelcomePhase = "visible" \| "leaving" \| "hidden"/);
+  assert.match(pageSource, /\{sessionId \? <ConversationHeader/);
+  assert.match(pageSource, /welcomePhase=\{welcomePhase\}/);
+  assert.match(pageSource, /onWelcomeTransitionComplete=\{\(\) => setWelcomePhase\("hidden"\)\}/);
+  assert.match(pageSource, /welcomeConversationPanel/);
 });
 
 test("problem image selector renders movable and resizable regions", () => {

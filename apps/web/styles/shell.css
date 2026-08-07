@@ -10,7 +10,7 @@
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: var(--shell-radius);
-  background: rgba(255, 255, 248, 0.92);
+  background: var(--panda-canvas);
   box-shadow: var(--stage-shadow);
   transition: grid-template-columns 200ms var(--ease-standard);
 }
@@ -36,7 +36,7 @@
   justify-content: space-between;
   padding: 0 22px 0 24px;
   border-bottom: 1px solid var(--stage-line);
-  background: rgba(255, 255, 248, 0.86);
+  background: color-mix(in srgb, var(--panda-canvas) 94%, white);
   backdrop-filter: blur(16px);
   z-index: 20;
 }
@@ -543,6 +543,10 @@
   display: grid;
   grid-template-rows: 56px minmax(0, 1fr) auto;
   background: var(--stage-canvas);
+}
+
+.conversationPanel.welcomeConversationPanel {
+  grid-template-rows: minmax(0, 1fr) auto;
 }
 
 .cardShelfTabs {

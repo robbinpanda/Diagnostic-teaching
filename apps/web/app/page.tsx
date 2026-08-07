@@ -77,6 +77,7 @@ import {
 } from "../lib/image-draft-recovery";
 
 type ShelfCardTransitionPhase = "idle" | "preparing" | "opening" | "open" | "closing";
+type WelcomePhase = "visible" | "leaving" | "hidden";
 
 type ShelfCardMotion = {
   x: number;
@@ -184,6 +185,7 @@ export default function Home() {
   const [viewingCardSaveBusy, setViewingCardSaveBusy] = useState(false);
   const [shelfCardTransitionPhase, setShelfCardTransitionPhase] = useState<ShelfCardTransitionPhase>("idle");
   const [shelfCardMotion, setShelfCardMotion] = useState<ShelfCardMotion | null>(null);
+  const [welcomePhase, setWelcomePhase] = useState<WelcomePhase>("hidden");
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const knowledgeCardDockRef = useRef<HTMLDivElement | null>(null);
@@ -469,8 +471,9 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (welcomePhase !== "hidden") return;
     messageEndRef.current?.scrollIntoView({ behavior: streamBusy ? "auto" : "smooth" });
-  }, [activeCard?.id, activeCards.length, checkpoint?.id, messages, streamBusy]);
+  }, [activeCard?.id, activeCards.length, checkpoint?.id, messages, streamBusy, welcomePhase]);
 
   useEffect(() => {
     if (activeCards.length || checkpoint) setViewingCard(null);
@@ -796,6 +799,9 @@ export default function Home() {
       }
     }
     await refreshHistory();
+    if (bootstrapNavigationRef.current === bootstrapNavigationToken) {
+      setWelcomePhase(loadActiveSessionId(window.localStorage) ? "hidden" : "visible");
+    }
   }
 
   async function refreshHistory() {
@@ -843,6 +849,7 @@ export default function Home() {
     saveActiveSessionId(window.localStorage, "");
     setInput(loadComposerDraft(window.localStorage, DRAFT_SCOPE));
     setViewingCard(null);
+    setWelcomePhase("visible");
     runtime.clearError();
   }
 
@@ -857,6 +864,7 @@ export default function Home() {
     setViewerImageUrl(null);
     setPendingComposerImage(null);
     setOpenSessionBusyId(nextSessionId);
+    setWelcomePhase("hidden");
     runtime.clearError();
     try {
       const opened = await fetchSession(nextSessionId);
@@ -1117,6 +1125,7 @@ export default function Home() {
     pendingSessionBatchesRef.current.set(originatingViewToken, pendingBatch);
     savePendingSessionBatch(window.localStorage, pendingBatch);
     clearComposerInput(DRAFT_SCOPE);
+    setWelcomePhase("leaving");
     if (!isStartRetry) {
       runtime.addMessage(
         "student",
@@ -1132,6 +1141,7 @@ export default function Home() {
       await submitPendingSessionBatch(pendingBatch, originatingViewToken);
     } catch (nextError) {
       if (viewTokenRef.current === originatingViewToken && runtime.isDraftActive()) {
+        setWelcomePhase("visible");
         restoreComposerInput(text, DRAFT_SCOPE);
         runtime.failComposerTask(nextError instanceof Error ? nextError.message : "拆题或创建答疑会话失败");
       } else {
@@ -1309,6 +1319,7 @@ export default function Home() {
     if (!regions.length) return;
     const startItems = stableImageStartItems(regions, selection.startItems);
     const startingSelection = { ...selection, regions, startItems, paperId };
+    setWelcomePhase("leaving");
     setImageSelection(startingSelection);
     setImageConfirmBusy(true);
     runtime.clearError();
@@ -1336,6 +1347,7 @@ export default function Home() {
       if (imageInputRef.current) imageInputRef.current.value = "";
       await finishSessionBatchStart(result.sessions, selection.viewToken);
     } catch (nextError) {
+      if (runtime.isDraftActive()) setWelcomePhase("visible");
       runtime.setError(nextError instanceof Error ? nextError.message : "裁剪图片或创建答疑会话失败");
     } finally {
       setImageConfirmBusy(false);
@@ -1573,7 +1585,7 @@ export default function Home() {
         onDeleteAllSessions={handleDeleteAllSessions}
       />
 
-      <section className="conversationPanel">
+      <section className={`conversationPanel${!historyView && !sessionId ? " welcomeConversationPanel" : ""}`}>
         {historyView ? (
           <HistoryWorkspace
             key={historyView.mode === "paper" ? historyView.paperId : "overview"}
@@ -1603,7 +1615,7 @@ export default function Home() {
           />
         ) : (
           <>
-        <ConversationHeader
+        {sessionId ? <ConversationHeader
           leftOpen={leftOpen}
           title={activeHistory?.title || "新答疑"}
           sessionId={sessionId}
@@ -1622,7 +1634,7 @@ export default function Home() {
           onViewProblemImage={() => {
             if (originalProblemImage) setViewerImageUrl(originalProblemImage);
           }}
-        />
+        /> : null}
 
         <CardShelfTabs
           cards={cards}
@@ -1634,6 +1646,8 @@ export default function Home() {
         <MessageTimeline
           messages={messages}
           messageEndRef={messageEndRef}
+          welcomePhase={welcomePhase}
+          onWelcomeTransitionComplete={() => setWelcomePhase("hidden")}
           onOpenImage={setViewerImageUrl}
           floatingObstacleRef={knowledgeCardDockRef}
           floatingObstacleActive={Boolean(displayedDockCard)}
