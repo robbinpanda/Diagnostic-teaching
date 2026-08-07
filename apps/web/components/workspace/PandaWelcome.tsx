@@ -279,8 +279,6 @@ export function PandaWelcome({ phase, characterRef }: PandaWelcomeProps) {
     >
       <div className="pandaHalftone" aria-hidden="true" />
 
-      <span className="pandaWelcomeLabel" aria-hidden="true">panda</span>
-
       <svg className="pandaBambooScene" viewBox="0 0 430 560" aria-hidden="true" focusable="false">
         <BambooPlant className="bambooLarge" />
         <BambooPlant className="bambooSmallOne" />

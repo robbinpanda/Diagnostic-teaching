@@ -518,7 +518,7 @@ test("panda welcome renders the approved copy, bamboo trio, and glyph sequence",
   );
 
   assert.match(welcome, /data-panda-welcome="visible"/);
-  assert.match(welcome, />panda<\/span>/);
+  assert.doesNotMatch(welcome, /pandaWelcomeLabel/);
   assert.match(welcome, /今天你想要解决什么问题？/);
   assert.match(welcome, /上传题目图片，熊猫会帮你理清当时错误思路，/);
   assert.match(welcome, /陪你梳理真实思考逻辑顺序！/);

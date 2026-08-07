@@ -120,7 +120,7 @@
 
   .pandaHeroStage {
     right: 2%;
-    bottom: -4%;
+    bottom: -11%;
     width: 43%;
   }
 
@@ -137,7 +137,7 @@
   }
 
   .pandaHeroStage {
-    bottom: -3%;
+    bottom: -10%;
   }
 }
 
@@ -288,7 +288,7 @@
 
   .pandaHeroStage {
     right: -12%;
-    bottom: -6%;
+    bottom: -10%;
     width: min(78%, 430px);
   }
 
@@ -297,11 +297,6 @@
     bottom: 4%;
     width: min(61%, 330px);
     opacity: 0.72;
-  }
-
-  .pandaWelcomeLabel {
-    top: 8%;
-    left: 50%;
   }
 
   .composerDock {
