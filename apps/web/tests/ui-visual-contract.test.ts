@@ -97,8 +97,10 @@ test("panda ivory canvas, folders, and ambient grain are wired", () => {
   assert.doesNotMatch(shell, /\.conversationPanel\s*\{[^}]*\b(?:transform|filter):/);
 });
 
-test("desktop shell uses the approved atrium proportions", () => {
+test("desktop shell keeps the atrium proportions with a bounded resizable sidebar", () => {
   const shell = text("styles/shell.css");
+  const responsive = text("styles/responsive.css");
+  const page = text("app/page.tsx");
 
   assert.match(
     shell,
@@ -106,9 +108,20 @@ test("desktop shell uses the approved atrium proportions", () => {
   );
   assert.match(
     shell,
-    /grid-template-columns:\s*260px minmax\(0, 1fr\)/
+    /grid-template-columns:\s*var\(--sidebar-width\) minmax\(0, 1fr\)/
   );
   assert.match(shell, /border-radius:\s*var\(--shell-radius\)/);
+  assert.match(
+    shell,
+    /\.sidebarResizeHandle\s*\{[\s\S]*?left:\s*var\(--sidebar-width\);[\s\S]*?cursor:\s*col-resize;[\s\S]*?touch-action:\s*none;/
+  );
+  assert.match(page, /role="separator"[\s\S]*?aria-valuemin=\{MIN_SIDEBAR_WIDTH\}[\s\S]*?aria-valuemax=\{sidebarMaxWidth\}/);
+  assert.match(page, /onPointerDown=\{handleSidebarResizePointerDown\}/);
+  assert.match(page, /onKeyDown=\{handleSidebarResizeKeyDown\}/);
+  assert.match(
+    responsive,
+    /@media \(max-width: 1319px\)\s*\{[\s\S]*?\.sidebarResizeHandle\s*\{[\s\S]*?display:\s*none;/
+  );
 });
 
 test("sidebar hover motion cannot create a horizontal scrollbar", () => {

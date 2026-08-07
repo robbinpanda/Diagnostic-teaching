@@ -2,6 +2,12 @@
   to { transform: rotate(360deg); }
 }
 
+@media (max-width: 1319px) {
+  .sidebarResizeHandle {
+    display: none;
+  }
+}
+
 @media (max-width: 1319px) and (min-width: 761px) {
   .appShell,
   .appShell.leftClosed {

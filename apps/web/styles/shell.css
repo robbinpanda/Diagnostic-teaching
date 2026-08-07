@@ -1,11 +1,12 @@
 .appShell {
+  --sidebar-width: 260px;
   position: relative;
   z-index: 1;
   width: calc(100vw - (var(--shell-inset) * 2));
   height: calc(100dvh - (var(--shell-inset) * 2));
   margin: var(--shell-inset);
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   grid-template-rows: var(--shell-topbar) minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.72);
@@ -13,6 +14,12 @@
   background: var(--panda-canvas);
   box-shadow: var(--stage-shadow);
   transition: grid-template-columns 200ms var(--ease-standard);
+}
+
+.appShell.sidebarResizing {
+  cursor: col-resize;
+  user-select: none;
+  transition: none;
 }
 
 .appShell.leftClosed {
@@ -117,6 +124,40 @@
   height: 100%;
   overflow: hidden;
   transition: opacity 160ms var(--ease-standard), visibility 160ms var(--ease-standard), transform 200ms var(--ease-standard);
+}
+
+.sidebarResizeHandle {
+  position: absolute;
+  top: var(--shell-topbar);
+  bottom: 0;
+  left: var(--sidebar-width);
+  z-index: 14;
+  width: 12px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  transform: translateX(-50%);
+}
+
+.sidebarResizeHandle::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--primary-500);
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity 140ms var(--ease-standard);
+}
+
+.sidebarResizeHandle:hover::after,
+.sidebarResizeHandle:focus-visible::after,
+.sidebarResizing .sidebarResizeHandle::after {
+  opacity: 0.72;
 }
 
 .sessionSidebar {

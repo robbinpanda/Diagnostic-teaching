@@ -1,6 +1,15 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent
+} from "react";
 import { flushSync } from "react-dom";
 import { CardMoveDialog } from "../components/CardMoveDialog";
 import { CheckpointModal } from "../components/CheckpointModal";
@@ -65,6 +74,14 @@ import {
 import type { HistorySortMode, HistoryView } from "../lib/history-view";
 import { toggleMistakeCardGroupSelection, toggleMistakeCardSelection } from "../lib/mistake-selection";
 import type { ProblemPaperGroup } from "../lib/problem-view";
+import {
+  DEFAULT_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+  SIDEBAR_WIDTH_STORAGE_KEY,
+  clampSidebarWidth,
+  getSidebarWidthBounds,
+  parseStoredSidebarWidth
+} from "../lib/sidebar-layout";
 import {
   clearAllRequestRecovery,
   clearComposerDraft,
@@ -272,6 +289,9 @@ export default function Home() {
   const [deleteAllSessionsBusy, setDeleteAllSessionsBusy] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
   const [responsiveReady, setResponsiveReady] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
+  const [sidebarMaxWidth, setSidebarMaxWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
+  const [sidebarResizing, setSidebarResizing] = useState(false);
   const [contentNavigation, setContentNavigation] = useState<WorkspaceContentNavigation>("start");
   const [knowledgeCardExportOpen, setKnowledgeCardExportOpen] = useState(false);
   const [learningCardPrintJob, setLearningCardPrintJob] = useState<LearningCardPrintJob | null>(null);
@@ -286,6 +306,9 @@ export default function Home() {
   const [welcomePhase, setWelcomePhase] = useState<WelcomePhase>("hidden");
   const [pendingCardMotionReadyKey, setPendingCardMotionReadyKey] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const appShellRef = useRef<HTMLElement | null>(null);
+  const sidebarWidthRef = useRef(DEFAULT_SIDEBAR_WIDTH);
+  const sidebarResizePointerIdRef = useRef<number | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const messageViewportRef = useRef<HTMLDivElement | null>(null);
   const historyWorkspaceRef = useRef<HTMLElement | null>(null);
@@ -337,6 +360,94 @@ export default function Home() {
     compact.addEventListener("change", onChange);
     return () => compact.removeEventListener("change", onChange);
   }, []);
+
+  useLayoutEffect(() => {
+    const shell = appShellRef.current;
+    if (!shell) return;
+
+    const syncSidebarBounds = () => {
+      const bounds = getSidebarWidthBounds(shell.clientWidth);
+      setSidebarMaxWidth(bounds.max);
+      setSidebarWidth((current) => {
+        const next = clampSidebarWidth(current, shell.clientWidth);
+        sidebarWidthRef.current = next;
+        return next;
+      });
+    };
+
+    const storedWidth = parseStoredSidebarWidth(
+      window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)
+    );
+    const initialWidth = clampSidebarWidth(storedWidth, shell.clientWidth);
+    sidebarWidthRef.current = initialWidth;
+    setSidebarWidth(initialWidth);
+    setSidebarMaxWidth(getSidebarWidthBounds(shell.clientWidth).max);
+    window.addEventListener("resize", syncSidebarBounds);
+    return () => window.removeEventListener("resize", syncSidebarBounds);
+  }, []);
+
+  function setClampedSidebarWidth(width: number) {
+    const shell = appShellRef.current;
+    if (!shell) return sidebarWidthRef.current;
+    const bounds = getSidebarWidthBounds(shell.clientWidth);
+    const next = clampSidebarWidth(width, shell.clientWidth);
+    sidebarWidthRef.current = next;
+    setSidebarMaxWidth(bounds.max);
+    setSidebarWidth(next);
+    return next;
+  }
+
+  function persistSidebarWidth() {
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidthRef.current));
+  }
+
+  function updateSidebarWidthFromPointer(clientX: number) {
+    const shell = appShellRef.current;
+    if (!shell) return;
+    const shellRect = shell.getBoundingClientRect();
+    setClampedSidebarWidth(clientX - shellRect.left);
+  }
+
+  function handleSidebarResizePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    sidebarResizePointerIdRef.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setSidebarResizing(true);
+    updateSidebarWidthFromPointer(event.clientX);
+    event.preventDefault();
+  }
+
+  function handleSidebarResizePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (sidebarResizePointerIdRef.current !== event.pointerId) return;
+    updateSidebarWidthFromPointer(event.clientX);
+  }
+
+  function finishSidebarResize(pointerId: number) {
+    if (sidebarResizePointerIdRef.current !== pointerId) return;
+    sidebarResizePointerIdRef.current = null;
+    setSidebarResizing(false);
+    persistSidebarWidth();
+  }
+
+  function handleSidebarResizePointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    finishSidebarResize(event.pointerId);
+  }
+
+  function handleSidebarResizeKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const step = event.shiftKey ? 48 : 16;
+    let nextWidth: number | null = null;
+    if (event.key === "ArrowLeft") nextWidth = sidebarWidthRef.current - step;
+    if (event.key === "ArrowRight") nextWidth = sidebarWidthRef.current + step;
+    if (event.key === "Home") nextWidth = MIN_SIDEBAR_WIDTH;
+    if (event.key === "End") nextWidth = sidebarMaxWidth;
+    if (nextWidth === null) return;
+    event.preventDefault();
+    setClampedSidebarWidth(nextWidth);
+    persistSidebarWidth();
+  }
 
   function closeNavigationOnMobile() {
     if (window.matchMedia("(max-width: 760px)").matches) setLeftOpen(false);
@@ -1965,7 +2076,11 @@ export default function Home() {
 
   return (
     <>
-    <main className={`appShell ${responsiveReady ? "responsiveReady" : ""} ${leftOpen ? "leftOpen" : "leftClosed"}`}>
+    <main
+      ref={appShellRef}
+      className={`appShell ${responsiveReady ? "responsiveReady" : ""} ${leftOpen ? "leftOpen" : "leftClosed"}${sidebarResizing ? " sidebarResizing" : ""}`}
+      style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+    >
       <AppTopbar />
       {leftOpen && (
         <button
@@ -2022,6 +2137,26 @@ export default function Home() {
         onDeleteSession={handleDeleteSession}
         onDeleteAllSessions={handleDeleteAllSessions}
       />
+
+      {leftOpen ? (
+        <div
+          className="sidebarResizeHandle"
+          role="separator"
+          aria-label="调整左侧导航宽度"
+          aria-orientation="vertical"
+          aria-valuemin={MIN_SIDEBAR_WIDTH}
+          aria-valuemax={sidebarMaxWidth}
+          aria-valuenow={sidebarWidth}
+          aria-valuetext={`${sidebarWidth} 像素`}
+          tabIndex={0}
+          onPointerDown={handleSidebarResizePointerDown}
+          onPointerMove={handleSidebarResizePointerMove}
+          onPointerUp={handleSidebarResizePointerEnd}
+          onPointerCancel={handleSidebarResizePointerEnd}
+          onLostPointerCapture={(event) => finishSidebarResize(event.pointerId)}
+          onKeyDown={handleSidebarResizeKeyDown}
+        />
+      ) : null}
 
       <section className={`conversationPanel${
         !mistakeExportDraft && !historyView && !mistakeSetView && !knowledgeView && !sessionId
