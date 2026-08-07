@@ -81,7 +81,7 @@ export function CheckpointModal({
             onChange={(event) => setFreeText(event.target.value)}
             placeholder="写下你的想法、推导或想追问的地方…"
             disabled={busy}
-            rows={3}
+            rows={2}
             autoFocus
           />
         )}
