@@ -5,9 +5,12 @@ import {
   DEFAULT_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
   MIN_WORKSPACE_WIDTH,
+  SIDEBAR_WIDTH_STORAGE_KEY,
   clampSidebarWidth,
   getSidebarWidthBounds,
-  parseStoredSidebarWidth
+  parseStoredSidebarWidth,
+  readStoredSidebarWidth,
+  writeStoredSidebarWidth
 } from "../lib/sidebar-layout";
 
 test("sidebar width keeps both desktop panes above their minimum widths", () => {
@@ -34,4 +37,28 @@ test("stored sidebar widths reject empty and invalid values", () => {
   assert.equal(parseStoredSidebarWidth(""), DEFAULT_SIDEBAR_WIDTH);
   assert.equal(parseStoredSidebarWidth("not-a-number"), DEFAULT_SIDEBAR_WIDTH);
   assert.equal(parseStoredSidebarWidth("318"), 318);
+});
+
+test("sidebar persistence tolerates blocked browser storage", () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem(key: string) {
+      return values.get(key) ?? null;
+    },
+    setItem(key: string, value: string) {
+      values.set(key, value);
+    }
+  };
+
+  assert.equal(readStoredSidebarWidth(() => storage), DEFAULT_SIDEBAR_WIDTH);
+  assert.equal(writeStoredSidebarWidth(() => null, 336), false);
+  assert.equal(writeStoredSidebarWidth(() => storage, 336), true);
+  assert.equal(values.get(SIDEBAR_WIDTH_STORAGE_KEY), "336");
+  assert.equal(readStoredSidebarWidth(() => storage), 336);
+
+  const blockedStorage = () => {
+    throw new DOMException("blocked", "SecurityError");
+  };
+  assert.equal(readStoredSidebarWidth(blockedStorage), DEFAULT_SIDEBAR_WIDTH);
+  assert.equal(writeStoredSidebarWidth(blockedStorage, 400), false);
 });

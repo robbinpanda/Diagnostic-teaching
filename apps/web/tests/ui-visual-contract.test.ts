@@ -118,6 +118,8 @@ test("desktop shell keeps the atrium proportions with a bounded resizable sideba
   assert.match(page, /role="separator"[\s\S]*?aria-valuemin=\{MIN_SIDEBAR_WIDTH\}[\s\S]*?aria-valuemax=\{sidebarMaxWidth\}/);
   assert.match(page, /onPointerDown=\{handleSidebarResizePointerDown\}/);
   assert.match(page, /onKeyDown=\{handleSidebarResizeKeyDown\}/);
+  assert.match(page, /new ResizeObserver\(syncSidebarBounds\)/);
+  assert.match(page, /clampSidebarWidth\(sidebarPreferredWidthRef\.current, shell\.clientWidth\)/);
   assert.match(
     responsive,
     /@media \(max-width: 1319px\)\s*\{[\s\S]*?\.sidebarResizeHandle\s*\{[\s\S]*?display:\s*none;/

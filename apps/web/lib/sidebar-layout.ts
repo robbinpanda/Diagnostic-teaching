@@ -3,6 +3,9 @@ export const MIN_SIDEBAR_WIDTH = 220;
 export const MIN_WORKSPACE_WIDTH = 640;
 export const SIDEBAR_WIDTH_STORAGE_KEY = "diagnostic-teaching.sidebar-width";
 
+export type SidebarWidthStorage = Pick<Storage, "getItem" | "setItem">;
+export type SidebarWidthStorageProvider = () => SidebarWidthStorage | null;
+
 export type SidebarWidthBounds = {
   min: number;
   max: number;
@@ -26,4 +29,26 @@ export function parseStoredSidebarWidth(value: string | null) {
   if (value === null || value.trim() === "") return DEFAULT_SIDEBAR_WIDTH;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : DEFAULT_SIDEBAR_WIDTH;
+}
+
+export function readStoredSidebarWidth(getStorage: SidebarWidthStorageProvider) {
+  try {
+    return parseStoredSidebarWidth(getStorage()?.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? null);
+  } catch {
+    return DEFAULT_SIDEBAR_WIDTH;
+  }
+}
+
+export function writeStoredSidebarWidth(
+  getStorage: SidebarWidthStorageProvider,
+  width: number
+) {
+  try {
+    const storage = getStorage();
+    if (!storage) return false;
+    storage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width));
+    return true;
+  } catch {
+    return false;
+  }
 }

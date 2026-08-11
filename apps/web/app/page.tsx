@@ -77,10 +77,10 @@ import type { ProblemPaperGroup } from "../lib/problem-view";
 import {
   DEFAULT_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
-  SIDEBAR_WIDTH_STORAGE_KEY,
   clampSidebarWidth,
   getSidebarWidthBounds,
-  parseStoredSidebarWidth
+  readStoredSidebarWidth,
+  writeStoredSidebarWidth
 } from "../lib/sidebar-layout";
 import {
   clearAllRequestRecovery,
@@ -308,6 +308,7 @@ export default function Home() {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const appShellRef = useRef<HTMLElement | null>(null);
   const sidebarWidthRef = useRef(DEFAULT_SIDEBAR_WIDTH);
+  const sidebarPreferredWidthRef = useRef(DEFAULT_SIDEBAR_WIDTH);
   const sidebarResizePointerIdRef = useRef<number | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const messageViewportRef = useRef<HTMLDivElement | null>(null);
@@ -367,23 +368,26 @@ export default function Home() {
 
     const syncSidebarBounds = () => {
       const bounds = getSidebarWidthBounds(shell.clientWidth);
+      const next = clampSidebarWidth(sidebarPreferredWidthRef.current, shell.clientWidth);
       setSidebarMaxWidth(bounds.max);
-      setSidebarWidth((current) => {
-        const next = clampSidebarWidth(current, shell.clientWidth);
-        sidebarWidthRef.current = next;
-        return next;
-      });
+      sidebarWidthRef.current = next;
+      setSidebarWidth(next);
     };
 
-    const storedWidth = parseStoredSidebarWidth(
-      window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)
-    );
+    const storedWidth = readStoredSidebarWidth(() => window.localStorage);
     const initialWidth = clampSidebarWidth(storedWidth, shell.clientWidth);
+    sidebarPreferredWidthRef.current = storedWidth;
     sidebarWidthRef.current = initialWidth;
     setSidebarWidth(initialWidth);
     setSidebarMaxWidth(getSidebarWidthBounds(shell.clientWidth).max);
-    window.addEventListener("resize", syncSidebarBounds);
-    return () => window.removeEventListener("resize", syncSidebarBounds);
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", syncSidebarBounds);
+      return () => window.removeEventListener("resize", syncSidebarBounds);
+    }
+
+    const resizeObserver = new ResizeObserver(syncSidebarBounds);
+    resizeObserver.observe(shell);
+    return () => resizeObserver.disconnect();
   }, []);
 
   function setClampedSidebarWidth(width: number) {
@@ -391,6 +395,7 @@ export default function Home() {
     if (!shell) return sidebarWidthRef.current;
     const bounds = getSidebarWidthBounds(shell.clientWidth);
     const next = clampSidebarWidth(width, shell.clientWidth);
+    sidebarPreferredWidthRef.current = next;
     sidebarWidthRef.current = next;
     setSidebarMaxWidth(bounds.max);
     setSidebarWidth(next);
@@ -398,7 +403,7 @@ export default function Home() {
   }
 
   function persistSidebarWidth() {
-    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidthRef.current));
+    writeStoredSidebarWidth(() => window.localStorage, sidebarPreferredWidthRef.current);
   }
 
   function updateSidebarWidthFromPointer(clientX: number) {
