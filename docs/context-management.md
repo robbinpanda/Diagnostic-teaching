@@ -484,6 +484,8 @@ run_interrupted（仅显式中断，且没有当前 step 的完整 action 落库
 
 `message_delta/message_reset` 是高频瞬时事件，不写 `session_events`。完整 student/assistant message、归一化 action、checkpoint/card、run 完成、error 和 idle 等稳定边界会与业务数据一起写入 SQLite。`streamChat()` 必须看见 `stream_complete / error / run_interrupted` 之一；无明确终态的 EOF 是失败。断流后前端查询 `/run`，已提交 action 时重载 session；未提交且 `retryable=true` 时以新 run、同一业务历史受控重试一次，绝不凭半截字符恢复。
 
+前端 API 模块不再把 `response.json()` 或流事件直接断言为 TypeScript 类型。所有成功 HTTP JSON、已知 chat SSE payload 和语音 WebSocket 事件统一通过 `lib/api/contracts.ts` 的 Zod schema 解析；JSON 非法、必填字段缺失、枚举或字段类型不匹配时抛出 `ApiContractError`，并保留合同名称与字段路径，避免畸形数据进入 reducer。未知 chat SSE 事件仍可作为对象安全读取，再由事件适配器忽略；已知事件必须满足各自 schema。
+
 每个 `tutor_turn` 诊断日志记录 `input_to_first_progress_ms`、`input_to_first_reasoning_event_ms`、`input_to_first_content_ms`、`input_to_first_visible_message_ms`、`input_to_interactive_turn_ms` 和 `total_completion_ms`。缺少 provider reasoning 事件时对应指标为 `null`，不能据此推断模型完全没有内部推理。
 
 ### 9.2 durable event 历史与 SSE

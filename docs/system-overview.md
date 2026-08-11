@@ -34,6 +34,7 @@ flowchart LR
 - 管理左侧会话/资料导航、中央对话与卡片工作区；桌面侧栏宽度可调整并本地记忆。
 - `timeline` reducer 负责消息、checkpoint、卡片和当前 run 的展示状态。
 - `session-workflow` 约束互斥交互；`stream-controller` 按 session 隔离活动流和取消原因。
+- `lib/api/contracts.ts` 集中校验 HTTP JSON、chat SSE 与语音 WebSocket 返回；TypeScript 类型不能替代边界处的运行时 schema，畸形响应会以带合同名称和字段路径的 `ApiContractError` 失败。
 - 切换当前视图不取消其他 session 的生成；页面卸载才统一收束本地连接。
 - 恢复用请求、活动 session、输入草稿和题图批处理草稿各自使用稳定标识，避免刷新后重复提交。
 

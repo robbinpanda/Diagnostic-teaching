@@ -4,6 +4,12 @@
 
 ## 未发布
 
+### 代码质量专项：前端 API 运行时契约
+
+- 新增集中式 Zod schema 与 `ApiContractError`，所有成功 HTTP JSON 返回不再依赖 `response.json()` 的隐式 `any` 或强制类型断言。
+- chat SSE 按事件种类校验 payload，并保留 `id/seq` 重放元数据；语音 WebSocket 的 ready/partial/final/error/done 事件也在进入 hook 前校验。
+- 将检查点答案、模型测试、题图分析、语音和中断等内联返回类型收拢到共享类型模块，并新增非法 JSON、字段漂移和流事件畸形测试。
+
 ### 代码质量专项：扩展 Python 静态检查
 
 - Ruff 目标版本与项目实际支持的 Python 3.11 对齐，并从基础语法/导入检查扩展到异步、常见缺陷、现代语法、简化、性能、日志和返回路径等规则族。

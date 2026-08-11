@@ -1,25 +1,8 @@
-import { API_BASE } from "./http";
+import { responseContract, speechTranscriptionSchema } from "./contracts";
+import { API_BASE, responseError } from "./http";
+import type { SpeechTranscription } from "./types";
 
-export type SpeechTranscription = {
-  text: string;
-  duration_seconds: number;
-  language: string | null;
-  emotion: string | null;
-  event: string | null;
-};
-
-export type SpeechStreamEvent =
-  | {
-    type: "ready";
-    sample_rate: number;
-    partial_interval_ms: number;
-    commit_silence_ms: number;
-    stream_segment_seconds: number;
-  }
-  | ({ type: "partial" | "final" } & SpeechTranscription)
-  | { type: "empty"; message: string }
-  | { type: "error"; message: string }
-  | { type: "done" };
+export type { SpeechStreamEvent, SpeechTranscription } from "./types";
 
 export function speechStreamUrl(
   apiBase = API_BASE,
@@ -40,8 +23,7 @@ export async function transcribeSpeech(audio: Blob): Promise<SpeechTranscription
     body: audio
   });
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { detail?: string } | null;
-    throw new Error(payload?.detail || `本地语音识别失败（${response.status}）`);
+    throw await responseError(response, `本地语音识别失败（${response.status}）`);
   }
-  return response.json();
+  return responseContract(response, speechTranscriptionSchema, "语音转写");
 }

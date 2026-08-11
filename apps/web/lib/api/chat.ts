@@ -1,4 +1,5 @@
 import { API_BASE, JSON_HEADERS, responseError } from "./http";
+import { parseSseEvent } from "./contracts";
 import type { SseEvent } from "./types";
 
 export type ChatStreamTerminal =
@@ -76,9 +77,10 @@ export async function streamChat(
     if (!eventLine || dataLines.length === 0) return;
     const event = eventLine.slice("event:".length).trim();
     const dataText = dataLines.map((line) => line.slice("data:".length).trimStart()).join("\n");
-    const data = JSON.parse(dataText);
     const id = idLine?.slice("id:".length).trim();
-    onEvent({ event, data, ...(id ? { id } : {}) } as SseEvent);
+    const parsedEvent = parseSseEvent(event, dataText, id);
+    const data = parsedEvent.data as Record<string, unknown>;
+    onEvent(parsedEvent);
     if (!terminal && event === "stream_complete") terminal = { kind: "completed", data };
     if (!terminal && event === "run_interrupted") terminal = { kind: "interrupted", data };
     if (!terminal && event === "error") terminal = { kind: "error", data };

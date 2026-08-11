@@ -1,5 +1,10 @@
 import { API_BASE, JSON_HEADERS, responseError } from "./http";
-import type { DetectedProblemRegion } from "./types";
+import {
+  problemImageAnalysisResultSchema,
+  problemImageDetectionResultSchema,
+  responseContract
+} from "./contracts";
+import type { ProblemImageAnalysisResult, ProblemImageDetectionResult } from "./types";
 
 type ProblemImageInput = {
   model_profile_id: string;
@@ -8,35 +13,26 @@ type ProblemImageInput = {
   filename?: string;
 };
 
-export async function detectProblemImageRegions(input: ProblemImageInput) {
+export async function detectProblemImageRegions(
+  input: ProblemImageInput
+): Promise<ProblemImageDetectionResult> {
   const response = await fetch(`${API_BASE}/api/problem-images/detect`, {
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify(input)
   });
   if (!response.ok) throw await responseError(response);
-  return response.json() as Promise<{
-    problems: DetectedProblemRegion[];
-    image_width: number;
-    image_height: number;
-  }>;
+  return responseContract(response, problemImageDetectionResultSchema, "题图区域检测");
 }
 
-export async function analyzeProblemImage(input: ProblemImageInput) {
+export async function analyzeProblemImage(
+  input: ProblemImageInput
+): Promise<ProblemImageAnalysisResult> {
   const response = await fetch(`${API_BASE}/api/problem-images/analyze`, {
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify(input)
   });
   if (!response.ok) throw await responseError(response);
-  return response.json() as Promise<{
-    problem_text: string;
-    student_work_summary: string;
-    answer_text: string;
-    correctness: "correct" | "incorrect" | "unknown" | "not_present";
-    mistake_summary: string;
-    needs_diagram: boolean;
-    diagram_image_data_url?: string | null;
-    diagram_note?: string | null;
-  }>;
+  return responseContract(response, problemImageAnalysisResultSchema, "题图分析");
 }

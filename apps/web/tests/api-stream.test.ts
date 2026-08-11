@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ApiContractError,
   ChatStreamClosedError,
   ChatStreamTerminalError,
   fetchSessionRunStatus,
@@ -111,6 +112,23 @@ test("streamChat treats an explicit provider error as terminal failure", async (
   }
 });
 
+test("streamChat rejects malformed payloads for known SSE events", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(
+    "event: message_delta\ndata: {\"text\":42}\n\n",
+    { status: 200, headers: { "Content-Type": "text/event-stream" } }
+  )) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      streamChat({ session_id: "session-invalid-event" }, () => {}),
+      ApiContractError
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("run status lookup uses a no-store session-scoped request", async () => {
   const originalFetch = globalThis.fetch;
   let requestedUrl = "";
@@ -133,4 +151,19 @@ test("run status lookup uses a no-store session-scoped request", async () => {
 
   assert.match(requestedUrl, /\/api\/sessions\/session-refresh\/run$/);
   assert.equal(requestedCache, "no-store");
+});
+
+test("run status lookup rejects a backend payload that violates its contract", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => Response.json({
+    active: true,
+    running: true,
+    run: { run_id: 42 }
+  })) as typeof fetch;
+
+  try {
+    await assert.rejects(fetchSessionRunStatus("session-invalid"), ApiContractError);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

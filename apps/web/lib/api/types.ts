@@ -259,3 +259,74 @@ export type SessionRunStatus = {
   running: boolean;
   run?: SessionRun | null;
 };
+
+export type CheckpointAnswerResult = {
+  input_id: string;
+  status: "accepted" | "duplicate";
+  is_correct: boolean;
+  elapsed_ms: number;
+  event: "CHECKPOINT_CORRECT" | "CHECKPOINT_WRONG" | "CHECKPOINT_UNKNOWN";
+  next_state_hint: string;
+  student_message: string;
+  action_id: string;
+};
+
+export type SessionInterruptResult = {
+  interrupted: boolean;
+  active: boolean;
+  run_ids: string[];
+};
+
+export type ModelProfileTestResult = {
+  ok: boolean;
+  latency_ms: number | null;
+  message: string;
+  reasoning_effort_options: ReasoningEffort[];
+  reasoning_effort_results: Array<{
+    effort: ReasoningEffort;
+    ok: boolean;
+    latency_ms: number | null;
+    message: string;
+  }>;
+  multimodal_ok?: boolean | null;
+  multimodal_latency_ms?: number | null;
+  multimodal_message?: string | null;
+};
+
+export type ProblemImageDetectionResult = {
+  problems: DetectedProblemRegion[];
+  image_width: number;
+  image_height: number;
+};
+
+export type ProblemImageAnalysisResult = {
+  problem_text: string;
+  student_work_summary: string;
+  answer_text: string;
+  correctness: "correct" | "incorrect" | "unknown" | "not_present";
+  mistake_summary: string;
+  needs_diagram: boolean;
+  diagram_image_data_url?: string | null;
+  diagram_note?: string | null;
+};
+
+export type SpeechTranscription = {
+  text: string;
+  duration_seconds: number;
+  language: string | null;
+  emotion: string | null;
+  event: string | null;
+};
+
+export type SpeechStreamEvent =
+  | {
+    type: "ready";
+    sample_rate: number;
+    partial_interval_ms: number;
+    commit_silence_ms: number;
+    stream_segment_seconds: number;
+  }
+  | ({ type: "partial" | "final" } & SpeechTranscription)
+  | { type: "empty"; message: string }
+  | { type: "error"; message: string }
+  | { type: "done" };
