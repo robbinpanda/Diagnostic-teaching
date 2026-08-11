@@ -37,14 +37,14 @@ git clone https://github.com/robbinpanda/Diagnostic-teaching.git
 cd Diagnostic-teaching
 git switch dev/local
 conda create -n ai4edu-tutor python=3.11 -y
-conda run -n ai4edu-tutor python -m pip install -r apps/api/requirements-dev.txt
+conda run -n ai4edu-tutor python scripts/install-python-deps.py dev
 npm --prefix apps/web install
 .\scripts\start-dev.cmd
 ```
 
 浏览器打开 <http://127.0.0.1:3000>。启动、关闭、环境变量、语音与故障排查见 [本地运行指南](./docs/how-to-run.md)。
 
-后端核心依赖由 `apps/api/requirements-core.in` 声明、由带哈希的 `requirements-core.txt` 锁定。更新直接依赖时，先安装 `apps/api/requirements-lock.txt` 中固定版本的锁定工具，再运行 `scripts\lock-python-deps.cmd`；不要手工编辑生成的锁文件。
+后端核心依赖由 `apps/api/requirements-core.in` 声明、由带哈希的 `requirements-core.txt` 锁定。核心、语音与开发工具必须由 `scripts/install-python-deps.py` 分成独立 pip 调用安装，不能把无哈希的可选层与核心锁放进同一次解析。更新直接依赖时，先安装 `apps/api/requirements-lock.txt` 中固定版本的锁定工具，再运行 `scripts\lock-python-deps.cmd`；不要手工编辑生成的锁文件。
 
 ### Docker
 

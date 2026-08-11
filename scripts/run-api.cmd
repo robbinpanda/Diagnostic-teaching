@@ -36,7 +36,7 @@ set "ENV_PYTHON=%CONDA_BASE%\envs\ai4edu-tutor\python.exe"
 if not exist "%ENV_PYTHON%" (
   echo [API] conda env "ai4edu-tutor" not found at %ENV_PYTHON%.
   echo [API] Create it with: conda create -n ai4edu-tutor python=3.11
-  echo [API] then: conda run -n ai4edu-tutor pip install -r apps/api/requirements.txt
+  echo [API] then: conda run -n ai4edu-tutor python scripts/install-python-deps.py dev
   pause
   exit /b 1
 )

@@ -1,4 +1,5 @@
--r requirements.txt
+# Test and lint tools. Install after requirements-core.txt via
+# scripts/install-python-deps.py; CI intentionally omits the speech layer.
 ruff==0.15.22
 pytest==9.1.1
 httpx2==2.10.0

@@ -1,4 +1,5 @@
--r requirements-core.txt
+# Optional local speech layer. Install after requirements-core.txt via
+# scripts/install-python-deps.py; do not include the hashed core lock here.
 torch==2.11.0
 torchaudio==2.11.0
 funasr==1.3.29

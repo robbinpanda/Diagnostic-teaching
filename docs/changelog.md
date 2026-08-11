@@ -4,6 +4,12 @@
 
 ## 未发布
 
+### 修复质量校验的 Python 依赖安装
+
+- 修复带哈希的 `requirements-core.txt` 被嵌套进无哈希语音/开发依赖后触发 pip 全局 `--require-hashes`，导致 GitHub Actions 在 `torch` 处停止的问题。
+- 新增按 `core/runtime/dev/ci/build` 分层执行独立 pip 调用的安装入口；CI 只安装核心锁与测试工具，不再下载测试不需要的 PyTorch/FunASR。
+- 本地开发、启动提示和 Windows 安装包构建统一使用分层入口，并用回归测试固定 CI 与 build 的依赖层顺序。
+
 ### 代码质量专项：前端 API 运行时契约
 
 - 新增集中式 Zod schema 与 `ApiContractError`，所有成功 HTTP JSON 返回不再依赖 `response.json()` 的隐式 `any` 或强制类型断言。

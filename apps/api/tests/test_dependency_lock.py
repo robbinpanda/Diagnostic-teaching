@@ -1,4 +1,5 @@
 import re
+import runpy
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -63,3 +64,43 @@ def test_development_test_tools_are_exactly_pinned():
     assert "ruff==0.15.22" in development
     assert "pytest==9.1.1" in development
     assert "httpx2==2.10.0" in development
+
+
+def test_dependency_profiles_keep_hashed_core_in_a_separate_pip_invocation():
+    installer = runpy.run_path(str(ROOT / "scripts" / "install-python-deps.py"))
+    requirement_files = installer["requirement_files"]
+
+    assert [path.name for path in requirement_files("ci")] == [
+        "requirements-core.txt",
+        "requirements-dev.txt",
+    ]
+    assert [path.name for path in requirement_files("dev")] == [
+        "requirements-core.txt",
+        "requirements-speech.txt",
+        "requirements-dev.txt",
+    ]
+    assert [path.name for path in requirement_files("build")] == [
+        "requirements-core.txt",
+        "requirements-speech.txt",
+        "requirements-build.txt",
+    ]
+
+    for filename in (
+        "requirements-speech.txt",
+        "requirements-dev.txt",
+        "requirements-build.txt",
+    ):
+        content = (API_DIR / filename).read_text(encoding="utf-8")
+        assert not any(line.lstrip().startswith("-r ") for line in content.splitlines())
+
+
+def test_ci_and_windows_build_use_the_layered_dependency_installer():
+    workflow = (ROOT / ".github" / "workflows" / "quality.yml").read_text(
+        encoding="utf-8"
+    )
+    build_script = (ROOT / "scripts" / "build-windows-installer.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "python ../../scripts/install-python-deps.py ci" in workflow
+    assert '"scripts\\install-python-deps.py"), "build"' in build_script

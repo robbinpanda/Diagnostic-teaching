@@ -1,2 +1,2 @@
--r requirements.txt
+# Windows packaging layer. The build profile installs core and speech first.
 pyinstaller==6.21.0

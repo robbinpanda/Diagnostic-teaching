@@ -46,11 +46,23 @@ docker compose -f compose.local.yml -f compose.speech.yml down
 
 ```bat
 conda create -n ai4edu-tutor python=3.11
-conda run -n ai4edu-tutor python -m pip install -r apps/api/requirements-dev.txt
+conda run -n ai4edu-tutor python scripts/install-python-deps.py dev
 npm --prefix apps/web install
 ```
 
-`requirements-core.txt` 是轻量运行时和 Docker 共用的、带 SHA-256 哈希的完整锁文件。需要升级核心 Python 依赖时，在项目根目录执行：
+`requirements-core.txt` 是轻量运行时和 Docker 共用的、带 SHA-256 哈希的完整锁文件。pip 看到其中任一哈希后会要求同一次解析里的全部依赖都有哈希，因此核心、语音和工具层不能通过嵌套 `-r` 混装。统一安装入口会使用当前 `sys.executable` 逐层调用 pip：
+
+```bat
+python scripts\install-python-deps.py core
+python scripts\install-python-deps.py runtime
+python scripts\install-python-deps.py dev
+python scripts\install-python-deps.py ci
+python scripts\install-python-deps.py build
+```
+
+五个 profile 依次表示：仅轻量后端、轻量后端加本地语音、本地开发全套、无语音的 CI 测试环境、Windows 安装包构建环境。
+
+需要升级核心 Python 依赖时，在项目根目录执行：
 
 ```bat
 python -m pip install -r apps\api\requirements-lock.txt
@@ -82,7 +94,7 @@ copy .env.example .env
 
 ## 本地语音输入（SenseVoiceSmall）
 
-`requirements-dev.txt` 会安装 `torch`、`torchaudio`、`funasr==1.3.29`。启动页面后点击输入框下方的麦克风并授权：浏览器会通过 WebSocket 持续发送重采样后的 16 kHz 单声道 16 位 PCM，录音不会在 60 秒或其他固定总时长后自动停止，用户再次点击麦克风时才结束。FSMN-VAD 判断发声和停顿，SenseVoiceSmall 约每 1.2 秒刷新一次临时文字。短暂停顿只进入待确认状态，默认 2.5 秒内重新开口会继续合并为同一句；连续静音超过该窗口或再次点击麦克风才确认最终文字。结果只回填输入框，不会自动发送，可修改后再按 Enter。
+`scripts/install-python-deps.py dev` 会分层安装 `torch`、`torchaudio`、`funasr==1.3.29` 以及测试工具。启动页面后点击输入框下方的麦克风并授权：浏览器会通过 WebSocket 持续发送重采样后的 16 kHz 单声道 16 位 PCM，录音不会在 60 秒或其他固定总时长后自动停止，用户再次点击麦克风时才结束。FSMN-VAD 判断发声和停顿，SenseVoiceSmall 约每 1.2 秒刷新一次临时文字。短暂停顿只进入待确认状态，默认 2.5 秒内重新开口会继续合并为同一句；连续静音超过该窗口或再次点击麦克风才确认最终文字。结果只回填输入框，不会自动发送，可修改后再按 Enter。
 
 流式录音不保存原始录音文件。后端默认最多保留当前 30 秒的 PCM（约 0.92 MiB/连接），达到滚动分段边界时会先确认当前文字，再清空已处理音频并继续接收；没有检测到语音的静音窗口也会直接丢弃。SenseVoice 推理所需 WAV 只存在于系统临时目录，并在单次推理结束后自动删除。因此总录音时长不受限，但内存和临时磁盘占用不会随录音时长持续增长。兼容用 `POST /api/speech/transcribe` 仍接受完整 WAV，但请求体最多 16 MiB；长时间麦克风输入应使用 WebSocket 接口。
 
