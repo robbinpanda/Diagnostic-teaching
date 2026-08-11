@@ -827,7 +827,8 @@ async def generate_tutor_turn_stream(
                 parsed_dump = turn_final.model_dump() if turn_final is not None else None
             except Exception:
                 parsed_dump = None
-            logger.log_tutor_turn(
+            await logger.write_async(
+                logger.log_tutor_turn,
                 session_id=session["id"],
                 model_profile_id=profile.id,
                 model=profile.model,

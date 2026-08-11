@@ -236,7 +236,8 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                 student_row = accepted_input.message_row
                 logger = getattr(request.app.state, "session_logger", None)
                 if logger is not None:
-                    logger.log_message(
+                    await logger.write_async(
+                        logger.log_message,
                         session_id=payload.session_id,
                         message_id=student_row["id"],
                         role="student",
@@ -329,7 +330,8 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
 
                 logger = getattr(request.app.state, "session_logger", None)
                 if logger is not None:
-                    logger.log_message(
+                    await logger.write_async(
+                        logger.log_message,
                         session_id=payload.session_id,
                         message_id=assistant_row["id"],
                         role="assistant",

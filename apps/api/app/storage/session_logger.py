@@ -1,11 +1,98 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import threading
+from collections.abc import Callable
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, ParamSpec
+
+LOGGER = logging.getLogger(__name__)
+P = ParamSpec("P")
+DEFAULT_ASYNC_LOG_QUEUE_SIZE = 32
+
+
+@dataclass(slots=True)
+class _QueuedWrite:
+    operation: Callable[[], None]
+    completed: asyncio.Future[None]
+
+
+class AsyncSessionLogWriter:
+    """Serialize diagnostic writes through a bounded, off-loop worker."""
+
+    def __init__(self, *, max_queue_size: int = DEFAULT_ASYNC_LOG_QUEUE_SIZE):
+        if max_queue_size < 1:
+            raise ValueError("max_queue_size must be at least 1")
+        self.max_queue_size = max_queue_size
+        self._queue: asyncio.Queue[_QueuedWrite | None] | None = None
+        self._worker: asyncio.Task[None] | None = None
+
+    def _ensure_worker(self) -> asyncio.Queue[_QueuedWrite | None]:
+        loop = asyncio.get_running_loop()
+        if (
+            self._worker is None
+            or self._worker.done()
+            or self._worker.get_loop() is not loop
+        ):
+            self._queue = asyncio.Queue(maxsize=self.max_queue_size)
+            self._worker = asyncio.create_task(
+                self._run(self._queue),
+                name="session-diagnostic-log-writer",
+            )
+        assert self._queue is not None
+        return self._queue
+
+    async def write(
+        self,
+        operation: Callable[P, None],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> None:
+        queue = self._ensure_worker()
+        completed = asyncio.get_running_loop().create_future()
+        await queue.put(_QueuedWrite(partial(operation, *args, **kwargs), completed))
+        await asyncio.shield(completed)
+
+    async def _run(self, queue: asyncio.Queue[_QueuedWrite | None]) -> None:
+        while True:
+            item = await queue.get()
+            try:
+                if item is None:
+                    return
+                try:
+                    await asyncio.to_thread(item.operation)
+                except Exception:
+                    LOGGER.warning("Diagnostic session log write failed", exc_info=True)
+                finally:
+                    if not item.completed.done():
+                        item.completed.set_result(None)
+            finally:
+                queue.task_done()
+
+    async def close(self) -> None:
+        worker = self._worker
+        queue = self._queue
+        if worker is None or queue is None or worker.done():
+            self._worker = None
+            self._queue = None
+            return
+        await queue.join()
+        await queue.put(None)
+        await worker
+        if self._worker is worker:
+            self._worker = None
+            self._queue = None
+
+    @property
+    def queued_writes(self) -> int:
+        return self._queue.qsize() if self._queue is not None else 0
 
 
 def _now_iso() -> str:
@@ -22,11 +109,35 @@ class SessionLogger:
     - 一行一事件，崩溃也只丢最后一行，便于回放。
     """
 
-    def __init__(self, log_dir: Path):
+    def __init__(
+        self,
+        log_dir: Path,
+        *,
+        async_queue_size: int = DEFAULT_ASYNC_LOG_QUEUE_SIZE,
+    ):
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._sessions_with_logged_images: set[str] = set()
+        self._async_writer = AsyncSessionLogWriter(max_queue_size=async_queue_size)
+
+    async def write_async(
+        self,
+        operation: Callable[P, None],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> None:
+        """Run one diagnostic write off-loop with bounded FIFO backpressure."""
+
+        await self._async_writer.write(operation, *args, **kwargs)
+
+    async def close_async_writer(self) -> None:
+        await self._async_writer.close()
+
+    @property
+    def queued_async_writes(self) -> int:
+        return self._async_writer.queued_writes
 
     def _existing_log_contains_image(self, session_id: str) -> bool:
         path = self.log_dir / f"{session_id}.jsonl"

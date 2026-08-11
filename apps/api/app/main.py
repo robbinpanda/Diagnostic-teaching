@@ -56,6 +56,7 @@ async def lifespan(app: FastAPI):
             refresh_task.cancel()
             with suppress(asyncio.CancelledError):
                 await refresh_task
+        await app.state.session_logger.close_async_writer()
 
 
 def create_app() -> FastAPI:
