@@ -1,28 +1,23 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 
-const source = (path: string) => readFileSync(resolve(__dirname, `../../../${path}`));
-const text = (path: string) => source(path).toString("utf8");
-const sha256 = (path: string) => createHash("sha256")
-  .update(text(path).replace(/\r\n/g, "\n"), "utf8")
-  .digest("hex")
-  .toUpperCase();
+const text = (path: string) => readFileSync(resolve(__dirname, `../../../${path}`), "utf8");
 
-const frozenFiles = new Map([
-  ["components/StudyCardModal.tsx", "D99C7B18F89F7275CC5190F249DF865D4BE317B56C5A424E0C38D32CE1E9C267"],
-  ["components/workspace/CardShelfTabs.tsx", "977F00E8C48617D094E2388E3413337B97398A225202F00A32901CF491EFC063"],
-  ["components/workspace/StudyCardSidebar.tsx", "32EF1C14C81C6E9877E36DA24B432A149B6D4F6ACF353DB7B7EA5114EF003AB6"],
-  ["hooks/useStudyCards.ts", "00D555A146FB2304209289C96EB8FA6135B02D27BC4336CBE76019C087EB4C34"],
-  ["hooks/useSessionRuntime.ts", "8C96D17076D1840158ED4D51B52C5E0EE18F6F4B99F350D080D3335F32960697"]
-]);
+test("card hooks preserve race guards and delegate run state to tested primitives", () => {
+  const cardsHook = text("hooks/useStudyCards.ts");
+  const runtimeHook = text("hooks/useSessionRuntime.ts");
 
-test("card behavior sources stay byte-identical", () => {
-  for (const [path, expected] of frozenFiles) {
-    assert.equal(sha256(path), expected, path);
-  }
+  assert.match(cardsHook, /requestId !== cardsRequestRef\.current/);
+  assert.match(cardsHook, /cardsMutationId === cardsMutationRef\.current/);
+  assert.match(cardsHook, /foldersMutationId === foldersMutationRef\.current/);
+  assert.match(cardsHook, /setViewingCard\(\(current\) => current && deletedIds\.has\(current\.id\) \? null : current\)/);
+  assert.match(runtimeHook, /new StreamController\(\)/);
+  assert.match(runtimeHook, /cancelAll\("unmount"\)/);
+  assert.match(runtimeHook, /sessionWorkflowReducer/);
+  assert.match(runtimeHook, /timelineReducer/);
+  assert.match(runtimeHook, /createStreamEventAdapter/);
 });
 
 test("card shelf geometry and slide timing stay unchanged", () => {
@@ -346,7 +341,4 @@ test("history workspace reuses C4 tokens and responsive paper grids", () => {
     /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.historyWorkspaceBodyInner\s*\{[\s\S]*?animation:\s*none[\s\S]*?transform:\s*none/
   );
 
-  for (const [path, expected] of frozenFiles) {
-    assert.equal(sha256(path), expected, path);
-  }
 });

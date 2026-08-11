@@ -1114,6 +1114,10 @@ test("workspace sidebars render active sessions and filtered cards", () => {
   );
   assert.match(cards, /1 张已归档/);
   assert.match(cards, /知识卡片/);
+  assert.match(cards, /aria-label="收起卡片栏"/);
+  assert.match(cards, /aria-label="当前位置"/);
+  assert.match(cards, new RegExp(`data-library-card-id="${cardFixture.id}"`));
+  assert.match(cards, new RegExp(`aria-label="复制卡片：${cardFixture.content.title}"`));
 });
 
 test("floating cards leave message width untouched", () => {
@@ -1131,7 +1135,7 @@ test("floating cards leave message width untouched", () => {
 test("clearing sessions keeps collection ownership or returns a history session to start", () => {
   const pageSource = readFileSync(resolve(__dirname, "../../../app/page.tsx"), "utf8");
   const clearStart = pageSource.indexOf("async function handleDeleteAllSessions()");
-  const clearEnd = pageSource.indexOf("function readFileAsDataUrl", clearStart);
+  const clearEnd = pageSource.indexOf("async function finishSessionBatchStart", clearStart);
   const clearSource = pageSource.slice(clearStart, clearEnd);
 
   assert.match(clearSource, /const clearingFromCollection = historyView !== null/);
@@ -1259,8 +1263,11 @@ test("card shelf tabs only render saved cards from the active source session", (
   const activeSessionShelf = renderToStaticMarkup(
     <CardShelfTabs cards={cards} sessionId="session-a" onOpenCard={() => {}} />
   );
+  assert.match(activeSessionShelf, /<nav class="cardShelfTabs" aria-label="最近收纳的学习卡片">/);
   assert.match(activeSessionShelf, new RegExp(cardFixture.content.title));
   assert.match(activeSessionShelf, />题目卡片</);
+  assert.match(activeSessionShelf, new RegExp(`aria-label="查看知识卡片：${cardFixture.content.title}"`));
+  assert.match(activeSessionShelf, new RegExp(`aria-label="查看题目卡片：${problemCardFixture.content.title}"`));
   assert.match(activeSessionShelf, new RegExp(`>${secondKnowledgeCard.content.title}<`));
   assert.ok(activeSessionShelf.indexOf(">题目卡片<") < activeSessionShelf.indexOf(`>${secondKnowledgeCard.content.title}<`));
   assert.match(activeSessionShelf, /knowledgeTab firstKnowledgeTab/);

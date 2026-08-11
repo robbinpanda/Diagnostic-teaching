@@ -4,6 +4,12 @@
 
 ## 未发布
 
+### 代码质量专项：语义化前端契约测试
+
+- 删除对 5 个组件/hook 源码做 SHA-256 字节冻结的测试，合法重构不再需要手工更新哈希。
+- 卡片弹窗、侧栏与书架继续通过 SSR 输出、筛选结果、视觉 token 和 aria 标签验证可观察行为。
+- `useStudyCards` 与 `useSessionRuntime` 改为验证请求竞态守门、删除清理以及对已单测 reducer/controller 的委托边界。
+
 ### 代码质量专项：拆分 Home 状态域
 
 - 将响应式侧栏的宽度持久化、ResizeObserver、指针与键盘交互从 `app/page.tsx` 抽到 `useResizableSidebar`。
