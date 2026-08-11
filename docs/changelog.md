@@ -4,6 +4,12 @@
 
 ## 未发布
 
+### 代码质量专项：拆分 Home 状态域
+
+- 将响应式侧栏的宽度持久化、ResizeObserver、指针与键盘交互从 `app/page.tsx` 抽到 `useResizableSidebar`。
+- 将卡片窗口的 FLIP 转场、拖拽句柄、来源焦点恢复和动画状态机抽到 `useShelfCardTransition`。
+- `Home` 继续负责业务编排和页面组合，不再直接维护这两个独立 UI 子系统的内部状态与 effects；现有视觉/交互契约测试改为在各自所有者处验证。
+
 ### 代码质量专项：客户端题图大小校验
 
 - 文件选择与剪贴板粘贴共用的题图读取入口现在与后端保持同一 12 MiB 上限，超限文件会在 FileReader/base64 编码前被拒绝。

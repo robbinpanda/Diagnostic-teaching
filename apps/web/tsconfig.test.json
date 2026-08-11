@@ -21,6 +21,8 @@
     "lib/stream-controller.ts",
     "lib/stream-protocol.ts",
     "lib/timeline.ts",
+    "hooks/useResizableSidebar.ts",
+    "hooks/useShelfCardTransition.ts",
     "components/MathText.tsx",
     "components/CheckpointModal.tsx",
     "components/StudyCardModal.tsx",

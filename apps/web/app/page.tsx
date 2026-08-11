@@ -2,15 +2,11 @@
 
 import {
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent
+  type CSSProperties
 } from "react";
-import { flushSync } from "react-dom";
 import { CardMoveDialog } from "../components/CardMoveDialog";
 import { CheckpointModal } from "../components/CheckpointModal";
 import { ModelConfigDialog } from "../components/ModelConfigDialog";
@@ -28,8 +24,7 @@ import { AppTopbar } from "../components/workspace/AppTopbar";
 import { CardShelfTabs } from "../components/workspace/CardShelfTabs";
 import { ConversationHeader } from "../components/workspace/ConversationHeader";
 import {
-  DraggableCardWindow,
-  type DraggableCardWindowHandle
+  DraggableCardWindow
 } from "../components/workspace/DraggableCardWindow";
 import { HistoryWorkspace } from "../components/workspace/HistoryWorkspace";
 import { KnowledgeWorkspace, type KnowledgeView } from "../components/workspace/KnowledgeWorkspace";
@@ -44,6 +39,8 @@ import { TutorComposer } from "../components/workspace/TutorComposer";
 import { useModelProfiles } from "../hooks/useModelProfiles";
 import { useMistakeSets } from "../hooks/useMistakeSets";
 import { useSessionRuntime } from "../hooks/useSessionRuntime";
+import { useResizableSidebar } from "../hooks/useResizableSidebar";
+import { useShelfCardTransition } from "../hooks/useShelfCardTransition";
 import { useSpeechInput } from "../hooks/useSpeechInput";
 import { useStudyCards } from "../hooks/useStudyCards";
 import {
@@ -75,14 +72,6 @@ import type { HistorySortMode, HistoryView } from "../lib/history-view";
 import { toggleMistakeCardGroupSelection, toggleMistakeCardSelection } from "../lib/mistake-selection";
 import type { ProblemPaperGroup } from "../lib/problem-view";
 import {
-  DEFAULT_SIDEBAR_WIDTH,
-  MIN_SIDEBAR_WIDTH,
-  clampSidebarWidth,
-  getSidebarWidthBounds,
-  readStoredSidebarWidth,
-  writeStoredSidebarWidth
-} from "../lib/sidebar-layout";
-import {
   clearAllRequestRecovery,
   clearComposerDraft,
   clearPendingSessionBatch,
@@ -109,23 +98,7 @@ import {
 } from "../lib/image-draft-recovery";
 import { readProblemImageAsDataUrl } from "../lib/problem-image-file";
 
-type ShelfCardTransitionPhase =
-  | "idle"
-  | "preparing"
-  | "opening"
-  | "open"
-  | "closing"
-  | "closingFallback";
 type WelcomePhase = "visible" | "leaving" | "hidden";
-
-type ShelfCardMotion = {
-  x: number;
-  y: number;
-  scaleX: number;
-  scaleY: number;
-  startX?: number;
-  startY?: number;
-};
 
 type LearningCardPrintJob = {
   cards: StudyCard[];
@@ -221,49 +194,6 @@ function persistedSelection(
   };
 }
 
-function hasUsableCardSourceVisibility(
-  element: HTMLElement,
-  allowHiddenSource: boolean
-) {
-  let current: HTMLElement | null = element;
-  let isSource = true;
-  while (current) {
-    const style = window.getComputedStyle(current);
-    const hiddenSourceAllowed = isSource && allowHiddenSource;
-    if (
-      style.display === "none"
-      || (style.visibility === "hidden" && !hiddenSourceAllowed)
-      || Number.parseFloat(style.opacity) === 0
-      || (style.pointerEvents === "none" && !hiddenSourceAllowed)
-    ) return false;
-    current = current.parentElement;
-    isSource = false;
-  }
-  return true;
-}
-
-function isCardSourceOnScreen(element: HTMLElement) {
-  const rect = element.getBoundingClientRect();
-  return rect.width > 0
-    && rect.height > 0
-    && rect.right > 0
-    && rect.bottom > 0
-    && rect.left < window.innerWidth
-    && rect.top < window.innerHeight;
-}
-
-function canReturnCardToElement(element: HTMLElement | null): element is HTMLElement {
-  if (!element?.isConnected) return false;
-  return hasUsableCardSourceVisibility(element, false) && isCardSourceOnScreen(element);
-}
-
-function canAnimateCardToElement(element: HTMLElement | null): element is HTMLElement {
-  if (!element?.isConnected) return false;
-  const intentionallyHiddenShelfSource = element.matches("[data-shelf-card-id]");
-  return hasUsableCardSourceVisibility(element, intentionallyHiddenShelfSource)
-    && isCardSourceOnScreen(element);
-}
-
 export default function Home() {
   const [gradeBand, setGradeBand] = useState<"junior" | "senior">("junior");
   const [input, setInput] = useState("");
@@ -288,11 +218,6 @@ export default function Home() {
   const [openSessionBusyId, setOpenSessionBusyId] = useState("");
   const [deleteSessionBusyId, setDeleteSessionBusyId] = useState("");
   const [deleteAllSessionsBusy, setDeleteAllSessionsBusy] = useState(false);
-  const [leftOpen, setLeftOpen] = useState(true);
-  const [responsiveReady, setResponsiveReady] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
-  const [sidebarMaxWidth, setSidebarMaxWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
-  const [sidebarResizing, setSidebarResizing] = useState(false);
   const [contentNavigation, setContentNavigation] = useState<WorkspaceContentNavigation>("start");
   const [knowledgeCardExportOpen, setKnowledgeCardExportOpen] = useState(false);
   const [learningCardPrintJob, setLearningCardPrintJob] = useState<LearningCardPrintJob | null>(null);
@@ -302,22 +227,11 @@ export default function Home() {
   const [pendingComposerImage, setPendingComposerImage] = useState<PendingComposerImage | null>(null);
   const [imageConfirmBusy, setImageConfirmBusy] = useState(false);
   const [viewingCardSaveBusy, setViewingCardSaveBusy] = useState(false);
-  const [shelfCardTransitionPhase, setShelfCardTransitionPhase] = useState<ShelfCardTransitionPhase>("idle");
-  const [shelfCardMotion, setShelfCardMotion] = useState<ShelfCardMotion | null>(null);
   const [welcomePhase, setWelcomePhase] = useState<WelcomePhase>("hidden");
-  const [pendingCardMotionReadyKey, setPendingCardMotionReadyKey] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const appShellRef = useRef<HTMLElement | null>(null);
-  const sidebarWidthRef = useRef(DEFAULT_SIDEBAR_WIDTH);
-  const sidebarPreferredWidthRef = useRef(DEFAULT_SIDEBAR_WIDTH);
-  const sidebarResizePointerIdRef = useRef<number | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const messageViewportRef = useRef<HTMLDivElement | null>(null);
   const historyWorkspaceRef = useRef<HTMLElement | null>(null);
-  const knowledgeCardDockRef = useRef<HTMLDivElement | null>(null);
-  const cardWindowRef = useRef<DraggableCardWindowHandle | null>(null);
-  const shelfCardOriginRef = useRef<DOMRectReadOnly | null>(null);
-  const shelfCardTriggerRef = useRef<HTMLElement | null>(null);
   const sendInFlightKeysRef = useRef(new Set<string>());
   const pendingStudentMessagesRef = useRef(new Map<string, PendingStudentRequest>());
   const queuedInterjectionsRef = useRef(new Map<string, PendingStudentRequest[]>());
@@ -329,6 +243,22 @@ export default function Home() {
   const examPapersRequestRef = useRef(0);
   const viewTokenRef = useRef(0);
   const speechBaseInputRef = useRef("");
+  const {
+    appShellRef,
+    closeNavigationOnMobile,
+    finishResize: finishSidebarResize,
+    handleResizeKeyDown: handleSidebarResizeKeyDown,
+    handleResizePointerDown: handleSidebarResizePointerDown,
+    handleResizePointerEnd: handleSidebarResizePointerEnd,
+    handleResizePointerMove: handleSidebarResizePointerMove,
+    leftOpen,
+    minSidebarWidth,
+    responsiveReady,
+    setLeftOpen,
+    sidebarMaxWidth,
+    sidebarResizing,
+    sidebarWidth
+  } = useResizableSidebar();
   const runtime = useSessionRuntime({ onRunSettled: handleRunSettled });
   const {
     activeCard,
@@ -348,116 +278,6 @@ export default function Home() {
   const retryableMessageId = runtime.timeline.lastError && !streamBusy
     ? messages.findLast((message) => message.role === "student")?.id ?? null
     : null;
-
-  useEffect(() => {
-    const compact = window.matchMedia("(max-width: 1319px)");
-    const syncCompactState = (matches: boolean) => {
-      if (matches) {
-        setLeftOpen(false);
-      }
-      setResponsiveReady(true);
-    };
-    syncCompactState(compact.matches);
-    const onChange = (event: MediaQueryListEvent) => syncCompactState(event.matches);
-    compact.addEventListener("change", onChange);
-    return () => compact.removeEventListener("change", onChange);
-  }, []);
-
-  useLayoutEffect(() => {
-    const shell = appShellRef.current;
-    if (!shell) return;
-
-    const syncSidebarBounds = () => {
-      const bounds = getSidebarWidthBounds(shell.clientWidth);
-      const next = clampSidebarWidth(sidebarPreferredWidthRef.current, shell.clientWidth);
-      setSidebarMaxWidth(bounds.max);
-      sidebarWidthRef.current = next;
-      setSidebarWidth(next);
-    };
-
-    const storedWidth = readStoredSidebarWidth(() => window.localStorage);
-    const initialWidth = clampSidebarWidth(storedWidth, shell.clientWidth);
-    sidebarPreferredWidthRef.current = storedWidth;
-    sidebarWidthRef.current = initialWidth;
-    setSidebarWidth(initialWidth);
-    setSidebarMaxWidth(getSidebarWidthBounds(shell.clientWidth).max);
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", syncSidebarBounds);
-      return () => window.removeEventListener("resize", syncSidebarBounds);
-    }
-
-    const resizeObserver = new ResizeObserver(syncSidebarBounds);
-    resizeObserver.observe(shell);
-    return () => resizeObserver.disconnect();
-  }, []);
-
-  function setClampedSidebarWidth(width: number) {
-    const shell = appShellRef.current;
-    if (!shell) return sidebarWidthRef.current;
-    const bounds = getSidebarWidthBounds(shell.clientWidth);
-    const next = clampSidebarWidth(width, shell.clientWidth);
-    sidebarPreferredWidthRef.current = next;
-    sidebarWidthRef.current = next;
-    setSidebarMaxWidth(bounds.max);
-    setSidebarWidth(next);
-    return next;
-  }
-
-  function persistSidebarWidth() {
-    writeStoredSidebarWidth(() => window.localStorage, sidebarPreferredWidthRef.current);
-  }
-
-  function updateSidebarWidthFromPointer(clientX: number) {
-    const shell = appShellRef.current;
-    if (!shell) return;
-    const shellRect = shell.getBoundingClientRect();
-    setClampedSidebarWidth(clientX - shellRect.left);
-  }
-
-  function handleSidebarResizePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    sidebarResizePointerIdRef.current = event.pointerId;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setSidebarResizing(true);
-    updateSidebarWidthFromPointer(event.clientX);
-    event.preventDefault();
-  }
-
-  function handleSidebarResizePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
-    if (sidebarResizePointerIdRef.current !== event.pointerId) return;
-    updateSidebarWidthFromPointer(event.clientX);
-  }
-
-  function finishSidebarResize(pointerId: number) {
-    if (sidebarResizePointerIdRef.current !== pointerId) return;
-    sidebarResizePointerIdRef.current = null;
-    setSidebarResizing(false);
-    persistSidebarWidth();
-  }
-
-  function handleSidebarResizePointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    finishSidebarResize(event.pointerId);
-  }
-
-  function handleSidebarResizeKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    const step = event.shiftKey ? 48 : 16;
-    let nextWidth: number | null = null;
-    if (event.key === "ArrowLeft") nextWidth = sidebarWidthRef.current - step;
-    if (event.key === "ArrowRight") nextWidth = sidebarWidthRef.current + step;
-    if (event.key === "Home") nextWidth = MIN_SIDEBAR_WIDTH;
-    if (event.key === "End") nextWidth = sidebarMaxWidth;
-    if (nextWidth === null) return;
-    event.preventDefault();
-    setClampedSidebarWidth(nextWidth);
-    persistSidebarWidth();
-  }
-
-  function closeNavigationOnMobile() {
-    if (window.matchMedia("(max-width: 760px)").matches) setLeftOpen(false);
-  }
 
   function invalidateBootstrapNavigation() {
     bootstrapNavigationRef.current += 1;
@@ -603,7 +423,6 @@ export default function Home() {
     [activeCards]
   );
   const viewedShelfCard = viewingCard;
-  const viewedShelfCardId = viewedShelfCard?.id ?? null;
   const displayedDockCard = viewedShelfCard ?? dockedActiveCard;
   const displayedDockCardIsArchived = Boolean(
     displayedDockCard && viewedShelfCard?.id === displayedDockCard.id
@@ -611,6 +430,20 @@ export default function Home() {
   const pendingCardMotionKey = displayedDockCard && !displayedDockCardIsArchived
     ? `${displayedDockCard.id}:${centralWorkspaceActive ? "workspace" : "conversation"}`
     : null;
+  const {
+    cardWindowRef,
+    closeCard: closeShelfCard,
+    dockRef: knowledgeCardDockRef,
+    handleAnimationEnd: handleShelfCardAnimationEnd,
+    motion: shelfCardMotion,
+    openCard: openShelfCard,
+    pendingMotionReadyKey: pendingCardMotionReadyKey,
+    phase: shelfCardTransitionPhase
+  } = useShelfCardTransition({
+    viewingCard: viewedShelfCard,
+    setViewingCard,
+    pendingMotionKey: pendingCardMotionKey
+  });
   const displayedDockCardThemeVariant = useMemo(() => {
     if (!displayedDockCard || displayedDockCard.card_type !== "knowledge_card" || !displayedDockCard.saved_at) {
       return undefined;
@@ -627,22 +460,6 @@ export default function Home() {
     [activeCards, dockedActiveCard?.id]
   );
 
-  function openShelfCard(
-    nextCard: StudyCard,
-    origin: DOMRectReadOnly,
-    trigger?: HTMLButtonElement
-  ) {
-    shelfCardOriginRef.current = origin;
-    shelfCardTriggerRef.current = trigger
-      ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
-    flushSync(() => {
-      setPendingCardMotionReadyKey(null);
-      setShelfCardMotion(null);
-      setShelfCardTransitionPhase("preparing");
-      setViewingCard(nextCard);
-    });
-  }
-
   function openLibraryCard(
     nextCard: StudyCard,
     origin: DOMRectReadOnly,
@@ -653,80 +470,6 @@ export default function Home() {
       setLeftOpen(false);
     }
   }
-
-  function cardReturnFallback() {
-    const candidates = [
-      document.querySelector<HTMLElement>('.historyWorkspaceNav[aria-label="展开会话栏"]'),
-      document.querySelector<HTMLElement>('.primaryNavButton[aria-current="page"]')
-    ];
-    return candidates.find((candidate) => canReturnCardToElement(candidate)) ?? null;
-  }
-
-  function restoreShelfCardFocus() {
-    window.requestAnimationFrame(() => {
-      const trigger = canReturnCardToElement(shelfCardTriggerRef.current)
-        ? shelfCardTriggerRef.current
-        : cardReturnFallback();
-      trigger?.focus({ preventScroll: true });
-      shelfCardTriggerRef.current = null;
-    });
-  }
-
-  function closeShelfCard() {
-    if (!viewedShelfCard || !knowledgeCardDockRef.current) {
-      setViewingCard(null);
-      restoreShelfCardFocus();
-      return;
-    }
-    const requestedSource = shelfCardTriggerRef.current;
-    if (!canAnimateCardToElement(requestedSource)) {
-      setShelfCardTransitionPhase("closingFallback");
-      return;
-    }
-    const origin = requestedSource.getBoundingClientRect();
-    const target = knowledgeCardDockRef.current.getBoundingClientRect();
-    const offset = cardWindowRef.current?.consumeOffsetAndReset() ?? { x: 0, y: 0 };
-    flushSync(() => {
-      setShelfCardMotion({
-        x: origin.left - target.left,
-        y: origin.top - target.top,
-        scaleX: origin.width / target.width,
-        scaleY: origin.height / target.height,
-        startX: offset.x,
-        startY: offset.y
-      });
-      setShelfCardTransitionPhase("closing");
-    });
-  }
-
-  useLayoutEffect(() => {
-    if (shelfCardTransitionPhase !== "preparing" || !viewedShelfCard) return;
-    const origin = shelfCardOriginRef.current;
-    const target = knowledgeCardDockRef.current?.getBoundingClientRect();
-    if (!origin || !target) return;
-    setShelfCardMotion({
-      x: origin.left - target.left,
-      y: origin.top - target.top,
-      scaleX: origin.width / target.width,
-      scaleY: origin.height / target.height
-    });
-    setShelfCardTransitionPhase("opening");
-  }, [shelfCardTransitionPhase, viewedShelfCard]);
-
-  useEffect(() => {
-    if (viewedShelfCard) return;
-    shelfCardOriginRef.current = null;
-    setShelfCardMotion(null);
-    setShelfCardTransitionPhase("idle");
-  }, [viewedShelfCard]);
-
-  useEffect(() => {
-    if (!viewedShelfCardId || shelfCardTransitionPhase !== "open") return;
-    const frameId = window.requestAnimationFrame(() => {
-      cardWindowRef.current?.focusHandle();
-    });
-    return () => window.cancelAnimationFrame(frameId);
-  }, [shelfCardTransitionPhase, viewedShelfCardId]);
 
   useEffect(() => {
     const bootstrapNavigationToken = bootstrapNavigationRef.current;
@@ -750,10 +493,6 @@ export default function Home() {
     const timeoutId = window.setTimeout(() => setCollectionNotice(""), 3200);
     return () => window.clearTimeout(timeoutId);
   }, [collectionNotice]);
-
-  useEffect(() => {
-    if (pendingCardMotionKey === null) setPendingCardMotionReadyKey(null);
-  }, [pendingCardMotionKey]);
 
   useEffect(() => {
     if (activeCards.length || checkpoint) setViewingCard(null);
@@ -2005,28 +1744,7 @@ export default function Home() {
       ) ? true : undefined}
       onAnimationEnd={(event) => {
         if (event.target !== event.currentTarget) return;
-        if (!displayedDockCardIsArchived) {
-          if (
-            pendingCardMotionKey
-            && (event.animationName === "activeCardDockEnter"
-              || event.animationName === "reducedCardDockEnter")
-          ) {
-            setPendingCardMotionReadyKey(pendingCardMotionKey);
-          }
-          return;
-        }
-        if (shelfCardTransitionPhase === "opening" && event.animationName === "shelfCardOpen") {
-          setShelfCardTransitionPhase("open");
-        } else if (shelfCardTransitionPhase === "closing" && event.animationName === "shelfCardClose") {
-          flushSync(() => setViewingCard(null));
-          restoreShelfCardFocus();
-        } else if (
-          shelfCardTransitionPhase === "closingFallback"
-          && event.animationName === "shelfCardFadeClose"
-        ) {
-          flushSync(() => setViewingCard(null));
-          restoreShelfCardFocus();
-        }
+        handleShelfCardAnimationEnd(displayedDockCardIsArchived, event.animationName);
       }}
     >
       <DraggableCardWindow
@@ -2136,7 +1854,7 @@ export default function Home() {
           role="separator"
           aria-label="调整左侧导航宽度"
           aria-orientation="vertical"
-          aria-valuemin={MIN_SIDEBAR_WIDTH}
+          aria-valuemin={minSidebarWidth}
           aria-valuemax={sidebarMaxWidth}
           aria-valuenow={sidebarWidth}
           aria-valuetext={`${sidebarWidth} 像素`}

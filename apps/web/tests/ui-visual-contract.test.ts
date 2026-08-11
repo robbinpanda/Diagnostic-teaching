@@ -101,6 +101,7 @@ test("desktop shell keeps the atrium proportions with a bounded resizable sideba
   const shell = text("styles/shell.css");
   const responsive = text("styles/responsive.css");
   const page = text("app/page.tsx");
+  const sidebarHook = text("hooks/useResizableSidebar.ts");
 
   assert.match(
     shell,
@@ -115,11 +116,12 @@ test("desktop shell keeps the atrium proportions with a bounded resizable sideba
     shell,
     /\.sidebarResizeHandle\s*\{[\s\S]*?left:\s*var\(--sidebar-width\);[\s\S]*?cursor:\s*col-resize;[\s\S]*?touch-action:\s*none;/
   );
-  assert.match(page, /role="separator"[\s\S]*?aria-valuemin=\{MIN_SIDEBAR_WIDTH\}[\s\S]*?aria-valuemax=\{sidebarMaxWidth\}/);
+  assert.match(page, /role="separator"[\s\S]*?aria-valuemin=\{minSidebarWidth\}[\s\S]*?aria-valuemax=\{sidebarMaxWidth\}/);
   assert.match(page, /onPointerDown=\{handleSidebarResizePointerDown\}/);
   assert.match(page, /onKeyDown=\{handleSidebarResizeKeyDown\}/);
-  assert.match(page, /new ResizeObserver\(syncSidebarBounds\)/);
-  assert.match(page, /clampSidebarWidth\(sidebarPreferredWidthRef\.current, shell\.clientWidth\)/);
+  assert.match(page, /useResizableSidebar\(\)/);
+  assert.match(sidebarHook, /new ResizeObserver\(syncSidebarBounds\)/);
+  assert.match(sidebarHook, /clampSidebarWidth\(sidebarPreferredWidthRef\.current, shell\.clientWidth\)/);
   assert.match(
     responsive,
     /@media \(max-width: 1319px\)\s*\{[\s\S]*?\.sidebarResizeHandle\s*\{[\s\S]*?display:\s*none;/
@@ -210,32 +212,33 @@ test("knowledge export replaces the removed global card drawer", () => {
 
 test("shelf card state machine transfers focus and restores the source trigger", () => {
   const page = text("app/page.tsx");
+  const transitionHook = text("hooks/useShelfCardTransition.ts");
 
   assert.match(
-    page,
+    transitionHook,
     /type ShelfCardTransitionPhase =[\s\S]*?\| "closing"[\s\S]*?\| "closingFallback";/
   );
   assert.match(
-    page,
-    /flushSync\(\(\) => \{[\s\S]*?setShelfCardTransitionPhase\("preparing"\)/
+    transitionHook,
+    /flushSync\(\(\) => \{[\s\S]*?setPhase\("preparing"\)/
   );
-  assert.match(page, /shelfCardOriginRef\.current = origin/);
-  assert.match(page, /knowledgeCardDockRef\.current\?\.getBoundingClientRect\(\)/);
-  assert.match(page, /setShelfCardTransitionPhase\("opening"\)/);
-  assert.match(page, /setShelfCardTransitionPhase\("open"\)/);
-  assert.match(page, /setShelfCardTransitionPhase\("closing"\)/);
-  assert.match(page, /setShelfCardTransitionPhase\("closingFallback"\)/);
-  assert.match(page, /setShelfCardTransitionPhase\("idle"\)/);
+  assert.match(transitionHook, /originRef\.current = origin/);
+  assert.match(transitionHook, /dockRef\.current\?\.getBoundingClientRect\(\)/);
+  assert.match(transitionHook, /setPhase\("opening"\)/);
+  assert.match(transitionHook, /setPhase\("open"\)/);
+  assert.match(transitionHook, /setPhase\("closing"\)/);
+  assert.match(transitionHook, /setPhase\("closingFallback"\)/);
+  assert.match(transitionHook, /setPhase\("idle"\)/);
   assert.match(page, /event\.target !== event\.currentTarget/);
-  assert.match(page, /event\.animationName === "shelfCardOpen"/);
-  assert.match(page, /event\.animationName === "shelfCardClose"/);
-  assert.match(page, /event\.animationName === "shelfCardFadeClose"/);
-  assert.match(page, /shelfCardTriggerRef/);
-  assert.match(page, /cardWindowRef\.current\?\.focusHandle\(\)/);
-  assert.match(page, /consumeOffsetAndReset\(\)/);
-  assert.match(page, /historyWorkspaceNav\[aria-label="展开会话栏"\]/);
+  assert.match(transitionHook, /animationName === "shelfCardOpen"/);
+  assert.match(transitionHook, /animationName === "shelfCardClose"/);
+  assert.match(transitionHook, /animationName === "shelfCardFadeClose"/);
+  assert.match(transitionHook, /triggerRef/);
+  assert.match(transitionHook, /cardWindowRef\.current\?\.focusHandle\(\)/);
+  assert.match(transitionHook, /consumeOffsetAndReset\(\)/);
+  assert.match(transitionHook, /historyWorkspaceNav\[aria-label="展开会话栏"\]/);
   assert.doesNotMatch(page, /cardPanelToggleRef/);
-  assert.match(page, /restoreShelfCardFocus\(\)/);
+  assert.match(transitionHook, /restoreFocus\(\)/);
   assert.match(page, /inert=\{displayedDockCardIsArchived && \(/);
 });
 
