@@ -164,30 +164,39 @@ class SessionStreamCoordinator:
             return bool(self._handles.get(session_id))
 
 
-_GENERATION_DONE = object()
+GENERATION_QUEUE_MAXSIZE = 32
 
 
 async def coordinated_generation(
     coordinator: SessionStreamCoordinator,
     handle: SessionRunHandle,
     generation: AsyncIterator,
+    *,
+    queue_maxsize: int = GENERATION_QUEUE_MAXSIZE,
 ) -> AsyncIterator[tuple[str, Any]]:
     """Pump provider output in a cancellable child while keeping the SSE task alive."""
-    queue: asyncio.Queue = asyncio.Queue()
+    if queue_maxsize < 1:
+        raise ValueError("queue_maxsize must be at least 1")
+    queue: asyncio.Queue = asyncio.Queue(maxsize=queue_maxsize)
 
     async def pump() -> None:
         try:
             async for item in generation:
                 await queue.put(item)
         finally:
-            queue.put_nowait(_GENERATION_DONE)
+            close_generation = getattr(generation, "aclose", None)
+            if close_generation is not None:
+                with suppress(Exception):
+                    await close_generation()
 
     task = asyncio.create_task(pump())
     await coordinator.set_execution_task(handle, task)
+    get_task: asyncio.Task | None = None
     try:
         while True:
-            item = await queue.get()
-            if item is _GENERATION_DONE:
+            if task.done():
+                while not queue.empty():
+                    yield queue.get_nowait()
                 try:
                     await task
                 except asyncio.CancelledError as exc:
@@ -195,8 +204,26 @@ async def coordinated_generation(
                         raise RunInterrupted(handle.run_id) from exc
                     raise
                 return
-            yield item
+
+            get_task = asyncio.create_task(queue.get())
+            ready, _ = await asyncio.wait(
+                {get_task, task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if get_task in ready:
+                yield get_task.result()
+                get_task = None
+                continue
+
+            get_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await get_task
+            get_task = None
     finally:
+        if get_task is not None and not get_task.done():
+            get_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await get_task
         if not task.done():
             task.cancel()
             with suppress(asyncio.CancelledError, Exception):
