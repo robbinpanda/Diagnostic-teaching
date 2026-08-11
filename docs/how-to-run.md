@@ -50,6 +50,15 @@ conda run -n ai4edu-tutor python -m pip install -r apps/api/requirements-dev.txt
 npm --prefix apps/web install
 ```
 
+`requirements-core.txt` 是轻量运行时和 Docker 共用的、带 SHA-256 哈希的完整锁文件。需要升级核心 Python 依赖时，在项目根目录执行：
+
+```bat
+python -m pip install -r apps\api\requirements-lock.txt
+scripts\lock-python-deps.cmd
+```
+
+直接依赖及允许的版本范围只写入 `apps/api/requirements-core.in`；`requirements-core.txt` 由固定版本的 `pip-tools` 生成，不应手工修改。提交依赖变更时应同时提交输入文件与生成后的锁文件。
+
 项目不依赖 `.env` 也能使用默认路径。需要改数据库、密钥或 session 日志位置时，再创建本地配置：
 
 ```bat

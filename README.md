@@ -44,6 +44,8 @@ npm --prefix apps/web install
 
 浏览器打开 <http://127.0.0.1:3000>。启动、关闭、环境变量、语音与故障排查见 [本地运行指南](./docs/how-to-run.md)。
 
+后端核心依赖由 `apps/api/requirements-core.in` 声明、由带哈希的 `requirements-core.txt` 锁定。更新直接依赖时，先安装 `apps/api/requirements-lock.txt` 中固定版本的锁定工具，再运行 `scripts\lock-python-deps.cmd`；不要手工编辑生成的锁文件。
+
 ### Docker
 
 不需要本地语音时使用轻量版：
