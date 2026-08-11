@@ -15,6 +15,7 @@
     "lib/image-draft-recovery.ts",
     "lib/speech-text.ts",
     "lib/model-test-concurrency.ts",
+    "lib/problem-image-file.ts",
     "lib/sidebar-layout.ts",
     "lib/session-workflow.ts",
     "lib/stream-controller.ts",

@@ -107,6 +107,7 @@ import {
   type PersistedImageDraft,
   type PersistedImageStartItem
 } from "../lib/image-draft-recovery";
+import { readProblemImageAsDataUrl } from "../lib/problem-image-file";
 
 type ShelfCardTransitionPhase =
   | "idle"
@@ -1293,15 +1294,6 @@ export default function Home() {
     }
   }
 
-  function readFileAsDataUrl(file: File) {
-    return new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(reader.error ?? new Error("图片读取失败"));
-      reader.readAsDataURL(file);
-    });
-  }
-
   async function finishSessionBatchStart(
     results: SessionStartResult[],
     originatingViewToken: number
@@ -1500,14 +1492,9 @@ export default function Home() {
       if (imageInputRef.current) imageInputRef.current.value = "";
       return;
     }
-    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
-      runtime.setError("仅支持 PNG、JPEG 或 WebP 格式的题目图片。");
-      if (imageInputRef.current) imageInputRef.current.value = "";
-      return;
-    }
     runtime.clearError();
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      const dataUrl = await readProblemImageAsDataUrl(file);
       const operationId = crypto.randomUUID();
       const createdAt = new Date().toISOString();
       const pending = { dataUrl, file, operationId, createdAt };

@@ -1631,6 +1631,7 @@ test("workspace keeps text and image multi-problem intake wired", () => {
   assert.match(pageSource, /paper_id: paperId/);
   assert.match(pageSource, /pendingComposerImage/);
   assert.match(pageSource, /handlePastedImages/);
+  assert.match(pageSource, /readProblemImageAsDataUrl\(file\)/);
   assert.match(pageSource, /image_data_url: pending\.imageDataUrl/);
   assert.match(pageSource, /activeKnowledgeCardDock/);
   assert.match(pageSource, /appearance="flashcard"/);
@@ -1673,7 +1674,7 @@ test("exam paper refresh ignores stale responses", () => {
 test("clearing all sessions invalidates pending exam paper loads and clears paper state", () => {
   const pageSource = readFileSync(resolve(__dirname, "../../../app/page.tsx"), "utf8");
   const deleteStart = pageSource.indexOf("async function handleDeleteAllSessions()");
-  const deleteEnd = pageSource.indexOf("function readFileAsDataUrl", deleteStart);
+  const deleteEnd = pageSource.indexOf("async function finishSessionBatchStart", deleteStart);
   const deleteSource = pageSource.slice(deleteStart, deleteEnd);
 
   assert.ok(deleteStart >= 0);
