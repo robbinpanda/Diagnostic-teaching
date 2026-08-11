@@ -136,6 +136,20 @@ test("sidebar hover motion cannot create a horizontal scrollbar", () => {
   );
 });
 
+test("collapsed sidebar can be reopened from the empty start workspace", () => {
+  const page = text("app/page.tsx");
+  const shell = text("styles/shell.css");
+
+  assert.match(
+    page,
+    /!leftOpen && !sessionId \? \([\s\S]*?className="plainIconButton welcomeSidebarExpand"[\s\S]*?aria-label="展开会话栏"/
+  );
+  assert.match(
+    shell,
+    /\.welcomeSidebarExpand\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?z-index:\s*9;/
+  );
+});
+
 test("conversation keeps measurement hooks while using the bright stage", () => {
   const css = text("styles/conversation.css");
 

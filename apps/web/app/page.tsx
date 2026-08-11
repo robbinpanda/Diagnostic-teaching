@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronRight } from "lucide-react";
 import {
   useEffect,
   useMemo,
@@ -1991,6 +1992,17 @@ export default function Home() {
           </>
         ) : (
           <>
+        {!leftOpen && !sessionId ? (
+          <button
+            className="plainIconButton welcomeSidebarExpand"
+            type="button"
+            onClick={() => setLeftOpen(true)}
+            aria-label="展开会话栏"
+            title="展开会话栏"
+          >
+            <ChevronRight size={18} />
+          </button>
+        ) : null}
         {sessionId ? <ConversationHeader
           leftOpen={leftOpen}
           title={activeHistory?.title || "新答疑"}
