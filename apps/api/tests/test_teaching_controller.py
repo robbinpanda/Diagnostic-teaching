@@ -892,10 +892,10 @@ def test_stream_backfills_message_when_incremental_extractor_stops_early(monkeyp
     }
 
     async def collect_events():
-        events = []
-        async for event in teaching.generate_tutor_turn_stream(profile, session, []):
-            events.append(event)
-        return events
+        return [
+            event
+            async for event in teaching.generate_tutor_turn_stream(profile, session, [])
+        ]
 
     events = asyncio.run(collect_events())
     visible = "".join(value for kind, value in events if kind == "message_delta")

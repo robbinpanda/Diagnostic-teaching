@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import suppress
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator
+from typing import Any
 
 
 class RunInterrupted(RuntimeError):

@@ -88,7 +88,8 @@ def test_provider_error_is_raised_after_buffered_items_are_drained():
                 failing_generation(),
                 queue_maxsize=1,
             ):
-                received.append(item)
+                # Preserve partial results when the async generator raises.
+                received.append(item)  # noqa: PERF401
 
         assert received == [
             ("message_delta", "first"),

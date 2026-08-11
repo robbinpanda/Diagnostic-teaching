@@ -347,7 +347,7 @@ class ModelProfileRepository:
             )
             assignments.append("reasoning_effort = ?")
             values.append(selected_effort)
-        if "api_key" in changes and changes["api_key"]:
+        if changes.get("api_key"):
             api_key = changes["api_key"].strip()
             assignments.append("api_key_ciphertext = ?")
             values.append(self.secrets.encrypt(api_key))

@@ -131,9 +131,7 @@ def apply_backend_action_policy(
         or current_problem_text.strip()
         or turn.problem_summary
     )
-    if proposed_status == "ready" and not has_problem:
-        proposed_status = "need_problem"
-    elif proposed_status == "need_thought" and not has_problem:
+    if proposed_status in {"ready", "need_thought"} and not has_problem:
         proposed_status = "need_problem"
     turn.context_status = proposed_status
 

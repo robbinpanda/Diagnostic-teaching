@@ -7,7 +7,7 @@ import threading
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import Any, ParamSpec
@@ -96,7 +96,7 @@ class AsyncSessionLogWriter:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class SessionLogger:
@@ -144,7 +144,7 @@ class SessionLogger:
         if not path.exists():
             return False
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 return any("data:image/" in line for line in f)
         except OSError:
             return False
@@ -436,7 +436,7 @@ class SessionLogger:
         if not path.exists():
             return events
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line:

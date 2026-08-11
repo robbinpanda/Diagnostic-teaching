@@ -1,5 +1,6 @@
 import asyncio
 import json
+from contextlib import suppress
 from pathlib import Path
 
 import httpx
@@ -343,10 +344,8 @@ def test_client_disconnect_is_failed_not_explicitly_interrupted(tmp_path: Path, 
             )
             await asyncio.wait_for(started.wait(), timeout=1)
             stream_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await stream_task
-            except asyncio.CancelledError:
-                pass
         assert provider_cancelled.is_set()
 
     asyncio.run(exercise())

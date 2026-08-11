@@ -479,7 +479,7 @@ def test_paper_archive_migration_rolls_back_if_pending_card_has_no_ready_event(
     path = tmp_path / "paper-archive-missing-event.db"
     _create_0012_archive_fixture(path, include_pending_event=False)
 
-    with pytest.raises(RuntimeError, match="pending.*card.ready"):
+    with pytest.raises(RuntimeError, match=r"pending.*card\.ready"):
         _upgrade_database(path, "head")
 
     conn = sqlite3.connect(path)

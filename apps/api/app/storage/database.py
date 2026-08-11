@@ -86,6 +86,7 @@ class Database:
                     round(delay * 1_000),
                 )
                 time.sleep(delay)
+        raise RuntimeError("SQLite busy retry loop exhausted unexpectedly")
 
     def upgrade_schema(self) -> None:
         """Upgrade fresh and legacy databases through the Alembic revision chain."""

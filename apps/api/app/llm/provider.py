@@ -5,10 +5,11 @@ import json
 import random
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
@@ -27,15 +28,13 @@ from app.llm.reasoning import (
 __all__ = [
     "IMAGE_ANALYSIS_PROMPT",
     "IMAGE_PROBLEM_DETECTION_PROMPT",
-    "LlmProfile",
-    "LlmEmptyResponseError",
-    "LlmProviderError",
-    "provider_retry_delay_seconds",
-    "structured_json_completion",
     "TEXT_PROBLEM_SPLIT_PROMPT",
+    "LlmEmptyResponseError",
+    "LlmProfile",
+    "LlmProviderError",
     "_anthropic_response_events",
-    "analyze_problem_text",
     "analyze_problem_image",
+    "analyze_problem_text",
     "anthropic_messages_url",
     "anthropic_request_payload",
     "chat_completion",
@@ -49,7 +48,9 @@ __all__ = [
     "local_demo_stream",
     "message_text",
     "openai_responses_request_payload",
+    "provider_retry_delay_seconds",
     "responses_url",
+    "structured_json_completion",
     "test_connection",
     "test_multimodal_connection",
 ]
@@ -105,7 +106,6 @@ class LlmProviderError(RuntimeError):
 class LlmEmptyResponseError(LlmProviderError):
     """Provider completed a request without emitting any visible model content."""
 
-    pass
 
 
 _TRANSIENT_HTTP_STATUSES = {408, 409, 425, 429}
@@ -207,8 +207,8 @@ def provider_retry_delay_seconds(
             try:
                 target = parsedate_to_datetime(retry_after)
                 if target.tzinfo is None:
-                    target = target.replace(tzinfo=timezone.utc)
-                current = now or datetime.now(timezone.utc)
+                    target = target.replace(tzinfo=UTC)
+                current = now or datetime.now(UTC)
                 return max(0.0, min((target - current).total_seconds(), 30.0))
             except (TypeError, ValueError, OverflowError):
                 pass
@@ -806,82 +806,81 @@ async def _openai_chat_stream_completion(
     headers_received = False
     saw_content = False
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream(
-                "POST", chat_completions_url(profile.base_url), headers=headers, json=payload
-            ) as response:
-                if response.status_code >= 400:
-                    body = await response.aread()
-                    raise _http_status_error("模型请求失败", response, body)
-                headers_received = True
-                yield {"event": "response_headers", "delta": "", "finish_reason": None}
-                finish_reason: str | None = None
-                saw_any_data = False
-                saw_terminal = False
-                async for line in response.aiter_lines():
-                    line = line.strip()
-                    if not line or not line.startswith("data:"):
-                        continue
-                    saw_any_data = True
-                    data_str = line[len("data:") :].strip()
-                    if data_str == "[DONE]":
-                        saw_terminal = True
-                        break
-                    try:
-                        chunk = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
-                    try:
-                        choice = chunk["choices"][0]
-                    except (KeyError, IndexError, TypeError):
-                        continue
-                    delta_payload = choice.get("delta")
-                    delta_payload = delta_payload if isinstance(delta_payload, dict) else {}
-                    reasoning = (
-                        delta_payload.get("reasoning_content")
-                        or delta_payload.get("reasoning")
-                        or delta_payload.get("thinking")
-                    )
-                    reasoning_details = delta_payload.get("reasoning_details")
-                    if reasoning or (
-                        isinstance(reasoning_details, list) and reasoning_details
-                    ):
-                        # Never forward raw chain-of-thought. The controller only
-                        # needs to know that the provider entered a reasoning phase.
-                        yield {
-                            "event": "reasoning_delta",
-                            "delta": "",
-                            "finish_reason": None,
-                        }
-                    delta = delta_payload.get("content") or ""
-                    if delta:
-                        saw_content = True
-                        yield {
-                            "event": "content_delta",
-                            "delta": delta,
-                            "finish_reason": None,
-                        }
-                    if choice.get("finish_reason"):
-                        finish_reason = choice["finish_reason"]
-                        saw_terminal = True
-                if not saw_any_data:
-                    raise LlmProviderError(
-                        "模型流式响应中没有任何 data 事件，请确认 base_url/模型配置",
-                        phase="response_stream",
-                        retryable=True,
-                        code="provider_empty_stream",
-                    )
-                if not saw_content:
-                    _assert_nonempty("", finish_reason, requested_max_tokens)
-                if not saw_terminal:
-                    raise LlmProviderError(
-                        "模型流式响应在明确完成事件之前关闭",
-                        phase="response_stream",
-                        saw_content=saw_content,
-                        retryable=True,
-                        code="provider_stream_closed",
-                    )
-                yield {"delta": "", "finish_reason": finish_reason}
+        async with httpx.AsyncClient(timeout=timeout) as client, client.stream(
+            "POST", chat_completions_url(profile.base_url), headers=headers, json=payload
+        ) as response:
+            if response.status_code >= 400:
+                body = await response.aread()
+                raise _http_status_error("模型请求失败", response, body)
+            headers_received = True
+            yield {"event": "response_headers", "delta": "", "finish_reason": None}
+            finish_reason: str | None = None
+            saw_any_data = False
+            saw_terminal = False
+            async for line in response.aiter_lines():
+                line = line.strip()
+                if not line or not line.startswith("data:"):
+                    continue
+                saw_any_data = True
+                data_str = line[len("data:") :].strip()
+                if data_str == "[DONE]":
+                    saw_terminal = True
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+                try:
+                    choice = chunk["choices"][0]
+                except (KeyError, IndexError, TypeError):
+                    continue
+                delta_payload = choice.get("delta")
+                delta_payload = delta_payload if isinstance(delta_payload, dict) else {}
+                reasoning = (
+                    delta_payload.get("reasoning_content")
+                    or delta_payload.get("reasoning")
+                    or delta_payload.get("thinking")
+                )
+                reasoning_details = delta_payload.get("reasoning_details")
+                if reasoning or (
+                    isinstance(reasoning_details, list) and reasoning_details
+                ):
+                    # Never forward raw chain-of-thought. The controller only
+                    # needs to know that the provider entered a reasoning phase.
+                    yield {
+                        "event": "reasoning_delta",
+                        "delta": "",
+                        "finish_reason": None,
+                    }
+                delta = delta_payload.get("content") or ""
+                if delta:
+                    saw_content = True
+                    yield {
+                        "event": "content_delta",
+                        "delta": delta,
+                        "finish_reason": None,
+                    }
+                if choice.get("finish_reason"):
+                    finish_reason = choice["finish_reason"]
+                    saw_terminal = True
+            if not saw_any_data:
+                raise LlmProviderError(
+                    "模型流式响应中没有任何 data 事件，请确认 base_url/模型配置",
+                    phase="response_stream",
+                    retryable=True,
+                    code="provider_empty_stream",
+                )
+            if not saw_content:
+                _assert_nonempty("", finish_reason, requested_max_tokens)
+            if not saw_terminal:
+                raise LlmProviderError(
+                    "模型流式响应在明确完成事件之前关闭",
+                    phase="response_stream",
+                    saw_content=saw_content,
+                    retryable=True,
+                    code="provider_stream_closed",
+                )
+            yield {"delta": "", "finish_reason": finish_reason}
     except httpx.TimeoutException as exc:
         raise _transport_error(
             "模型流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置",
@@ -1205,26 +1204,25 @@ async def _anthropic_stream_completion(
     headers_received = False
     saw_content = False
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream(
-                "POST",
-                anthropic_messages_url(profile.base_url),
-                headers=headers,
-                json=payload,
-            ) as response:
-                if response.status_code >= 400:
-                    body = await response.aread()
-                    raise _http_status_error(
-                        "Anthropic 模型请求失败",
-                        response,
-                        body,
-                    )
-                headers_received = True
-                yield {"event": "response_headers", "delta": "", "finish_reason": None}
-                async for event in _anthropic_response_events(response, requested_max_tokens):
-                    if event.get("delta"):
-                        saw_content = True
-                    yield event
+        async with httpx.AsyncClient(timeout=timeout) as client, client.stream(
+            "POST",
+            anthropic_messages_url(profile.base_url),
+            headers=headers,
+            json=payload,
+        ) as response:
+            if response.status_code >= 400:
+                body = await response.aread()
+                raise _http_status_error(
+                    "Anthropic 模型请求失败",
+                    response,
+                    body,
+                )
+            headers_received = True
+            yield {"event": "response_headers", "delta": "", "finish_reason": None}
+            async for event in _anthropic_response_events(response, requested_max_tokens):
+                if event.get("delta"):
+                    saw_content = True
+                yield event
     except httpx.TimeoutException as exc:
         raise _transport_error(
             "Anthropic 流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置",

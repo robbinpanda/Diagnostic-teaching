@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import AsyncIterator
 from sqlite3 import Row
-from typing import Any, AsyncIterator
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -333,13 +334,13 @@ def build_messages(
             "type": "SESSION_START",
             "blocking": False,
         },
-        "grade_band": session["grade_band"] if "grade_band" in session.keys() else None,
-        "subject": session["subject"] if "subject" in session.keys() else "math",
+        "grade_band": _row_value(session, "grade_band"),
+        "subject": _row_value(session, "subject", "math"),
         "context_status": _row_value(session, "context_status", "ready"),
         "problem_text": session["problem_text"] or "尚未从对话中确认题目",
         "student_initial_thought": session["student_initial_thought"] or "尚未从对话中确认学生思路",
         "current_state_hint": session["phase"],
-        "has_problem_image": bool(session["problem_image_data_url"]) if "problem_image_data_url" in session.keys() else False,
+        "has_problem_image": bool(_row_value(session, "problem_image_data_url")),
     }
     user_prompt = json.dumps(session_context, ensure_ascii=False, indent=2)
     try:

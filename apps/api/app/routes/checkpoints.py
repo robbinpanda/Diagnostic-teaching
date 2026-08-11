@@ -31,8 +31,8 @@ def answer_checkpoint(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="检查点不存在") from exc
-    except PermissionError:
-        raise HTTPException(status_code=400, detail="检查点不属于当前会话")
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail="检查点不属于当前会话") from exc
     except InputValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except (IdempotencyConflictError, InputStateConflictError) as exc:

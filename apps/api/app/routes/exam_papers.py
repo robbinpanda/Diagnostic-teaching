@@ -17,7 +17,8 @@ def paper_from_row(row) -> ExamPaperPublic:
         id=row["id"],
         name=row["name"],
         card_folder_id=row["card_folder_id"],
-        session_count=row["session_count"] if "session_count" in row.keys() else 0,
+        # sqlite3.Row membership checks values, so key lookup must use keys().
+        session_count=row["session_count"] if "session_count" in row.keys() else 0,  # noqa: SIM118
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

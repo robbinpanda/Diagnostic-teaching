@@ -1,7 +1,7 @@
 import asyncio
 import json
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -46,7 +46,7 @@ def test_provider_retry_delay_honors_headers_and_exponential_jitter():
             retryable=True,
         ),
         1,
-        now=datetime(2026, 8, 5, 8, 0, 0, tzinfo=timezone.utc),
+        now=datetime(2026, 8, 5, 8, 0, 0, tzinfo=UTC),
     ) == 9.0
     error = LlmProviderError("busy", retryable=True)
     assert provider_retry_delay_seconds(error, 1, jitter=1.0) == 2.0
