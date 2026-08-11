@@ -58,6 +58,8 @@ docker compose -f compose.local.yml up -d --build
 docker compose -f compose.local.yml -f compose.speech.yml up -d --build
 ```
 
+Docker 默认只监听本机 `127.0.0.1:3000`。当前 API 不提供用户认证，不应把端口改为全网卡绑定或直接暴露到局域网/公网。
+
 ## 核心逻辑
 
 一轮正式答疑遵循以下稳定边界：

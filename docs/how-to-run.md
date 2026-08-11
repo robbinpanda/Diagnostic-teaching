@@ -4,7 +4,7 @@
 
 ## 运行方式选择
 
-普通用户优先下载 [Windows 0.5.0 安装包](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest)；参与开发时使用本页的源码模式；需要可复现的隔离环境或局域网服务时使用 Docker。第一次从 0.4.0 安装 0.5.0 会清空 `%APPDATA%\DiagnosticTeaching` 下的旧数据库、密钥和日志，必须先备份需要保留的数据。三种方式共用同一套教学核心和 SQLite schema。
+普通用户优先下载 [Windows 0.5.0 安装包](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest)；参与开发时使用本页的源码模式；需要可复现的本机隔离环境时使用 Docker。第一次从 0.4.0 安装 0.5.0 会清空 `%APPDATA%\DiagnosticTeaching` 下的旧数据库、密钥和日志，必须先备份需要保留的数据。三种方式共用同一套教学核心和 SQLite schema。
 
 ### Docker 轻量核心版
 
@@ -13,6 +13,8 @@ docker compose -f compose.local.yml up -d --build
 ```
 
 打开 `http://127.0.0.1:3000`。默认镜像不安装 FunASR、PyTorch 和 FFmpeg，因此麦克风会显示本地语音不可用，其余教学、模型、会话恢复和卡片功能不受影响。
+
+Compose 明确把宿主机端口绑定到 `127.0.0.1`。当前 API 没有多用户认证，不能把映射改成 `3000:8010` 或直接暴露到局域网/公网；若未来提供远程访问，必须先增加认证、传输加密和请求来源防护。
 
 ### Docker CPU 语音版
 

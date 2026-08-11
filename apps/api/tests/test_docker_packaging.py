@@ -7,6 +7,8 @@ def test_default_docker_image_is_lightweight_and_persistent():
     compose = (root / "compose.local.yml").read_text(encoding="utf-8")
 
     assert "image: diagnostic-teaching:0.5.0" in compose
+    assert '"127.0.0.1:3000:8010"' in compose
+    assert '- "3000:8010"' not in compose
     assert "./runtime/data:/workspace/data" in compose
     assert "./runtime/logs:/workspace/logs" in compose
     assert "COPY apps/api/requirements-core.txt ./" in dockerfile
