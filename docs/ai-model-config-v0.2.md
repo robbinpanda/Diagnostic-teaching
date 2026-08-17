@@ -86,21 +86,17 @@ OpenCode 托管免费模型可从同一个设置入口查看，但供应商、Ba
 
 ### 4.2 OpenCode 免费模型同步
 
-实现与 OpenCode 源码的无密钥路径一致：目录来自 `models.dev/api.json`，无账户时使用公共值 `public`，只保留 `cost.input == 0` 的模型；本项目再排除 `alpha/deprecated` 和当前不支持的协议。应用启动时先使用上一次成功写入的磁盘缓存或内置快照，随后立即在线刷新，并每 60 分钟刷新一次。
+目录来自 `models.dev/api.json`，无账户时使用公共值 `public`。应用只保留产品验证过的 `mimo-v2.5-free`；内置快照、旧磁盘缓存和在线刷新都经过同一白名单。应用启动时先使用上一次成功写入的磁盘缓存或内置快照，随后立即在线刷新，并每 60 分钟刷新一次。
 
-2026-07-19 内置快照如下；在线目录变化后会自动增删托管项：
+当前唯一托管的 OpenCode 免费模型如下：
 
 | 显示名 | 协议 | 设置中的“支持图片识别” |
 |---|---|---:|
-| `opencodefree-big-pickle` | OpenAI-compatible | 否 |
-| `opencodefree-deepseek-v4-flash-free` | OpenAI-compatible | 否 |
 | `opencodefree-mimo-v2.5-free` | OpenAI-compatible | 是 |
-| `opencodefree-north-mini-code-free` | OpenAI-compatible | 否 |
-| `opencodefree-nemotron-3-ultra-free` | OpenAI-compatible | 否 |
 
 同步会复用已有托管 profile ID，避免 session 外键漂移；退出免费目录的 profile 只会从新建会话列表隐藏，历史 SQLite 行仍保留。公共值 `public` 也按普通 API key 加密保存，前端只能看到掩码。
 
-OpenCode 官方说明这些免费端点中的部分请求可能被记录并用于改进模型；North Mini Code 与 Nemotron 还明确不应接收个人或机密数据。模型设置弹窗会提示不要向免费模型提交个人或敏感信息。
+OpenCode 官方说明免费端点中的部分请求可能被记录并用于改进模型。模型设置弹窗会提示不要向免费模型提交个人或敏感信息。
 
 按钮：
 

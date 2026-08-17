@@ -27,7 +27,7 @@ def test_desktop_bundle_passes_encrypted_seed_to_the_upgrade_aware_api_sync():
     installer_include = (root / "desktop" / "build" / "installer.nsh").read_text(encoding="utf-8")
     package = json.loads((root / "desktop" / "package.json").read_text(encoding="utf-8"))
 
-    assert package["version"] == "0.5.0"
+    assert package["version"] == "0.6.0"
     assert "BUNDLED_MODEL_SEED_DATABASE_PATH" in main_source
     assert "BUNDLED_MODEL_SEED_SECRET_PATH" in main_source
     assert "BUNDLED_MODEL_SEED_VERSION: app.getVersion()" in main_source

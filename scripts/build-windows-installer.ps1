@@ -86,7 +86,7 @@ $buildPython = Join-Path $pythonEnvironment "Scripts\python.exe"
 
 if (-not $SkipDependencyInstall) {
     Invoke-Checked $buildPython @(
-        (Join-Path $root "scripts\install-python-deps.py"), "build"
+        (Join-Path $repoRoot "scripts\install-python-deps.py"), "build"
     )
 }
 

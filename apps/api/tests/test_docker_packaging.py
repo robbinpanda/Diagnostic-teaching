@@ -6,7 +6,7 @@ def test_default_docker_image_is_lightweight_and_persistent():
     dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
     compose = (root / "compose.local.yml").read_text(encoding="utf-8")
 
-    assert "image: diagnostic-teaching:0.5.0" in compose
+    assert "image: diagnostic-teaching:0.6.0" in compose
     assert '"127.0.0.1:3000:8010"' in compose
     assert '- "3000:8010"' not in compose
     assert "./runtime/data:/workspace/data" in compose
@@ -27,7 +27,7 @@ def test_optional_speech_image_uses_matching_cpu_only_pytorch_wheels():
     ).read_text(encoding="utf-8")
 
     assert "INSTALL_SPEECH: \"1\"" in speech_compose
-    assert "diagnostic-teaching:0.5.0-speech" in speech_compose
+    assert "diagnostic-teaching:0.6.0-speech" in speech_compose
     assert "--index-url https://download.pytorch.org/whl/cpu" in dockerfile
     assert "torch==2.11.0+cpu torchaudio==2.11.0+cpu" in dockerfile
     assert "torch==2.11.0" in speech_requirements

@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: diagnostic-teaching:0.5.0
+    image: diagnostic-teaching:0.6.0
     ports:
       - "127.0.0.1:3000:8010"
     environment:

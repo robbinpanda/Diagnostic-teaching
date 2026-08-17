@@ -13,6 +13,7 @@ OPENCODE_FREE_TAG = "opencodefree"
 OPENCODE_PUBLIC_API_KEY = "public"
 CATALOG_TIMEOUT_SECONDS = 10.0
 CATALOG_REFRESH_SECONDS = 60 * 60
+CURATED_FREE_MODEL_IDS = frozenset({"mimo-v2.5-free"})
 
 SupportedProvider = Literal["openai_compatible", "anthropic"]
 
@@ -30,17 +31,10 @@ class OpenCodeFreeModel:
         return f"opencodefree-{self.model}"
 
 
-# The bundled snapshot makes the models usable on an offline first launch. The
-# Windows installer disables catalog refresh and therefore exposes exactly this
-# curated pair. Development builds may still replace it from models.dev.
+# The bundled snapshot makes the model usable on an offline first launch. Both
+# cached and online catalog data are constrained to the same curated set so all
+# runtime modes expose the same supported OpenCode free model.
 BUILTIN_FREE_MODELS = (
-    OpenCodeFreeModel(
-        model="deepseek-v4-flash-free",
-        name="DeepSeek V4 Flash Free",
-        provider="openai_compatible",
-        base_url="https://opencode.ai/zen/v1",
-        is_multimodal=False,
-    ),
     OpenCodeFreeModel(
         model="mimo-v2.5-free",
         name="MiMo V2.5 Free",
@@ -87,6 +81,9 @@ def parse_opencode_free_models(payload: Any) -> tuple[OpenCodeFreeModel, ...]:
         model_id = raw_model.get("id") or catalog_id
         if not isinstance(model_id, str) or not model_id.strip():
             continue
+        model_id = model_id.strip()
+        if model_id not in CURATED_FREE_MODEL_IDS:
+            continue
         modalities = raw_model.get("modalities")
         input_modalities = modalities.get("input", []) if isinstance(modalities, dict) else []
         is_multimodal = "image" in input_modalities if isinstance(input_modalities, list) else False
@@ -94,7 +91,7 @@ def parse_opencode_free_models(payload: Any) -> tuple[OpenCodeFreeModel, ...]:
             is_multimodal = raw_model.get("attachment") is True
         parsed.append(
             OpenCodeFreeModel(
-                model=model_id.strip(),
+                model=model_id,
                 name=str(raw_model.get("name") or model_id).strip(),
                 provider=protocol,
                 base_url=base_url.rstrip("/"),
@@ -148,7 +145,13 @@ class OpenCodeFreeModelCatalog:
             items = raw.get("models") if isinstance(raw, dict) else None
             if not isinstance(items, list):
                 return None
-            models = tuple(OpenCodeFreeModel(**item) for item in items if isinstance(item, dict))
+            models = tuple(
+                model
+                for item in items
+                if isinstance(item, dict)
+                for model in (OpenCodeFreeModel(**item),)
+                if model.model in CURATED_FREE_MODEL_IDS
+            )
             return models or None
         except (OSError, TypeError, ValueError, json.JSONDecodeError):
             return None

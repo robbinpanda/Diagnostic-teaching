@@ -1,6 +1,6 @@
 # Windows 安装包
 
-当前发布版本为 0.5.0，面向 Windows 10/11 x64。终端用户只需运行 `Diagnostic-Teaching-Setup-0.5.0-x64.exe`，不需要另装 Node.js、Python、Conda、SQLite 或浏览器运行时。0.5.0 高于历史 0.4.0，Electron Builder 会沿用相同 `appId` 和 GUID 执行正常覆盖升级。
+当前发布版本为 0.6.0，面向 Windows 10/11 x64。终端用户只需运行 `Diagnostic-Teaching-Setup-0.6.0-x64.exe`，不需要另装 Node.js、Python、Conda、SQLite 或浏览器运行时。Electron Builder 沿用相同 `appId` 和 GUID 执行正常覆盖升级。
 
 ## 用户安装
 
@@ -93,7 +93,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows-installer.ps1 `
 发布前至少完成：
 
 1. 校验安装包文件名、版本、大小和 SHA-256。
-2. 静默或交互安装到干净目录，确认主程序版本为 0.5.0。
+2. 静默或交互安装到干净目录，确认主程序版本为 0.6.0。
 3. 启动桌面应用，从日志解析随机端口并请求 `/api/health`。
 4. 请求 `/api/speech/status`，确认语音依赖可用且模型按需加载。
 5. 新建本地演示会话，刷新页面并确认输入与消息恢复且没有重复记录。

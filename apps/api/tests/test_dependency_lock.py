@@ -103,4 +103,5 @@ def test_ci_and_windows_build_use_the_layered_dependency_installer():
     )
 
     assert "python ../../scripts/install-python-deps.py ci" in workflow
-    assert '"scripts\\install-python-deps.py"), "build"' in build_script
+    assert '(Join-Path $repoRoot "scripts\\install-python-deps.py"), "build"' in build_script
+    assert "Join-Path $root" not in build_script
