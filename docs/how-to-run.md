@@ -4,7 +4,7 @@
 
 ## 运行方式选择
 
-普通用户优先下载 [Windows 0.6.0 安装包](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest)；参与开发时使用本页的源码模式；需要可复现的本机隔离环境时使用 Docker。0.5.0 引入的一次性旧数据清理合同仍然有效，但已经运行过 0.5.0 的用户升级到 0.6.0 不会再次清理。三种方式共用同一套教学核心和 SQLite schema。
+普通用户优先下载 [Windows 0.6.1 安装包](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest)；参与开发时使用本页的源码模式；需要可复现的本机隔离环境时使用 Docker。0.5.0 引入的一次性旧数据清理合同仍然有效，但已经运行过 0.5.0 的用户升级到 0.6.1 不会再次清理。三种方式共用同一套教学核心和 SQLite schema。
 
 ### Docker 轻量核心版
 

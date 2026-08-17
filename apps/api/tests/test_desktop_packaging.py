@@ -19,7 +19,7 @@ def test_desktop_bundle_contains_only_application_resources():
     installer_include = (root / "desktop" / "build" / "installer.nsh").read_text(encoding="utf-8")
     package = json.loads((root / "desktop" / "package.json").read_text(encoding="utf-8"))
 
-    assert package["version"] == "0.6.0"
+    assert package["version"] == "0.6.1"
     assert "appId: cn.ai4edu.diagnostic-teaching" in builder_config
     assert "oneClick: false" in builder_config
     assert "include: build/installer.nsh" in builder_config

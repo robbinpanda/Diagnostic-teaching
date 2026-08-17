@@ -27,7 +27,7 @@ from app.storage.repositories import ModelProfileRepository, SessionRepository
 from app.storage.security import SecretBox
 from app.storage.session_logger import SessionLogger
 
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.6.1"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

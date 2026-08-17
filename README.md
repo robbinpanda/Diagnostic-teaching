@@ -2,7 +2,7 @@
 
 > Windows 优先、数据留在本机的诊断式数学答疑应用：先找到学生真正卡住的地方，再提问、讲解、检查和总结。
 
-[![版本](https://img.shields.io/badge/版本-0.6.0-4c7dff)](https://github.com/robbinpanda/Diagnostic-teaching/releases/tag/v0.6.0)
+[![版本](https://img.shields.io/badge/版本-0.6.1-4c7dff)](https://github.com/robbinpanda/Diagnostic-teaching/releases/tag/v0.6.1)
 [![平台](https://img.shields.io/badge/平台-Windows-0078d4)](https://github.com/robbinpanda/Diagnostic-teaching/releases)
 [![存储](https://img.shields.io/badge/存储-SQLite-0f80cc)](./docs/database.md)
 [![Docker](https://img.shields.io/badge/Docker-可用-2496ed)](./compose.local.yml)
@@ -24,9 +24,9 @@
 
 ### Windows 安装版
 
-普通用户可从 [GitHub Releases](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest) 下载 `Diagnostic-Teaching-Setup-0.6.0-x64.exe`。安装版包含前后端、Python 运行时和语音依赖，不要求另装 Node.js、Python、Conda 或 SQLite。
+普通用户可从 [GitHub Releases](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest) 下载 `Diagnostic-Teaching-Setup-0.6.1-x64.exe`。安装版包含前后端、Python 运行时和语音依赖，不要求另装 Node.js、Python、Conda 或 SQLite。
 
-> 0.5.0 引入的一次性旧数据清理合同仍然有效；已经运行过 0.5.0 的用户升级到 0.6.0 不会再次清理。安装包尚未商业签名，SmartScreen 可能提示“未知发布者”。详见 [Windows 安装说明](./docs/windows-installer.md)。
+> 0.5.0 引入的一次性旧数据清理合同仍然有效；已经运行过 0.5.0 的用户升级到 0.6.1 不会再次清理。安装包尚未商业签名，SmartScreen 可能提示“未知发布者”。详见 [Windows 安装说明](./docs/windows-installer.md)。
 
 ### 源码模式
 
