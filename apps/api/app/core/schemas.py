@@ -101,7 +101,6 @@ class ModelProfilePublic(BaseModel):
     temperature: float
     max_output_tokens: int
     is_multimodal: bool
-    managed: bool = False
     reasoning_effort: ReasoningEffort = "low"
     reasoning_effort_options: list[ReasoningEffort] = Field(
         default_factory=lambda: ["none", "low", "high"]

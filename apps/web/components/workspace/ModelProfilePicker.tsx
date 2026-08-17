@@ -52,7 +52,7 @@ export function ModelProfilePicker({
     [profiles, selectedProfileId]
   );
   const deletableIds = useMemo(
-    () => profiles.filter((profile) => !profile.managed).map((profile) => profile.id),
+    () => profiles.map((profile) => profile.id),
     [profiles]
   );
   const batchSelectableIds = useMemo(
@@ -194,7 +194,6 @@ export function ModelProfilePicker({
                 aria-selected={manageMode ? checked : selected}
                 disabled={
                   deleteBusy
-                  || (manageMode && profile.managed)
                   || (manageMode && !checked && checkedIds.length >= MAX_BATCH_DELETE_PROFILES)
                 }
                 title={label}
@@ -207,7 +206,7 @@ export function ModelProfilePicker({
                   closeMenu();
                 }}
               >
-                {manageMode && !profile.managed ? (
+                {manageMode ? (
                   <span className={`modelPickerCheckbox${checked ? " checked" : ""}`} aria-hidden="true">
                     {checked && <Check size={12} />}
                   </span>
@@ -226,7 +225,6 @@ export function ModelProfilePicker({
                         支持上传图片
                       </span>
                     )}
-                    {profile.managed && <span className="managedModelBadge">自动同步</span>}
                   </span>
                 </span>
               </button>

@@ -20,7 +20,6 @@ test("0.5.0 first start removes every legacy user-data file exactly once", () =>
     writeFileSync(path.join(userData, "data", "app.db-wal"), "legacy-wal");
     writeFileSync(path.join(userData, "data", "app.db-shm"), "legacy-shm");
     writeFileSync(path.join(userData, "data", "app-secret.key"), "legacy-secret");
-    writeFileSync(path.join(userData, "bundled-model-seed-state.json"), "legacy-seed");
     writeFileSync(path.join(userData, "session-logs", "legacy.jsonl"), "legacy-log");
 
     assert.equal(resetLegacyUserData(userData), true);
@@ -28,7 +27,6 @@ test("0.5.0 first start removes every legacy user-data file exactly once", () =>
     assert.equal(existsSync(path.join(userData, "data", "app.db-wal")), false);
     assert.equal(existsSync(path.join(userData, "data", "app.db-shm")), false);
     assert.equal(existsSync(path.join(userData, "data", "app-secret.key")), false);
-    assert.equal(existsSync(path.join(userData, "bundled-model-seed-state.json")), false);
     assert.equal(existsSync(path.join(userData, "session-logs", "legacy.jsonl")), false);
     assert.equal(readFileSync(path.join(userData, DATA_RESET_MARKER), "utf8").trim(), DATA_RESET_VERSION);
 

@@ -48,7 +48,6 @@ const profile: ModelProfile = {
   temperature: 0.2,
   max_output_tokens: 1000,
   is_multimodal: false,
-  managed: false,
   reasoning_effort: "low",
   reasoning_effort_options: ["none", "low", "high"],
   reasoning_control: "none",
@@ -1732,7 +1731,7 @@ test("local demo configuration never asks users for real credentials", () => {
   assert.match(dialogSource, /const isLocalDemo = provider === "local_demo"/);
   assert.match(dialogSource, /base_url: isLocalDemo \? "local:\/\/demo"/);
   assert.match(dialogSource, /api_key: isLocalDemo \? "local-demo"/);
-  assert.match(dialogSource, /disabled=\{isManaged \|\| isLocalDemo\}/);
+  assert.match(dialogSource, /disabled=\{isLocalDemo\}/);
   assert.match(dialogSource, /本地演示完全离线，不需要 Base URL 或 API key/);
 });
 

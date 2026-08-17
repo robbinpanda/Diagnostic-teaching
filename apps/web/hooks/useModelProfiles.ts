@@ -67,11 +67,8 @@ export function useModelProfiles({ activeSessionId, onError, onClearError }: Opt
     const selectedProfiles = profileIds
       .map((profileId) => profiles.find((profile) => profile.id === profileId))
       .filter((profile): profile is ModelProfile => Boolean(profile));
-    if (
-      selectedProfiles.length !== profileIds.length
-      || selectedProfiles.some((profile) => profile.managed)
-    ) {
-      onError("所选模型中包含不可删除的配置，请刷新后重试");
+    if (selectedProfiles.length !== profileIds.length) {
+      onError("所选模型配置已变化，请刷新后重试");
       return false;
     }
     const names = selectedProfiles.map(modelProfileLabel);

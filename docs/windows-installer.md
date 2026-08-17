@@ -11,12 +11,11 @@
 ```text
 %APPDATA%\DiagnosticTeaching\data\app.db
 %APPDATA%\DiagnosticTeaching\data\app-secret.key
-%APPDATA%\DiagnosticTeaching\data\bundled-model-seed-state.json
 %APPDATA%\DiagnosticTeaching\session-logs\
 %APPDATA%\DiagnosticTeaching\logs\desktop.log
 ```
 
-**破坏性升级合同：**第一次安装 0.5.0 会在 NSIS 安装阶段递归删除整个 `%APPDATA%\DiagnosticTeaching`。SQLite 主库、`-wal`、`-shm`、加密主密钥、会话、卡片、模型配置、模型种子状态、Electron 本地状态和诊断日志都会永久清除，无法恢复；需要保留时必须在安装前备份。
+**破坏性升级合同：**第一次安装 0.5.0 会在 NSIS 安装阶段递归删除整个 `%APPDATA%\DiagnosticTeaching`。SQLite 主库、`-wal`、`-shm`、加密主密钥、会话、卡片、模型配置、Electron 本地状态和诊断日志都会永久清除，无法恢复；需要保留时必须在安装前备份。
 
 清理失败时安装器会中止，避免新程序继续读取残留旧库。清理成功后写入 `.data-reset-v0.5.0` 标记；Electron 首次启动执行同一合同的兜底检查，然后创建全新的 SQLite 和密钥。
 
@@ -32,7 +31,7 @@
 
 桌面窗口启用 Chromium sandbox、关闭 Node 集成和开发者工具，拒绝外部导航、弹窗、摄像头和其他权限；只允许当前本机应用页面申请纯音频麦克风。API key 只在后端加密存储，不进入前端持久化或桌面日志。
 
-桌面版固定关闭 OpenCode 公共目录的后台刷新。外网访问只会发生在用户主动测试/调用模型，或第一次下载 SenseVoice/FSMN-VAD 时。
+安装包不携带模型目录、预设模型或公共 API 凭据。模型相关外网访问只会发生在用户主动测试或调用自己配置的 API；SenseVoice/FSMN-VAD 会在第一次使用语音时下载。
 NSIS 的 `customInstall` 宏和 Electron 的 `resetLegacyUserData()` 使用同一版本标记。两处都把清理范围固定为 `%APPDATA%\DiagnosticTeaching`；任何其他目录都不在删除范围内。
 
 
@@ -69,24 +68,9 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows-installer.ps1 `
 
 ```text
 dist/windows/api/                                      PyInstaller sidecar
-dist/windows/seed/                                     可选加密模型预置
 dist/windows/installer/win-unpacked/                   未安装检查目录
 dist/windows/installer/Diagnostic-Teaching-Setup-*.exe NSIS 安装包
 ```
-
-## 可选模型预置
-
-默认构建不携带任何个人模型或 API key。需要制作内部预置包时，把示例复制到 Git 忽略目录并只在本机构建：
-
-```powershell
-Copy-Item docs\windows-model-profiles.example.json .secrets\windows-model-profiles.json
-powershell -ExecutionPolicy Bypass -File scripts\build-windows-installer.ps1 `
-  -ModelProfileSeedPath .secrets\windows-model-profiles.json
-```
-
-构建脚本会测试文字连接和图片能力，把密钥加密写入随包 SQLite；明文 JSON 不会复制到 `dist/`。也可通过 `-ModelProfileSeedBundlePath` 复用已验证的 `app.db + app-secret.key`，两个预置参数互斥。
-
-只有在明确接受某个模型当前不可用时才使用 `-AllowUnavailableModelProfiles`。证书、个人密钥、明文预置和构建缓存都不能提交到 Git。
 
 ## 发布门禁
 

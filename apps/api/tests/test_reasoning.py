@@ -22,8 +22,8 @@ def test_openai_reasoning_effort_maps_to_responses_field():
 def test_generic_openai_compatible_model_always_receives_protocol_field():
     options, capability = reasoning_request_options(
         "openai_compatible",
-        "https://opencode.ai/zen/v1",
-        "kimi-k2.7-code",
+        "https://provider.example/v1",
+        "example-reasoning-model",
         "none",
     )
 

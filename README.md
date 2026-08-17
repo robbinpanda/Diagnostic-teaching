@@ -13,7 +13,7 @@
 
 - 文字单题/多题拆分，以及 PNG/JPEG/WebP 题图检测、框选、裁剪和批量建会话。
 - 六种受约束的教学动作：追问、诊断选择题、局部讲解、原理讲解、检查点反馈和总结。
-- OpenAI Responses、OpenAI-compatible Chat Completions、Anthropic Messages 与 OpenCode 免费模型。
+- 用户自行配置的 OpenAI Responses、OpenAI-compatible Chat Completions 与 Anthropic Messages 模型；应用不提供预设模型或公共 API 凭据。
 - 可恢复的多会话并发、持久化 run、中断、幂等输入和 durable event 重放。
 - 知识卡片、题目卡片、试卷归档、错题卡片库、错题集及双列 PDF/练习模式。
 - 本地 SenseVoiceSmall 语音输入、SQLite 历史恢复和逐 session 诊断日志。
@@ -35,7 +35,7 @@
 ```powershell
 git clone https://github.com/robbinpanda/Diagnostic-teaching.git
 cd Diagnostic-teaching
-git switch dev/local
+git switch main
 conda create -n ai4edu-tutor python=3.11 -y
 conda run -n ai4edu-tutor python scripts/install-python-deps.py dev
 npm --prefix apps/web install

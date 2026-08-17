@@ -13,7 +13,6 @@ export type ModelProfile = {
   temperature: number;
   max_output_tokens: number;
   is_multimodal: boolean;
-  managed: boolean;
   reasoning_effort: ReasoningEffort;
   reasoning_effort_options: ReasoningEffort[];
   reasoning_control: string;

@@ -282,7 +282,7 @@ def test_fresh_database_uses_alembic_and_sqlite_reliability_pragmas(tmp_path: Pa
         assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == SQLITE_BUSY_TIMEOUT_MS
         assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1
         assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == (
-            "0015_mistake_set_problem_cards"
+            "0016_remove_legacy_model_presets"
         )
         run_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(session_runs)")
@@ -371,7 +371,7 @@ def test_paper_archive_migration_adopts_folders_and_backfills_cards_and_events(
     conn.execute("PRAGMA foreign_keys = ON")
     try:
         assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == (
-            "0015_mistake_set_problem_cards"
+            "0016_remove_legacy_model_presets"
         )
         folder_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(card_folders)")
@@ -576,6 +576,57 @@ def test_legacy_database_upgrades_repeatably_without_losing_rows(tmp_path: Path)
         assert cards["card_saved_active"]["folder_id"] == "folder_default_knowledge"
         assert cards["card_pending"]["folder_id"] == "folder_default_knowledge"
         assert cards["card_saved_orphan"]["folder_id"] == "folder_default_problem"
+
+
+def test_removed_model_presets_are_hidden_without_affecting_user_profiles(tmp_path: Path):
+    database_path = tmp_path / "removed-presets.db"
+    _upgrade_database(database_path, "0015_mistake_set_problem_cards")
+    removed_tags = [
+        bytes.fromhex(value).decode("utf-8")
+        for value in (
+            "226f70656e636f64656672656522",
+            "2262756e646c65642d706572736f6e616c22",
+        )
+    ]
+    with sqlite3.connect(database_path) as conn:
+        for index, tag in enumerate(removed_tags):
+            conn.execute(
+                """
+                INSERT INTO model_profiles (
+                  id, display_name, provider, base_url, model, api_key_ciphertext,
+                  api_key_mask, tags_json, created_at, updated_at
+                ) VALUES (?, ?, 'openai_compatible', 'https://example.test/v1', ?,
+                          'ciphertext', '****text', ?, 'old', 'old')
+                """,
+                (
+                    f"prof_removed_{index}",
+                    f"Removed {index}",
+                    f"removed-{index}",
+                    f"[{tag}]",
+                ),
+            )
+        conn.execute(
+            """
+            INSERT INTO model_profiles (
+              id, display_name, provider, base_url, model, api_key_ciphertext,
+              api_key_mask, tags_json, created_at, updated_at
+            ) VALUES ('prof_user', 'User model', 'openai_compatible',
+                      'https://example.test/v1', 'user-model', 'ciphertext',
+                      '****text', '["math"]', 'old', 'old')
+            """
+        )
+
+    _upgrade_database(database_path, "head")
+
+    with sqlite3.connect(database_path) as conn:
+        removed = conn.execute(
+            "SELECT enabled, deleted_at FROM model_profiles WHERE id LIKE 'prof_removed_%'"
+        ).fetchall()
+        user = conn.execute(
+            "SELECT enabled, deleted_at FROM model_profiles WHERE id = 'prof_user'"
+        ).fetchone()
+    assert all(enabled == 0 and deleted_at is not None for enabled, deleted_at in removed)
+    assert user == (1, None)
 
 
 def test_database_constraints_cascade_and_preserve_archived_cards(tmp_path: Path):

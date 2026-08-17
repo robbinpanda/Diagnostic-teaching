@@ -22,7 +22,7 @@
 flowchart LR
   UI["Next.js 工作台"] -->|HTTP / SSE / WebSocket| API["FastAPI"]
   API --> CORE["教学控制与模型适配"]
-  CORE --> PROVIDER["OpenAI / Compatible / Anthropic / OpenCode"]
+  CORE --> PROVIDER["用户配置的 OpenAI / Compatible / Anthropic API"]
   API --> DB[("SQLite 权威业务态")]
   API --> LOGS["JSONL / Markdown 诊断日志"]
   DB --> API

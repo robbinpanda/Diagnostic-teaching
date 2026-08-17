@@ -4,9 +4,10 @@
 
 ## v0.6.0 — 2026-08-17
 
-### OpenCode 免费模型收敛与 Windows 发布
+### 移除模型预设与 Windows 发布
 
-- OpenCode 免费模型只保留多模态 `mimo-v2.5-free`；内置快照、在线目录和旧缓存统一经过白名单，其他既有托管 profile 会从新建会话列表隐藏，历史引用继续保留。
+- 移除在线模型目录、公共凭据和安装包模型预置；所有外部模型都由用户自行填写协议、Base URL、model name 和 API key。
+- 升级迁移会软删除旧机制创建的 profile，保留历史会话外键与审计数据，不影响用户手工创建的配置。
 - 应用、Docker 镜像与 Windows 安装包版本统一升级为 0.6.0，并修复全新 Windows 打包环境安装 Python 构建依赖时的仓库根目录变量错误。
 
 ### 修复开始答疑页无法重新展开侧栏
@@ -319,7 +320,7 @@
 
 ### 可选推理档位与首个反馈优化
 
-- 新增 Alembic `0007_reasoning_effort` 与 `0008_reasoning_effort_levels`，每个模型 profile 持久化 `minimal / low / medium / high`；输入框旁可直接选择“超低 / 低 / 中 / 高”，旧 `auto` 数据升级为默认的 `medium`，OpenCode 托管模型也能保存本地偏好。
+- 新增 Alembic `0007_reasoning_effort` 与 `0008_reasoning_effort_levels`，每个模型 profile 持久化 `minimal / low / medium / high`；输入框旁可直接选择“超低 / 低 / 中 / 高”，旧 `auto` 数据升级为默认的 `medium`。
 - 新增 provider-specific 映射层：OpenAI、OpenRouter、DashScope thinking 与 Anthropic adaptive thinking 分别发送对应字段；没有明确协议映射的 Kimi 等模型改用分档 system prompt，`medium` 不增加指令，避免 OpenAI-compatible 端点因未知参数失败。
 - provider stream 识别响应头、reasoning 与正式 content 边界，但不向前端转发原始 CoT。chat SSE 新增固定安全 `progress` 阶段，标题栏从 run 开始持续显示“读取题目 / 核对思路 / 选择教学方式 / 组织回复”。
 - `tutor_turn` 日志新增首进度、首 reasoning、首 content、首可见 message、可交互与总完成耗时，并记录实际选择的 reasoning effort。
@@ -368,7 +369,7 @@
 
 - 原生模型下拉改为自适应选择器：当前名称决定自然宽度，视口限制和省略号兜住超长名称，菜单补充供应商主机、选中态和完整名称提示。
 - 多模态模型在当前选择与选项中显示“支持上传图片”，上传题图前即可区分图片模型和纯文本模型。
-- 选择器新增管理模式，可复选、按接口上限一次选择最多 20 个自定义模型并删除；超过 20 项时可分批选择，OpenCode 托管项只读且不可勾选。
+- 选择器新增管理模式，可复选、按接口上限一次选择最多 20 个模型并删除；超过 20 项时可分批选择。
 - 修复已有选中模型时新增入口被“编辑”按钮替代的问题；选择器标题区现在把“新增模型”与“管理”并列展示，新增始终打开空白配置弹窗。
 - 新增 `POST /api/model-profiles/batch-delete`。后端先在同一 SQLite 写事务中校验全部 ID 和托管状态，再统一软删除；任一项失败时整批回滚。
 - 增加批量删除顺序/回滚测试和模型选择器能力提示、管理控件、自适应长名称样式测试。
@@ -410,15 +411,11 @@
 
 ## v2.0 — 2026-07-19
 
-### OpenCode 免费模型与双协议模型调用
+### 双协议模型调用
 
-- 参考 OpenCode 本地源码的 `models.dev/api.json` 目录和无密钥筛选逻辑，加入 OpenCode 免费模型目录服务：启动后立即刷新、每 60 分钟更新，并在网络失败时使用 `data/opencode-models.json` 或内置快照。
-- 当前内置 `big-pickle`、`deepseek-v4-flash-free`、`mimo-v2.5-free`、`north-mini-code-free`、`nemotron-3-ultra-free`；统一显示为 `opencodefree-<model-id>`，以加密的公共凭据 `public` 调用 Zen。
-- 免费模型以只读托管 profile 同步到 SQLite，稳定复用 profile ID；目录移除的项仅从可选列表隐藏，历史引用继续保留。PATCH/DELETE 托管项返回 409。
-- 目录中的 `modalities.input` 决定 `is_multimodal`。当前只有 `mimo-v2.5-free` 在模型设置里自动勾选“支持图片识别”；下拉和聊天页不增加额外多模态徽标。
 - 模型调用层新增 Anthropic Messages 协议：system 顶层转换、data URL 图片块转换、`/messages` 请求头和 SSE 文本/停止事件解析；原 OpenAI-compatible chat completions 流保持兼容。
-- 设置弹窗新增 Anthropic Messages 供应商类型；托管免费模型可查看协议和多模态复选框但不能修改，并提示免费端点可能记录输入、不要提交个人或敏感信息。
-- 新增目录筛选、协议识别、多模态元数据、托管同步/防修改、Anthropic payload 和 SSE 解析测试。
+- 设置弹窗新增 Anthropic Messages 供应商类型和多模态能力配置。
+- 新增协议识别、Anthropic payload 和 SSE 解析测试。
 
 ## v1.9 — 2026-07-18
 

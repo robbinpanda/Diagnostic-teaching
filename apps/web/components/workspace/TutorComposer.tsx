@@ -192,7 +192,7 @@ export function TutorComposer({
               type="button"
               onClick={onEditProfile}
               disabled={speechBusy}
-              title={selectedProfile?.managed ? "查看模型配置" : selectedProfile ? "修改模型配置" : "添加模型配置"}
+              title={selectedProfile ? "修改模型配置" : "添加模型配置"}
             >
               {selectedProfile ? <Pencil size={16} /> : <Plus size={16} />}
             </button>

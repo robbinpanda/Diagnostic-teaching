@@ -31,7 +31,6 @@
 以下文档保留设计演进背景，但不是当前实现的权威说明：
 
 - [早期 MVP 开发文档](./tutoring-agent-mvp-dev-doc-v0.2.md)：实现前的 v0.2 方案与旧 API 草案。
-- [OpenCode 启发的改造路线图](./opencode-inspired-roadmap.md)：阶段性规划；已落地行为应以现行文档和代码为准。
 - `superpowers/specs/` 与 `superpowers/plans/`：具体 UI/功能迭代的规格和实施计划。
 
 ## 文档维护规则

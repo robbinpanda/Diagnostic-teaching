@@ -71,7 +71,7 @@ def test_session_event_migration_is_additive_and_versioned(tmp_path: Path):
         revision = conn.execute("SELECT version_num FROM alembic_version").fetchone()[0]
 
     assert columns == {"id", "session_id", "seq", "type", "data_json", "created_at"}
-    assert revision == "0015_mistake_set_problem_cards"
+    assert revision == "0016_remove_legacy_model_presets"
 
 
 def test_concurrent_appends_allocate_strict_per_session_sequence(tmp_path: Path):

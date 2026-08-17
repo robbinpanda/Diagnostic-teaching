@@ -143,7 +143,6 @@ def to_public(row) -> ModelProfilePublic:
         temperature=row["temperature"],
         max_output_tokens=row["max_output_tokens"],
         is_multimodal=bool(row["is_multimodal"]),
-        managed=is_managed_tags(tags),
         reasoning_effort=selected_effort,
         reasoning_effort_options=list(reasoning_options),
         reasoning_control=capability.control,
@@ -211,10 +210,6 @@ def delete_profiles_batch(
         deleted_ids = request.app.state.model_profiles.soft_delete_many(payload.profile_ids)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="模型配置不存在") from exc
-    except PermissionError as exc:
-        raise HTTPException(
-            status_code=409, detail="OpenCode 免费模型由目录自动同步，不能手动删除"
-        ) from exc
     return ModelProfileBatchDeleteResponse(deleted_profile_ids=deleted_ids)
 
 
@@ -226,10 +221,6 @@ def update_profile(
         row = request.app.state.model_profiles.update(profile_id, payload)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="模型配置不存在") from exc
-    except PermissionError as exc:
-        raise HTTPException(
-            status_code=409, detail="OpenCode 免费模型由目录自动同步，不能手动修改"
-        ) from exc
     return to_public(row)
 
 
@@ -264,10 +255,6 @@ def delete_profile(profile_id: str, request: Request) -> Response:
         request.app.state.model_profiles.soft_delete(profile_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="模型配置不存在") from exc
-    except PermissionError as exc:
-        raise HTTPException(
-            status_code=409, detail="OpenCode 免费模型由目录自动同步，不能手动删除"
-        ) from exc
     return Response(status_code=204)
 
 
@@ -373,10 +360,6 @@ def get_profile_or_404(request: Request, profile_id: str):
         return request.app.state.model_profiles.get(profile_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="模型配置不存在") from exc
-
-
-def is_managed_tags(tags: list[str]) -> bool:
-    return "opencodefree" in tags
 
 
 async def _probe_reasoning_efforts(

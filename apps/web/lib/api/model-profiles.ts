@@ -7,8 +7,8 @@ import {
 } from "./contracts";
 import type { ModelProfile, ModelProfileTestResult, ReasoningEffort } from "./types";
 
-export function modelProfileLabel(profile: Pick<ModelProfile, "display_name" | "model"> & Partial<Pick<ModelProfile, "managed">>) {
-  return profile.managed ? profile.display_name : `${profile.display_name} · ${profile.model}`;
+export function modelProfileLabel(profile: Pick<ModelProfile, "display_name" | "model">) {
+  return `${profile.display_name} · ${profile.model}`;
 }
 
 export async function fetchProfiles(): Promise<ModelProfile[]> {

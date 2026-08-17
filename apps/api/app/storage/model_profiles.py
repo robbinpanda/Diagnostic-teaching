@@ -4,11 +4,6 @@ import json
 import sqlite3
 
 from app.core.schemas import ModelProfileCreate, ModelProfileUpdate
-from app.llm.opencode_free_models import (
-    OPENCODE_FREE_TAG,
-    OPENCODE_PUBLIC_API_KEY,
-    OpenCodeFreeModel,
-)
 from app.llm.reasoning import (
     REASONING_EFFORTS,
     normalize_reasoning_effort_options,
@@ -17,8 +12,6 @@ from app.llm.reasoning import (
 from app.storage.database import Database
 from app.storage.repository_utils import new_id, normalize_base_url, now_iso
 from app.storage.security import SecretBox, mask_api_key
-
-BUNDLED_PERSONAL_TAG = "bundled-personal"
 
 
 class ModelProfileRepository:
@@ -82,184 +75,9 @@ class ModelProfileRepository:
                 """
                 SELECT * FROM model_profiles
                 WHERE deleted_at IS NULL AND enabled = 1
-                ORDER BY
-                  CASE WHEN tags_json LIKE '%"opencodefree"%' THEN 1 ELSE 0 END ASC,
-                  CASE WHEN tags_json LIKE '%"opencodefree"%' THEN display_name END ASC,
-                  created_at DESC
+                ORDER BY created_at DESC
                 """
             ).fetchall()
-
-    def sync_opencode_free_models(self, models: tuple[OpenCodeFreeModel, ...]) -> list[sqlite3.Row]:
-        ts = now_iso()
-        desired_models = {model.model for model in models}
-        synced_ids: list[str] = []
-        encrypted_public_key = self.secrets.encrypt(OPENCODE_PUBLIC_API_KEY)
-        public_key_mask = mask_api_key(OPENCODE_PUBLIC_API_KEY)
-        with self.db.connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            managed_rows = conn.execute(
-                "SELECT * FROM model_profiles WHERE tags_json LIKE ?",
-                (f'%"{OPENCODE_FREE_TAG}"%',),
-            ).fetchall()
-            by_model = {row["model"]: row for row in managed_rows}
-            for model in models:
-                existing = by_model.get(model.model)
-                tags_json = json.dumps(["math", OPENCODE_FREE_TAG], ensure_ascii=False)
-                if existing is None:
-                    profile_id = new_id("prof")
-                    conn.execute(
-                        """
-                        INSERT INTO model_profiles (
-                          id, display_name, provider, base_url, model, api_key_ciphertext,
-                          api_key_mask, tags_json, enabled, deleted_at, timeout_ms,
-                          temperature, max_output_tokens, is_multimodal, reasoning_effort,
-                          reasoning_effort_options_json, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, 30000, 0.2, 8000, ?,
-                                  'low', ?, ?, ?)
-                        """,
-                        (
-                            profile_id,
-                            model.display_name,
-                            model.provider,
-                            normalize_base_url(model.base_url),
-                            model.model,
-                            encrypted_public_key,
-                            public_key_mask,
-                            tags_json,
-                            int(model.is_multimodal),
-                            json.dumps(REASONING_EFFORTS, ensure_ascii=False),
-                            ts,
-                            ts,
-                        ),
-                    )
-                    synced_ids.append(profile_id)
-                    continue
-                profile_id = existing["id"]
-                conn.execute(
-                    """
-                    UPDATE model_profiles
-                    SET display_name = ?, provider = ?, base_url = ?, api_key_ciphertext = ?,
-                        api_key_mask = ?, tags_json = ?, enabled = 1, deleted_at = NULL,
-                        is_multimodal = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        model.display_name,
-                        model.provider,
-                        normalize_base_url(model.base_url),
-                        encrypted_public_key,
-                        public_key_mask,
-                        tags_json,
-                        int(model.is_multimodal),
-                        ts,
-                        profile_id,
-                    ),
-                )
-                synced_ids.append(profile_id)
-
-            for row in managed_rows:
-                if row["model"] in desired_models:
-                    continue
-                conn.execute(
-                    "UPDATE model_profiles SET enabled = 0, updated_at = ? WHERE id = ?",
-                    (ts, row["id"]),
-                )
-        return [self.get(profile_id) for profile_id in synced_ids]
-
-    def sync_bundled_personal_profiles(
-        self,
-        profiles: list[tuple[ModelProfileCreate, str | None, int | None]],
-    ) -> tuple[list[str], list[str], list[str]]:
-        """Replace the installer-managed snapshot without replacing user business data.
-
-        Existing bundled rows keep their IDs so historical sessions remain valid. Custom
-        profiles are never matched or changed. Bundled rows removed from the new snapshot
-        are disabled instead of deleted because sessions may still reference them.
-        """
-        ts = now_iso()
-        created_ids: list[str] = []
-        updated_ids: list[str] = []
-        disabled_ids: list[str] = []
-        desired_keys = {(payload.provider, payload.model.strip()) for payload, _, _ in profiles}
-
-        with self.db.connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            existing_rows = conn.execute(
-                "SELECT * FROM model_profiles WHERE tags_json LIKE ? ORDER BY created_at ASC",
-                (f'%"{BUNDLED_PERSONAL_TAG}"%',),
-            ).fetchall()
-            by_key: dict[tuple[str, str], sqlite3.Row] = {}
-            duplicate_ids: list[str] = []
-            for row in existing_rows:
-                key = (row["provider"], row["model"])
-                if key in by_key:
-                    duplicate_ids.append(row["id"])
-                else:
-                    by_key[key] = row
-
-            for payload, last_test_status, last_test_latency_ms in profiles:
-                model = payload.model.strip()
-                key = (payload.provider, model)
-                api_key = payload.api_key.strip()
-                tags = list(dict.fromkeys([*payload.tags, BUNDLED_PERSONAL_TAG]))
-                values = (
-                    payload.display_name.strip(),
-                    payload.provider,
-                    normalize_base_url(str(payload.base_url)),
-                    model,
-                    self.secrets.encrypt(api_key),
-                    mask_api_key(api_key),
-                    json.dumps(tags, ensure_ascii=False),
-                    last_test_status,
-                    last_test_latency_ms,
-                    payload.timeout_ms,
-                    payload.temperature,
-                    payload.max_output_tokens,
-                    int(payload.is_multimodal),
-                )
-                existing = by_key.get(key)
-                if existing is None:
-                    profile_id = new_id("prof")
-                    conn.execute(
-                        """
-                        INSERT INTO model_profiles (
-                          id, display_name, provider, base_url, model, api_key_ciphertext,
-                          api_key_mask, tags_json, enabled, deleted_at, last_test_status,
-                          last_test_latency_ms, timeout_ms, temperature, max_output_tokens,
-                          is_multimodal, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (profile_id, *values, ts, ts),
-                    )
-                    created_ids.append(profile_id)
-                    continue
-
-                profile_id = existing["id"]
-                conn.execute(
-                    """
-                    UPDATE model_profiles
-                    SET display_name = ?, provider = ?, base_url = ?, model = ?,
-                        api_key_ciphertext = ?, api_key_mask = ?, tags_json = ?,
-                        enabled = 1, deleted_at = NULL, last_test_status = ?,
-                        last_test_latency_ms = ?, timeout_ms = ?, temperature = ?,
-                        max_output_tokens = ?, is_multimodal = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (*values, ts, profile_id),
-                )
-                updated_ids.append(profile_id)
-
-            for row in existing_rows:
-                key = (row["provider"], row["model"])
-                if key in desired_keys and row["id"] not in duplicate_ids:
-                    continue
-                conn.execute(
-                    "UPDATE model_profiles SET enabled = 0, updated_at = ? WHERE id = ?",
-                    (ts, row["id"]),
-                )
-                disabled_ids.append(row["id"])
-
-        return created_ids, updated_ids, disabled_ids
 
     def get(self, profile_id: str) -> sqlite3.Row:
         with self.db.connect() as conn:
@@ -276,8 +94,6 @@ class ModelProfileRepository:
 
     def update(self, profile_id: str, payload: ModelProfileUpdate) -> sqlite3.Row:
         current = self.get(profile_id)
-        if self.is_managed(current):
-            raise PermissionError(profile_id)
         changes = payload.model_dump(exclude_unset=True)
         assignments: list[str] = []
         values: list[object] = []
@@ -374,7 +190,7 @@ class ModelProfileRepository:
         return self.get(profile_id)
 
     def update_reasoning_effort(self, profile_id: str, reasoning_effort: str) -> sqlite3.Row:
-        """Persist a user preference even for directory-managed model profiles."""
+        """Persist a user-selected reasoning preference."""
         ts = now_iso()
         with self.db.connect() as conn:
             cursor = conn.execute(
@@ -423,13 +239,6 @@ class ModelProfileRepository:
             missing_ids = [profile_id for profile_id in unique_ids if profile_id not in rows_by_id]
             if missing_ids:
                 raise KeyError(missing_ids[0])
-            managed_ids = [
-                profile_id
-                for profile_id in unique_ids
-                if self.is_managed(rows_by_id[profile_id])
-            ]
-            if managed_ids:
-                raise PermissionError(managed_ids[0])
             cursor = conn.execute(
                 f"""
                 UPDATE model_profiles
@@ -441,15 +250,6 @@ class ModelProfileRepository:
             if cursor.rowcount != len(unique_ids):
                 raise RuntimeError("批量删除模型配置时写入数量不一致")
         return unique_ids
-
-    @staticmethod
-    def is_managed(row: sqlite3.Row) -> bool:
-        try:
-            tags = json.loads(row["tags_json"])
-        except (TypeError, json.JSONDecodeError):
-            return False
-        return isinstance(tags, list) and OPENCODE_FREE_TAG in tags
-
 
 def _decode_reasoning_options(raw: object) -> list[str] | None:
     try:

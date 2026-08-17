@@ -22,10 +22,6 @@ class Settings:
     sensevoice_device: str
     sensevoice_stream_segment_seconds: int
     sensevoice_commit_silence_ms: int
-    opencode_catalog_refresh_enabled: bool
-    bundled_model_seed_database_path: Path | None
-    bundled_model_seed_secret_path: Path | None
-    bundled_model_seed_version: str
 
 
 def _sqlite_path_from_url(value: str | None, root: Path) -> Path:
@@ -36,19 +32,6 @@ def _sqlite_path_from_url(value: str | None, root: Path) -> Path:
         path = Path(raw_path)
         return path if path.is_absolute() else root / path
     return root / value
-
-def _boolean_from_env(value: str | None, default: bool) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() not in {"0", "false", "no", "off"}
-
-
-def _optional_path_from_env(name: str, root: Path) -> Path | None:
-    value = os.getenv(name)
-    if not value:
-        return None
-    path = Path(value)
-    return path if path.is_absolute() else root / path
 
 
 def load_settings() -> Settings:
@@ -87,15 +70,4 @@ def load_settings() -> Settings:
         sensevoice_device=os.getenv("SENSEVOICE_DEVICE", "cpu"),
         sensevoice_stream_segment_seconds=sensevoice_stream_segment_seconds,
         sensevoice_commit_silence_ms=sensevoice_commit_silence_ms,
-        opencode_catalog_refresh_enabled=_boolean_from_env(
-            os.getenv("OPENCODE_CATALOG_REFRESH_ENABLED"),
-            True,
-        ),
-        bundled_model_seed_database_path=_optional_path_from_env(
-            "BUNDLED_MODEL_SEED_DATABASE_PATH", root
-        ),
-        bundled_model_seed_secret_path=_optional_path_from_env(
-            "BUNDLED_MODEL_SEED_SECRET_PATH", root
-        ),
-        bundled_model_seed_version=os.getenv("BUNDLED_MODEL_SEED_VERSION", "unknown"),
     )

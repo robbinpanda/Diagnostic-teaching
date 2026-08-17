@@ -3,7 +3,6 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.core.config import load_settings
 from app.desktop import create_desktop_app
 
 
@@ -11,16 +10,9 @@ def configure_desktop_environment(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'desktop.db'}")
     monkeypatch.setenv("APP_SECRET_PATH", str(tmp_path / "desktop.key"))
     monkeypatch.setenv("SESSION_LOG_DIR", str(tmp_path / "logs"))
-    monkeypatch.setenv("OPENCODE_CATALOG_REFRESH_ENABLED", "0")
 
 
-def test_desktop_settings_disable_catalog_network(monkeypatch, tmp_path: Path):
-    configure_desktop_environment(monkeypatch, tmp_path)
-
-    assert load_settings().opencode_catalog_refresh_enabled is False
-
-
-def test_desktop_bundle_passes_encrypted_seed_to_the_upgrade_aware_api_sync():
+def test_desktop_bundle_contains_only_application_resources():
     root = Path(__file__).resolve().parents[2]
     main_source = (root / "desktop" / "src" / "main.cjs").read_text(encoding="utf-8")
     builder_config = (root / "desktop" / "electron-builder.yml").read_text(encoding="utf-8")
@@ -28,10 +20,6 @@ def test_desktop_bundle_passes_encrypted_seed_to_the_upgrade_aware_api_sync():
     package = json.loads((root / "desktop" / "package.json").read_text(encoding="utf-8"))
 
     assert package["version"] == "0.6.0"
-    assert "BUNDLED_MODEL_SEED_DATABASE_PATH" in main_source
-    assert "BUNDLED_MODEL_SEED_SECRET_PATH" in main_source
-    assert "BUNDLED_MODEL_SEED_VERSION: app.getVersion()" in main_source
-    assert "installBundledModelSeed" not in main_source
     assert "appId: cn.ai4edu.diagnostic-teaching" in builder_config
     assert "oneClick: false" in builder_config
     assert "include: build/installer.nsh" in builder_config
@@ -44,7 +32,7 @@ def test_desktop_bundle_passes_encrypted_seed_to_the_upgrade_aware_api_sync():
     assert "perMachine: false" in builder_config
     assert "allowToChangeInstallationDirectory: true" in builder_config
     assert "deleteAppDataOnUninstall: false" in builder_config
-    assert "from: ../../dist/windows/seed" in builder_config
+    assert "to: seed" not in builder_config
     assert 'IfFileExists "$APPDATA\\DiagnosticTeaching\\.data-reset-v0.5.0"' in installer_include
     assert 'RMDir /r "$APPDATA\\DiagnosticTeaching"' in installer_include
     assert 'CreateDirectory "$APPDATA\\DiagnosticTeaching"' in installer_include
@@ -53,15 +41,6 @@ def test_desktop_bundle_passes_encrypted_seed_to_the_upgrade_aware_api_sync():
     assert 'RMDir /r "$APPDATA"' not in installer_include
     assert 'RMDir /r "$PROFILE"' not in installer_include
     assert 'RMDir /r "$LOCALAPPDATA"' not in installer_include
-
-
-def test_catalog_network_refresh_defaults_on_for_development(monkeypatch, tmp_path: Path):
-    configure_desktop_environment(monkeypatch, tmp_path)
-    monkeypatch.delenv("OPENCODE_CATALOG_REFRESH_ENABLED")
-    assert load_settings().opencode_catalog_refresh_enabled is True
-
-    monkeypatch.setenv("OPENCODE_CATALOG_REFRESH_ENABLED", "0")
-    assert load_settings().opencode_catalog_refresh_enabled is False
 
 
 def test_desktop_app_serves_export_and_security_headers(monkeypatch, tmp_path: Path):

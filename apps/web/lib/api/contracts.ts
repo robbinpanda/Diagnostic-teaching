@@ -164,7 +164,6 @@ export const modelProfileSchema: z.ZodType<ModelProfile> = z.object({
   temperature: z.number(),
   max_output_tokens: z.number(),
   is_multimodal: z.boolean(),
-  managed: z.boolean(),
   reasoning_effort: reasoningEffortSchema,
   reasoning_effort_options: z.array(reasoningEffortSchema),
   reasoning_control: z.string(),

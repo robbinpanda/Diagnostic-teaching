@@ -53,7 +53,6 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const isEdit = Boolean(profile);
-  const isManaged = profile?.managed === true;
   const busy = testing || saving;
   const isLocalDemo = provider === "local_demo";
   const invalid = (
@@ -235,13 +234,11 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
       <div className="modelDialog">
         <div className="dialogHeader">
           <div>
-            <h2>{isManaged ? "查看模型配置" : isEdit ? "修改模型配置" : "添加供应商模型"}</h2>
+            <h2>{isEdit ? "修改模型配置" : "添加供应商模型"}</h2>
             <p>
-              {isManaged
-                ? "OpenCode 免费模型由在线目录自动同步；免费端点可能记录输入，请勿提交个人或敏感信息。"
-                : isLocalDemo
-                  ? "本地演示完全离线，不需要 Base URL 或 API key。"
-                  : isEdit ? "API key 留空则沿用当前密钥。" : "一套供应商 URL/API key 可以一次添加多个 model name。"}
+              {isLocalDemo
+                ? "本地演示完全离线，不需要 Base URL 或 API key。"
+                : isEdit ? "API key 留空则沿用当前密钥。" : "请填写你自己的供应商 URL 和 API key；一套配置可以一次添加多个 model name。"}
             </p>
           </div>
           <button className="iconButton" type="button" onClick={onClose} aria-label="关闭">
@@ -251,7 +248,7 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
 
         <label>
           供应商名称
-          <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="例如：OpenAI、火山方舟" disabled={isManaged} />
+          <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="例如：OpenAI、火山方舟" />
         </label>
         <label>
           供应商类型
@@ -271,7 +268,6 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
               }
               resetSharedTestResults();
             }}
-            disabled={isManaged}
           >
             <option value="openai_compatible">OpenAI-compatible</option>
             <option value="openai">OpenAI Responses</option>
@@ -288,11 +284,11 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
               resetSharedTestResults();
             }}
             placeholder="https://example.com/v1"
-            disabled={isManaged || isLocalDemo}
+            disabled={isLocalDemo}
           />
         </label>
         <label>
-          API key{isLocalDemo ? "（本地演示无需填写）" : isManaged ? "（内置公共凭据）" : isEdit ? "（留空不修改）" : ""}
+          API key{isLocalDemo ? "（本地演示无需填写）" : isEdit ? "（留空不修改）" : ""}
           <input
             value={apiKey}
             onChange={(event) => {
@@ -300,8 +296,8 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
               resetSharedTestResults();
             }}
             type="password"
-            disabled={isManaged || isLocalDemo}
-            placeholder={isLocalDemo ? "无需 API key" : isManaged ? profile?.masked_api_key : undefined}
+            disabled={isLocalDemo}
+            placeholder={isLocalDemo ? "无需 API key" : undefined}
           />
         </label>
 
@@ -327,7 +323,6 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
                     onChange={(event) => updateModelEntry(entry.id, { model: event.target.value }, true)}
                     placeholder="provider-model-name"
                     aria-label="Model name"
-                    disabled={isManaged}
                   />
                   <span className={`modelTestIcon ${entry.testState}`} title={entry.testMessage || "尚未测试"}>
                     {entry.testState === "testing" && <Loader2 size={18} className="spin" />}
@@ -351,9 +346,8 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
                       false
                     )}
                     type="checkbox"
-                    disabled={isManaged}
                   />
-                  {isManaged ? "支持图片识别（由 OpenCode 目录元数据同步）" : "支持图片识别（默认关闭；测试图片成功后自动开启）"}
+                  支持图片识别（默认关闭；测试图片成功后自动开启）
                 </label>
                 <p className="modelCapabilityHint">
                   推理档位：{(entry.reasoningEffortOptions ?? ["none", "low", "high"]).join(" / ")}
@@ -377,7 +371,6 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
             min={100}
             max={64000}
             step={100}
-            disabled={isManaged}
           />
         </label>
         <div className="twoColumnFields">
@@ -393,7 +386,6 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
               min={1000}
               max={120000}
               step={1000}
-              disabled={isManaged}
             />
           </label>
           <label>
@@ -405,26 +397,19 @@ export function ModelConfigDialog({ open, profile, onClose, onSaved }: Props) {
               min={0}
               max={2}
               step={0.1}
-              disabled={isManaged}
             />
           </label>
         </div>
 
         <div className="dialogActions">
-          {isManaged ? (
-            <button className="primaryButton" type="button" onClick={onClose}>关闭</button>
-          ) : (
-            <>
-              <button className="secondaryButton" type="button" onClick={handleTest} disabled={busy || invalid}>
-                {testing ? <Loader2 size={16} className="spin" /> : <PlugZap size={16} />}
-                {models.length > 1 ? "并行测试" : "测试连接"}
-              </button>
-              <button className="primaryButton" type="button" onClick={handleSave} disabled={busy || invalid}>
-                {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
-                {isEdit ? "保存修改" : `保存 ${models.length} 个模型`}
-              </button>
-            </>
-          )}
+          <button className="secondaryButton" type="button" onClick={handleTest} disabled={busy || invalid}>
+            {testing ? <Loader2 size={16} className="spin" /> : <PlugZap size={16} />}
+            {models.length > 1 ? "并行测试" : "测试连接"}
+          </button>
+          <button className="primaryButton" type="button" onClick={handleSave} disabled={busy || invalid}>
+            {saving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+            {isEdit ? "保存修改" : `保存 ${models.length} 个模型`}
+          </button>
         </div>
         {status && <p className="dialogStatus">{status}</p>}
       </div>

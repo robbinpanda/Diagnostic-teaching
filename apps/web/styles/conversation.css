@@ -1139,8 +1139,7 @@
   font-size: 9px;
 }
 
-.modelCapabilityBadge,
-.managedModelBadge {
+.modelCapabilityBadge {
   width: fit-content;
   display: inline-flex;
   align-items: center;
@@ -1160,11 +1159,6 @@
   flex: 0 0 auto;
   padding: 2px 6px;
   font-size: 9px;
-}
-
-.managedModelBadge {
-  color: #6a675e;
-  background: #efeee9;
 }
 
 .modelPickerEmpty {
