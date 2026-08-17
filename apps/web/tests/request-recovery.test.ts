@@ -61,7 +61,7 @@ test("session batch recovery keeps stable SQLite idempotency keys until acceptan
   assert.equal(loadPendingSessionBatch(storage), null);
 });
 
-test("student outbox keeps one stable request per session and preserves other sessions", () => {
+test("student outbox preserves repeated interjections in one session", () => {
   const storage = new MemoryStorage();
   const first = {
     operationId: "operation-a",
@@ -87,9 +87,25 @@ test("student outbox keeps one stable request per session and preserves other se
   savePendingStudentRequest(storage, first);
   savePendingStudentRequest(storage, second);
   savePendingStudentRequest(storage, replacement);
-  assert.deepEqual(listPendingStudentRequests(storage), [second, replacement]);
+  assert.deepEqual(listPendingStudentRequests(storage), [first, second, replacement]);
   clearPendingStudentRequest(storage, replacement.operationId);
-  assert.deepEqual(listPendingStudentRequests(storage), [second]);
+  assert.deepEqual(listPendingStudentRequests(storage), [first, second]);
+});
+
+test("student outbox preserves a later conversation image with its idempotency key", () => {
+  const storage = new MemoryStorage();
+  const pending = {
+    operationId: "operation-image",
+    sessionId: "session-image",
+    text: "这是我补画的辅助线",
+    imageDataUrl: "data:image/png;base64,AAAA",
+    clientMessageId: "message-image",
+    createdAt: "2026-08-02T00:00:02Z"
+  };
+
+  savePendingStudentRequest(storage, pending);
+
+  assert.deepEqual(listPendingStudentRequests(storage), [pending]);
 });
 
 test("active session and composer drafts survive refresh without crossing session scopes", () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { speechStreamUrl, type SpeechStreamEvent } from "../lib/api";
+import { parseSpeechStreamEvent, speechStreamUrl, type SpeechStreamEvent } from "../lib/api";
 import { resampleFloat32ToPcm16 } from "../lib/audio";
 import {
   joinSpeechSegments,
@@ -190,7 +190,7 @@ export function useSpeechInput({
       socket.onmessage = (message) => {
         let event: SpeechStreamEvent;
         try {
-          event = JSON.parse(String(message.data)) as SpeechStreamEvent;
+          event = parseSpeechStreamEvent(String(message.data));
         } catch {
           onErrorRef.current("实时语音服务返回了无法解析的数据");
           finishSession({ closeSocket: true });

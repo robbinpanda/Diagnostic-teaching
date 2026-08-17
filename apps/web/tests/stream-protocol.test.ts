@@ -35,6 +35,24 @@ test("adapter recognizes an explicit server interruption", () => {
   assert.equal(event?.runId, "run-1");
 });
 
+test("adapter recognizes the durable completed terminal", () => {
+  const adapter = createStreamEventAdapter({ sessionId: "session-a", runId: "run-1" });
+  const event = adapter.adapt({
+    event: "stream_complete",
+    data: {
+      run_id: "server-run-1",
+      status: "completed",
+      last_committed_action_index: 2
+    }
+  });
+
+  assert.equal(event?.kind, "stream_complete");
+  assert.equal(
+    (event?.data as { last_committed_action_index?: number }).last_committed_action_index,
+    2
+  );
+});
+
 test("adapter recognizes safe progress events", () => {
   const adapter = createStreamEventAdapter({ sessionId: "session-a", runId: "run-1" });
   const event = adapter.adapt({

@@ -16,6 +16,8 @@ from app.services.input_acceptance_models import (
 from app.services.input_acceptance_models import (
     load_json as _load_json,
 )
+from app.storage.database import with_sqlite_busy_retry
+from app.storage.exam_paper_repository import require_exam_paper
 from app.storage.repository_utils import initial_context_status, new_id, now_iso
 
 
@@ -30,6 +32,7 @@ class SessionStartAcceptanceMixin:
 
         return self.start_sessions([payload])[0]
 
+    @with_sqlite_busy_retry
     def start_sessions(self, payloads: list[SessionStartRequest]) -> list[StartedSession]:
         """Create an idempotent group of sessions in one SQLite transaction."""
 
@@ -56,19 +59,21 @@ class SessionStartAcceptanceMixin:
         student_thought = payload.student_initial_thought.strip()
         context_status = initial_context_status(problem_text, student_thought)
         payload_json = _canonical_json({"message": text})
+        start_fingerprint_payload = {
+            "grade_band": payload.grade_band,
+            "subject": payload.subject,
+            "model_profile_id": payload.model_profile_id,
+            "problem_text": problem_text,
+            "student_initial_thought": student_thought,
+            "problem_image_sha256": hashlib.sha256(
+                (payload.problem_image_data_url or "").encode("utf-8")
+            ).hexdigest(),
+        }
+        # Keep paper-less starts compatible with fingerprints accepted before 0011.
+        if payload.paper_id is not None:
+            start_fingerprint_payload["paper_id"] = payload.paper_id
         start_fingerprint = hashlib.sha256(
-            _canonical_json(
-                {
-                    "grade_band": payload.grade_band,
-                    "subject": payload.subject,
-                    "model_profile_id": payload.model_profile_id,
-                    "problem_text": problem_text,
-                    "student_initial_thought": student_thought,
-                    "problem_image_sha256": hashlib.sha256(
-                        (payload.problem_image_data_url or "").encode("utf-8")
-                    ).hexdigest(),
-                }
-            ).encode("utf-8")
+            _canonical_json(start_fingerprint_payload).encode("utf-8")
         ).hexdigest()
 
         existing_session = conn.execute(
@@ -101,6 +106,7 @@ class SessionStartAcceptanceMixin:
                 accepted=False,
             )
 
+        require_exam_paper(conn, payload.paper_id)
         ts = now_iso()
         input_id = new_id("inp")
         message_id = new_id("msg")
@@ -114,16 +120,17 @@ class SessionStartAcceptanceMixin:
         conn.execute(
             """
             INSERT INTO sessions (
-              id, grade_band, subject, model_profile_id, problem_text,
+              id, grade_band, subject, model_profile_id, paper_id, problem_text,
               problem_image_data_url, student_initial_thought, phase,
               context_status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'diagnosing', ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'diagnosing', ?, ?, ?)
             """,
             (
                 payload.session_id,
                 payload.grade_band,
                 payload.subject,
                 payload.model_profile_id,
+                payload.paper_id,
                 problem_text,
                 payload.problem_image_data_url,
                 student_thought,

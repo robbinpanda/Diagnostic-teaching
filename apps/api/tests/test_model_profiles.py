@@ -11,6 +11,7 @@ from app.llm.opencode_free_models import (
     BUILTIN_FREE_MODELS,
     OPENCODE_PUBLIC_API_KEY,
     OpenCodeFreeModel,
+    OpenCodeFreeModelCatalog,
     parse_opencode_free_models,
 )
 from app.llm.provider import IMAGE_ANALYSIS_PROMPT
@@ -43,7 +44,7 @@ def test_model_profile_encrypts_api_key(tmp_path: Path):
     assert host_from_url(row["base_url"]) == "example.com"
 
 
-def test_opencode_catalog_keeps_free_supported_models_and_image_metadata():
+def test_opencode_catalog_keeps_only_curated_mimo_model_and_image_metadata():
     models = parse_opencode_free_models(
         {
             "opencode": {
@@ -51,6 +52,12 @@ def test_opencode_catalog_keeps_free_supported_models_and_image_metadata():
                 "npm": "@ai-sdk/openai-compatible",
                 "api": "https://opencode.ai/zen/v1",
                 "models": {
+                    "mimo-v2.5-free": {
+                        "id": "mimo-v2.5-free",
+                        "name": "MiMo V2.5 Free",
+                        "cost": {"input": 0, "output": 0},
+                        "modalities": {"input": ["text", "image"], "output": ["text"]},
+                    },
                     "vision-free": {
                         "id": "vision-free",
                         "name": "Vision Free",
@@ -84,19 +91,47 @@ def test_opencode_catalog_keeps_free_supported_models_and_image_metadata():
     )
 
     assert [(model.model, model.provider, model.is_multimodal) for model in models] == [
-        ("anthropic-free", "anthropic", False),
-        ("vision-free", "openai_compatible", True),
+        ("mimo-v2.5-free", "openai_compatible", True),
     ]
-    assert models[0].base_url.endswith("/messages")
 
 
 def test_builtin_opencode_models_have_expected_multimodal_checkbox():
     capabilities = {model.model: model.is_multimodal for model in BUILTIN_FREE_MODELS}
 
     assert capabilities == {
-        "deepseek-v4-flash-free": False,
         "mimo-v2.5-free": True,
     }
+
+
+def test_opencode_catalog_filters_non_curated_models_from_existing_cache(tmp_path: Path):
+    cache_path = tmp_path / "opencode-models.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "models": [
+                    {
+                        "model": "deepseek-v4-flash-free",
+                        "name": "DeepSeek V4 Flash Free",
+                        "provider": "openai_compatible",
+                        "base_url": "https://opencode.ai/zen/v1",
+                        "is_multimodal": False,
+                    },
+                    {
+                        "model": "mimo-v2.5-free",
+                        "name": "MiMo V2.5 Free",
+                        "provider": "openai_compatible",
+                        "base_url": "https://opencode.ai/zen/v1",
+                        "is_multimodal": True,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert [model.model for model in OpenCodeFreeModelCatalog(cache_path).current()] == [
+        "mimo-v2.5-free"
+    ]
 
 
 def test_managed_opencode_profiles_sync_into_sqlite_and_cannot_be_changed(tmp_path: Path):

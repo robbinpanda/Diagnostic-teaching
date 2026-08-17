@@ -366,11 +366,10 @@ def test_speech_stream_rejects_cross_site_browser_origins():
     app.state.speech_transcriber = _FakeTranscriber()
     client = TestClient(app)
 
-    with pytest.raises(WebSocketDisconnect) as exc_info:
-        with client.websocket_connect(
-            "/api/speech/stream",
-            headers={"Origin": "https://example.test"},
-        ):
-            pass
+    with pytest.raises(WebSocketDisconnect) as exc_info, client.websocket_connect(
+        "/api/speech/stream",
+        headers={"Origin": "https://example.test"},
+    ):
+        pass
 
     assert exc_info.value.code == 1008

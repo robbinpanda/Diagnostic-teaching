@@ -1,7 +1,9 @@
 # 答疑状态机与 LLM 主导流程
 
-版本：v1.6
-日期：2026-07-23
+> 本文是现行教学行为合同。系统组件和端到端数据流见 [系统总览](./system-overview.md)，完整文档入口见 [文档导航](./README.md)。
+
+版本：v1.8
+日期：2026-08-06
 适用项目：诊断式数学答疑 MVP
 
 本文档说明当前答疑流程的真实运行方式：**后端不写死数学解题分支，但会强制执行上下文收集与教学动作工作流。LLM 每次只输出一个结构化 `TutorTurn` 原子动作，同时判断 `context_status` 并提供可靠的新语义摘要；后端在上下文未 ready 时只允许开放提问，ready 后再根据 action 推导 `wait_for_student`，并在非阻塞动作之间做 bounded loop。`EXPLAIN_PRINCIPLE` 必须产生 `knowledge_card`，`EXPLAIN_LOCAL` 可按知识复用价值选择产生 `knowledge_card`，`SUMMARIZE` 必须产生 `problem_card`。**
@@ -71,14 +73,14 @@ sequenceDiagram
 
 - 没有正式 session 内的前置教学 intake。文字草稿和题图可以先经过只决定 session 数量的拆题或框选阶段；兼容的单题 `/start` 调用，以及拆题/框选确认后的每个子题，才在接纳事务中创建正式 session，并与对应 `session_inputs`、`STUDENT_RESPONSE` message 原子落库。客户端提供稳定 session id 和 `client_message_id`，相同请求重试返回原结果。
 - `context_status` 取 `need_problem / need_thought / ready`。模型依据完整对话语义更新 `problem_summary / student_thought_summary`，后端把它们与 assistant action 原子写回 `sessions.problem_text / student_initial_thought`。不得按消息序号猜测字段。
-- `need_problem` 或 `need_thought` 时后端清除 checkpoint/card，并强制 action 为 `ASK_OPEN_QUESTION`；只有 `ready` 后才能讲解、出选择题、总结或生成卡片。“完全没思路”是有效的思路状态，可以进入 ready，但它只表示上下文信息已收齐，不表示教学已完成，也不是缺少某个具体原理的证据。system prompt 要求此时先用只推进一个连接的低门槛数学问题让学生进入第一步，默认优先 `ASK_MULTIPLE_CHOICE`；只有后续作答、选择“我不知道”、明确追问或既有对话暴露具体缺口后，才选择 `EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE`。具体语义由模型结合完整对话判断，后端不使用中文关键词正则拦截 action。模型明确输出 `ready` 且题目已经存在时，后端不会仅因本轮省略可选的 `student_thought_summary` 而退回 `need_thought`。
+- `need_problem` 或 `need_thought` 时后端清除 checkpoint/card，并强制 action 为 `ASK_OPEN_QUESTION`，但完整保留模型输出的 `message`，不按末尾标点或 action 改写、替换、追加正文；只有 `ready` 后才能讲解、出选择题、总结或生成卡片。初始题图轮次第一次有效输出仍为 `need_problem` 时，会携带同一裁图条件重试一次，最多进行两次题图识别尝试。“完全没思路”是有效的思路状态，可以进入 ready，但它只表示上下文信息已收齐，不表示教学已完成，也不是缺少某个具体原理的证据。system prompt 要求此时先用只推进一个连接的低门槛数学问题让学生进入第一步，默认优先 `ASK_MULTIPLE_CHOICE`；只有后续作答、选择“我不知道”、明确追问或既有对话暴露具体缺口后，才选择 `EXPLAIN_LOCAL / EXPLAIN_PRINCIPLE`。具体语义由模型结合完整对话判断，后端不使用中文关键词正则拦截 action。模型明确输出 `ready` 且题目已经存在时，后端不会仅因本轮省略可选的 `student_thought_summary` 而退回 `need_thought`。
 - 正式 session 的输入接纳和模型生成是两个服务边界。`POST /api/sessions/{session_id}/inputs` 与 checkpoint answer 接口先把输入及其业务结果写入 SQLite；`POST /api/chat/stream` 再从权威历史生成。客户端断开 SSE 不会使已经接纳的输入消失。
 - 题目与思路可在同一条或任意多条消息中、以任意顺序提供；标签只帮助语义理解，不决定字段。寒暄、表情和无关文字不能成为题目或思路摘要。
 - LLM 每轮决定 `state_hint`、`action`、`message`、`breakpoint_description`、`checkpoint`、`knowledge_card`、`problem_card`。
 - 后端不信任模型给出的等待判断；`wait_for_student` 由后端根据 action 强制推导。
 - `ASK_OPEN_QUESTION` 和 `ASK_MULTIPLE_CHOICE` 是阻塞动作，会停下等待学生。`ASK_MULTIPLE_CHOICE` 等待期间仍允许学生在输入框直接输入原文；文字提交会原子结束当前 checkpoint，并作为普通学生消息进入后续教学。
-- `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是教学语义上的非阻塞动作。`RESPOND_TO_CHECKPOINT` 直接继续；`EXPLAIN_PRINCIPLE` 必须内嵌展示 `knowledge_card`，`EXPLAIN_LOCAL` 仅在模型判断本次内容值得独立记忆和迁移复用时展示，确认归档后继续。两类讲解的内容职责严格互斥：`EXPLAIN_LOCAL` 每条只修一个具体步骤或局部连接，`EXPLAIN_PRINCIPLE` 每条只讲一个可迁移原理并仅指出其与下一步的关联；不得在同一 message 中混合原理讲解与具体应用，需要两者时拆成不同 action。
-- knowledge/problem card 出现后不锁住输入框。学生先发送问题时，后端原子暂存卡片并继续生成，前端保留一张可折叠的待处理卡片；该卡片解决前禁止再生成新卡。稍后保存或舍弃暂存卡片不会重复启动续讲。
+- `EXPLAIN_LOCAL`、`EXPLAIN_PRINCIPLE`、`RESPOND_TO_CHECKPOINT` 是教学语义上的非阻塞动作。`RESPOND_TO_CHECKPOINT` 直接继续；`EXPLAIN_PRINCIPLE` 必须内嵌展示 `knowledge_card`，`EXPLAIN_LOCAL` 仅在模型判断本次内容值得独立记忆和迁移复用时展示，确认归档后继续。两类讲解都有明确止步线：`EXPLAIN_PRINCIPLE` 只用一般字母讲一个原理，不得代入当前题数据、产生当前题新结果或切换到第二个原理；`EXPLAIN_LOCAL` 至多得到一个局部步骤的直接结果，不得继续下一公式、判号或答案。message 和 knowledge card 同受此边界约束。讲解后学生尚未亲自应用时，下一 action 优先用诊断式问题获取其关键判断，禁止连续讲解自动接力完成整题。
+- knowledge/problem card 出现后不锁住输入框。学生先发送问题时，后端原子暂存卡片并继续生成；待处理卡片不会禁止后续 action 再生成知识卡、题目卡或执行 `SUMMARIZE`。每张卡片始终锚定在来源 assistant 消息之后，滚离原位时自动折叠；多张已滚过原位的卡片收纳在有高度上限的顶部紧凑列表中，点击后回到原位并展开。稍后保存或舍弃 deferred 卡片不会重复启动续讲。
 - knowledge card 只保存脱离当前题仍成立的公式、定理、性质或通用方法；problem card 只保存当前具体题目的条件、完整步骤和最终答案。整题依赖的可迁移原理已讲清但尚未制卡时，先生成知识卡，再在后续 `SUMMARIZE` 生成题目卡；同一道题允许各有一张。
 - message、checkpoint 和两类卡片的所有可见字段统一使用纯文本 + KaTeX：短公式用 `$...$`，关键推导可用 `$$...$$` 独立成行，不使用界面不会解释的 Markdown 标题或列表。卡片合同额外拒绝定界符外明显的下标、上标、方程和数学符号，并触发一次带具体格式说明的模型重试。
 - 连续 3 个非阻塞动作后，下一轮 prompt 会要求模型在“自然总结”和“获取必要的新证据”之间选择；若仍输出非阻塞动作，后端会转成 `ASK_OPEN_QUESTION`。
@@ -86,8 +88,8 @@ sequenceDiagram
 - `SUMMARIZE` 不要求学生先独立给出最终答案，也不要求额外插入确认性问题；当前结论或卡点已经讲清即可自然收束。
 - 项目不主动截断、压缩或摘要历史；模型供应商自身的硬上下文限制仍然存在。
 - provider 流式请求若只产生推理事件、最终没有任何可见 content，本轮会保留原消息透明重试一次，并向前端发送“模型未返回内容，正在自动重试”进度；第二次仍为空才进入 `failed/provider_error`。这只处理传输结果，不判断或改写教学 action。
-- AI 正在流式输出时，学生仍可输入。发送新问题会显式中断 run，把已展示片段持久化为“讲解被新问题打断”，再按原文接纳学生消息；单独点击停止仍按取消处理，不保存半截输出。
-- 打断原文会开启一层支线并获得最高优先级；支线解决前不得总结或接续原讲解。模型标记支线解决后自动从断点继续，学生也可以点击“回到原讲解”提前返回；支线中的解释和作答全部保留在后续模型历史中。
+- AI 正在流式输出时，学生仍可反复发送插嘴。当前 run 不被打断，也不保存半截 assistant 消息；插嘴先按顺序进入浏览器可恢复 outbox，当前完整输出提交后再逐条通过 `session_inputs` 幂等接纳，并只启动一次后续生成，因此模型能同时看到本轮积累的全部插嘴。
+- 插嘴不创建教学支线，不存在 detour/resume 或“回到原讲解”状态。单独点击停止仍调用显式 interrupt，丢弃未完成的瞬时片段。
 
 ## 2. LLM 输出合同：TutorTurn
 
@@ -154,7 +156,7 @@ system prompt 会在 `ACTION_PROTOCOL` 中逐项告诉模型每个 action 的功
 | `EXPLAIN_PRINCIPLE` | 非阻塞 + 卡片确认 | 从定义和原理出发讲清一个知识点，输出 `knowledge_card`，关闭归档后继续 |
 | `RESPOND_TO_CHECKPOINT` | 非阻塞 | 只根据答对、答错或“我不知道”提供具体、真诚的情绪支持；不解释正误、不分析或纠正误区、不透露答案或提示，数学教学交给后续 action |
 | `ASK_OPEN_QUESTION` | 阻塞 | 展示开放问题，`wait_for_student=true`，等待学生输入 |
-| `ASK_MULTIPLE_CHOICE` | 阻塞 | 要求存在合法 checkpoint，用三个可诊断选项定位学生误区 |
+| `ASK_MULTIPLE_CHOICE` | 阻塞 | 要求存在合法 checkpoint；前端展示三个诊断选项、“我不知道”和自由输入，共五种回复方式 |
 | `SUMMARIZE` | 终止 + 卡片确认 | 仅在教学目标已实际处理时自然总结并输出整题上帝视角解法的 `problem_card`，关闭归档后结束；prompt 要求学生最新仍明确表示不会或无法开始时不要使用 |
 
 后端会做动作归一化：
@@ -216,7 +218,7 @@ RESPOND_TO_CHECKPOINT
 
 ## 7. 检查点如何反馈给 LLM
 
-学生可点击选项，也可直接输入自由文字回应检查点。两条路径都会先持久化输入，再继续生成。
+学生可点击三个诊断选项或“我不知道”，也可选择第五项“我想自己输入回答”后在卡片内填写原文；会话底部输入框仍可直接发送自由文字。所有路径都会先持久化输入，再继续生成。
 
 自由文字路径复用普通 `STUDENT_MESSAGE` 接纳，并在同一事务中把原文写入 `checkpoints.free_text_response`、设置 `answered_at`、写入学生原文 message 和 `checkpoint.completed(response_mode=free_text)` durable event。它不设置 `selected_option_id/is_correct`，因此不会伪造正误判断；刷新后不再恢复为待答 checkpoint，之后再选选项会返回冲突。
 
@@ -252,9 +254,9 @@ checkpoint 类似一次需要结果的调用，但结果来自学生，而不是
 
 `EXPLAIN_PRINCIPLE` 必须输出 knowledge card；`EXPLAIN_LOCAL` 由模型判断是否输出。局部讲解中易混且可迁移的辨析（例如韦达定理“和用 $-b/a$、积用 $c/a$”）适合出卡；一次性代入、算术计算、符号改写或纯本题过渡不出卡。可选卡仍必须结构化 message 中的同一个知识点，不得扩大讲解范围。
 
-生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null` 并预绑定默认文件夹。知识卡片随消息时间线内嵌展示，保存时带最终 `content/folder_id` 的 `CARD_DISMISSED_CONTINUE` 原子更新内容、位置与归档时间；二次确认舍弃会写控制命令后删除待归档卡片。Problem card 选择位置后只归档、不继续。未解决的待归档卡片存在时，`/api/chat/stream` 返回 409。
+生成 action、assistant message 和待归档 card 在一个 SQLite 事务中写入。新卡片最初 `saved_at=null` 并预绑定默认文件夹：有试卷归属时使用该试卷稳定的“按试卷归档 / `<试卷名>`”目录，无试卷归属时使用对应卡片类型的系统默认目录；`study_cards.folder_id` 与 `card.ready.folder_id` 必须一致。知识卡片随消息时间线内嵌展示，保存时带最终 `content/folder_id` 的 `CARD_DISMISSED_CONTINUE` 原子更新内容、位置与归档时间；二次确认舍弃会写控制命令后删除待归档卡片。Problem card 选择位置后只归档、不继续。客户端可以为当前卡片改选其他目录；未显式选择时后端依次沿用卡片已有目录和类型默认目录。刚生成且尚未 deferred 的当前卡片仍会阻止无新增学生输入的直接续跑；一旦学生发送新消息并原子写入 `deferred_at`，该卡片不再限制后续生成。
 
-全局卡片库中的查看不属于阻塞教学工作流；已归档 knowledge card 可在右侧浮层中编辑并通过 `PUT /api/cards/{id}` 更新。
+全局卡片库中的查看不属于阻塞教学工作流。知识卡片库中央页按受管试卷目录分组展示已归档 knowledge card，进入试卷后展示知识点；导出时先在库内按整卷或逐张跨卷多选，再按与答疑卡片一致的字段固定双列打印。答疑页不再提供右侧完整卡片管理器入口。待归档与已归档的 knowledge/problem card 仍能在卡片交互中选择新的试卷目录；新建试卷时复用 `POST /api/exam-papers` 创建实体和受管目录。已归档 knowledge card 可在浮动窗口中编辑并通过 `PUT /api/cards/{id}` 更新，已归档卡片的位置通过 move 接口更新。
 
 Checkpoint 同样嵌入消息时间线，只有点击“提交答案”才调用 answer 接口。
 
@@ -264,12 +266,17 @@ Checkpoint 同样嵌入消息时间线，只有点击“提交答案”才调用
 GET    /api/cards?card_type=knowledge_card|problem_card
 POST   /api/cards/{card_id}/save
 PUT    /api/cards/{card_id}              # 修改已归档 knowledge card
+PATCH  /api/cards/{card_id}/move          # 修改已归档卡片的目录
 POST   /api/sessions/{session_id}/inputs  # CARD_DISMISSED_CONTINUE
 DELETE /api/cards
 DELETE /api/cards/{card_id}
+POST   /api/cards/bulk-delete            # 原子删除多张已归档卡片
+POST   /api/mistake-sets/bulk-delete     # 原子删除多个错题集快照
 ```
 
-`DELETE /api/cards` 会清空全部已归档和待归档卡片，但不删除 session、message、checkpoint 或日志。`session_id` 仍保存在卡片记录中作为来源审计字段，但全局卡片库的查询与删除不依赖当前会话。新建、恢复或删除 session 都不会清空已归档卡片；只有 `saved_at=null` 的待归档卡片仍属于原会话的阻塞工作流。
+`DELETE /api/cards` 会清空全部已归档和待归档卡片，但不删除 session、message、checkpoint 或日志。清理在 `BEGIN IMMEDIATE` 事务内复查 `session_runs`；任一 run 仍为 `queued/running` 时整体返回 409，不依赖浏览器流是否仍连接，也不会删除部分卡片。`session_id` 仍保存在卡片记录中作为来源审计字段，但全局卡片库的查询与删除不依赖当前会话。删除 session 或删除其最后一条引用后同步清理试卷实体，都不会清空已归档卡片或受管试卷目录；该 session 的 `saved_at=null` 卡片则随会话删除。其余多张待归档卡片通过 `pending_cards` 恢复到各自的消息锚点，但不会形成生成锁。
+
+错题卡片库以 `GET /api/cards` 返回的已归档 `problem_card` 为权威数据源，与 session history 解耦；卡片入库后即使来源 session 和活动试卷删除也继续显示，点击直接打开卡片。知识卡片库和错题卡片库通过 `POST /api/cards/bulk-delete` 在单一事务中删除已选归档卡片；请求中任一卡片不存在或仍待归档时整批回滚，来源 session 不受影响。`POST /api/mistake-sets` 接收有序 `card_ids`，拒绝待归档、非题目类型或不存在的卡片，并在单个 SQLite 写事务中把完整 `problem_card`、来源卡片目录名及仍可用的题图复制到 `mistake_set_items`；来源 session 已删除时 `source_session_id` 直接保存为 `null`。`GET /api/mistake-sets` 和 `GET /api/mistake-sets/{id}` 只读取快照；`POST /api/mistake-sets/bulk-delete` 原子删除已选快照并级联删除其 items，但不删除来源题目卡片。打印固定为 A4 纵向双列；可选练习模式只保留题目摘要并把解析与答案替换为空白作答区，不写回数据库。
 
 ## 9. SSE 事件顺序与 durable 边界
 
@@ -358,7 +365,9 @@ checkpoint answer 会在原子事务中依次追加 `checkpoint.completed` 和�
 - `strip_code_fence()` 去掉 markdown fence。
 - `extract_json_object()` 从文本中截取最外层 JSON。
 - `repair_unescaped_string_field(text, "message")` 修复 message 内部未转义引号。
-- `recover_tutor_turn_from_raw()` 在 JSON 解析失败时恢复最小可用 turn。
+- TutorTurn JSON 解析或合同校验失败时，把错误反馈给模型并最多纠正 2 次；连续 3 次仍不合法才终止 run。
+- 文字拆题、题图区域检测和图片内容分析共用结构化 JSON 重试器，最多 3 次格式尝试。
+- `recover_tutor_turn_from_raw()` 仅用于读取旧历史中的遗留原始 JSON，不作为新生成 run 的成功兜底。
 - `validate_checkpoint()` 移除不合格 checkpoint。
 - `apply_backend_action_policy()` 修正 action/checkpoint/wait 的不一致。
 
@@ -395,10 +404,12 @@ GET  /api/sessions/{session_id}/run
 POST /api/sessions/{session_id}/interrupt
 
 X-Run-Id: run_...
-run_started -> message_delta... -> decision... -> message_done
+run_started -> message_delta... -> decision... -> message_done -> stream_complete
 run_interrupted  # 仅显式中断
 error            # failed run
 ```
+
+`message_done` 只结束当前 action，不代表 HTTP run 成功。`stream_complete` 只能在 assistant action 与 `session_runs.status=completed` 已经提交后发送；前端在 EOF 前未收到 `stream_complete / error / run_interrupted` 时抛出流意外关闭并查询 `/run` 对账。若 action 已提交则从 SQLite 重载；若没有 action、run 可重试，则按同一生成意图受控续跑一次。每次浏览器生成意图带稳定 `client_run_id`，数据库唯一约束防止响应丢失造成双 run。
 
 `session_runs` 由 Alembic `apps/api/migrations/versions/0004_session_runs.py` 创建，并通过 `down_revision` 接在 session event 迁移之后。后续只扩展这条统一迁移链，不要恢复运行时建表或建立第二套 run 表。
 

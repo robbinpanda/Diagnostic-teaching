@@ -1,1 +1,4 @@
--r requirements-speech.txt
+# Compatibility entrypoint for the lightweight runtime. Optional speech and
+# tooling layers must be installed in separate pip invocations because the core
+# lock enables --require-hashes.
+-r requirements-core.txt

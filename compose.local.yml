@@ -5,9 +5,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: diagnostic-teaching:0.5.0
+    image: diagnostic-teaching:0.6.0
     ports:
-      - "3000:8010"
+      - "127.0.0.1:3000:8010"
     environment:
       DATABASE_URL: sqlite:////workspace/data/app.db
       APP_SECRET_PATH: /workspace/data/app-secret.key

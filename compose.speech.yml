@@ -1,6 +1,6 @@
 services:
   app:
-    image: diagnostic-teaching:0.5.0-speech
+    image: diagnostic-teaching:0.6.0-speech
     build:
       args:
         INSTALL_SPEECH: "1"

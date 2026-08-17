@@ -1,6 +1,38 @@
-target-version = "py312"
+target-version = "py311"
 line-length = 100
 extend-exclude = ["migrations/versions"]
 
 [lint]
-select = ["E4", "E7", "E9", "F", "I"]
+select = [
+  "A",
+  "ASYNC",
+  "B",
+  "C4",
+  "DTZ",
+  "E4",
+  "E7",
+  "E9",
+  "F",
+  "G",
+  "I",
+  "LOG",
+  "PERF",
+  "PIE",
+  "RET",
+  "RUF",
+  "SIM",
+  "UP",
+]
+ignore = [
+  # Chinese product copy intentionally uses full-width punctuation.
+  "RUF001",
+  "RUF002",
+  "RUF003",
+  # Keep assertions in the conventional actual == expected order.
+  "SIM300",
+]
+
+[lint.per-file-ignores]
+# These tests deliberately poll observable state to exercise scheduling behavior.
+"tests/test_async_support.py" = ["ASYNC110"]
+"tests/test_session_logger.py" = ["ASYNC110"]

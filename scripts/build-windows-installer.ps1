@@ -86,8 +86,7 @@ $buildPython = Join-Path $pythonEnvironment "Scripts\python.exe"
 
 if (-not $SkipDependencyInstall) {
     Invoke-Checked $buildPython @(
-        "-m", "pip", "install", "--disable-pip-version-check",
-        "-r", (Join-Path $apiDirectory "requirements-build.txt")
+        (Join-Path $repoRoot "scripts\install-python-deps.py"), "build"
     )
 }
 
@@ -157,6 +156,7 @@ Write-Host "[2/4] Building the static web app..."
 Push-Location $webDirectory
 try {
     Invoke-Checked $node @((Join-Path $webDirectory "node_modules\next\dist\bin\next"), "build")
+    Invoke-Checked $node @((Join-Path $webDirectory "scripts\inject-design-contract.mjs"))
 }
 finally {
     Pop-Location

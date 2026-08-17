@@ -1,0 +1,12 @@
+# Direct runtime dependencies. Regenerate requirements-core.txt with
+# scripts\lock-python-deps.cmd after changing this file.
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+watchfiles>=1.0,<2.0
+websockets>=15.0,<18.0
+httpx>=0.27,<1.0
+cryptography>=42,<47
+python-dotenv>=1.0,<2.0
+Pillow>=10.0,<13.0
+alembic>=1.13,<2.0
+SQLAlchemy>=2.0,<3.0

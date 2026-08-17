@@ -6,6 +6,7 @@ export type ChatMessage = {
   role: "student" | "assistant" | "system";
   text: string;
   action?: string;
+  actionId?: string | null;
   imageUrl?: string | null;
   runId?: string;
   actionIndex?: number;
@@ -17,6 +18,7 @@ type StreamActionBuffer = {
   messageId: string;
   text: string;
   action?: string;
+  actionId?: string;
   retryBaseline: string;
   retryText: string;
   retrying: boolean;
@@ -62,7 +64,7 @@ export type TimelineAction =
   | { type: "stream_event"; event: CanonicalStreamEvent }
   | { type: "run_completed"; sessionId: string; runId: string }
   | { type: "run_failed"; sessionId: string; runId: string; message: string }
-  | { type: "run_cancelled"; sessionId: string; runId: string; preservePartial?: boolean }
+  | { type: "run_cancelled"; sessionId: string; runId: string }
   | { type: "interaction_cleared"; sessionKey: string };
 
 export const DRAFT_SESSION_KEY = "draft";
@@ -107,6 +109,7 @@ function upsertAssistantMessage(
     role: "assistant",
     text: buffer.text,
     action: buffer.action,
+    actionId: buffer.actionId,
     runId: run.runId,
     actionIndex,
     streamState: buffer.done ? "complete" : "streaming"
@@ -136,6 +139,7 @@ function reconcileDecision(buffer: StreamActionBuffer, decision: StreamDecision)
     ...buffer,
     text,
     action: decision.action ?? buffer.action,
+    actionId: decision.action_id ?? buffer.actionId,
     retryBaseline: "",
     retryText: "",
     retrying: false
@@ -255,6 +259,8 @@ function applyStreamEvent(state: TimelineState, event: CanonicalStreamEvent): Ti
         done: true
       };
       break;
+    case "stream_complete":
+      break;
     case "run_interrupted":
       break;
     case "error": {
@@ -356,15 +362,9 @@ export function timelineReducer(state: TimelineState, action: TimelineAction): T
       return {
         ...state,
         run: { ...state.run, status: "cancelled" },
-        messages: action.preservePartial
-          ? state.messages.map((message) => (
-              message.runId === action.runId && message.streamState === "streaming"
-                ? { ...message, action: "INTERRUPTED_EXPLANATION", streamState: "complete" }
-                : message
-            ))
-          : state.messages.filter((message) => !(
-              message.runId === action.runId && message.streamState === "streaming"
-            ))
+        messages: state.messages.filter((message) => !(
+          message.runId === action.runId && message.streamState === "streaming"
+        ))
       };
     case "interaction_cleared":
       if (state.sessionKey !== action.sessionKey) return state;

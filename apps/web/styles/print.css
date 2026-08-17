@@ -26,8 +26,8 @@
     z-index: 0;
     background: #ffffff;
     font-family: "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif;
-    font-size: 9pt;
-    line-height: 1.58;
+    font-size: 8.2pt;
+    line-height: 1.45;
   }
 
   .knowledgeCardPrintHeader {
@@ -35,8 +35,8 @@
     align-items: flex-end;
     justify-content: space-between;
     gap: 12mm;
-    margin: 0 0 6mm;
-    padding: 0 0 4mm;
+    margin: 0 0 4mm;
+    padding: 0 0 2.5mm;
     border-bottom: 0.45mm solid #167f80;
     break-after: avoid;
   }
@@ -51,7 +51,7 @@
   .knowledgeCardPrintHeader h1 {
     margin: 1mm 0 0;
     color: #16262c;
-    font-size: 19pt;
+    font-size: 16pt;
     line-height: 1.2;
   }
 
@@ -63,7 +63,7 @@
   }
 
   .knowledgeCardPrintColumns {
-    column-gap: 6mm;
+    column-gap: 4mm;
     column-fill: auto;
     background: #ffffff;
   }
@@ -79,8 +79,8 @@
 
   .knowledgeCardPrintCard {
     width: 100%;
-    margin: 0 0 5mm;
-    padding: 4mm;
+    margin: 0 0 3mm;
+    padding: 2.7mm;
     border: 0.3mm solid #b9cfcc;
     border-top: 1.3mm solid #16888a;
     border-radius: 2.2mm;
@@ -98,24 +98,24 @@
 
   .knowledgeCardPrintCard > header {
     display: grid;
-    grid-template-columns: 7mm minmax(0, 1fr);
+    grid-template-columns: 6.2mm minmax(0, 1fr);
     align-items: start;
-    gap: 2.5mm;
-    margin-bottom: 3mm;
-    padding-bottom: 2.5mm;
+    gap: 2mm;
+    margin-bottom: 2mm;
+    padding-bottom: 1.6mm;
     border-bottom: 0.2mm solid #dbe5e4;
     break-inside: avoid;
   }
 
   .knowledgeCardPrintCard > header > span {
-    width: 7mm;
-    height: 7mm;
+    width: 6.2mm;
+    height: 6.2mm;
     display: grid;
     place-items: center;
     border-radius: 50%;
     background: #16888a;
     color: #ffffff;
-    font-size: 7.5pt;
+    font-size: 6.8pt;
     font-weight: 800;
   }
 
@@ -140,12 +140,12 @@
   .knowledgeCardPrintCard h2 {
     margin: 0;
     color: #17272d;
-    font-size: 12.5pt;
+    font-size: 10.5pt;
     line-height: 1.35;
   }
 
   .knowledgeCardPrintCard section {
-    padding: 2.4mm 0;
+    padding: 1.5mm 0;
     border-bottom: 0.2mm solid #e3eae9;
     break-inside: avoid;
   }
@@ -156,9 +156,9 @@
   }
 
   .knowledgeCardPrintCard h3 {
-    margin: 0 0 1.2mm;
+    margin: 0 0 0.7mm;
     color: #426167;
-    font-size: 7.5pt;
+    font-size: 6.8pt;
     font-weight: 800;
     letter-spacing: 0.04em;
   }
@@ -172,11 +172,11 @@
 
   .knowledgeCardPrintCard ul,
   .knowledgeCardPrintCard ol {
-    padding-left: 4.5mm;
+    padding-left: 3.8mm;
   }
 
   .knowledgeCardPrintCard li + li {
-    margin-top: 1.4mm;
+    margin-top: 0.7mm;
   }
 
   .printDerivationList li {
@@ -196,13 +196,13 @@
 
   .printSolutionStepList strong {
     display: block;
-    margin-bottom: 0.8mm;
+    margin-bottom: 0.5mm;
     color: #4c3b22;
   }
 
   .printStepResult {
-    margin-top: 1mm;
-    padding: 1.2mm 1.5mm;
+    margin-top: 0.6mm;
+    padding: 0.8mm 1.1mm;
     border-left: 0.7mm solid #d7a64f;
     background: #fff9eb;
   }
@@ -210,7 +210,7 @@
   .knowledgeCardPrintCard .printKnowledgeLead,
   .knowledgeCardPrintCard .printProblemConnection {
     margin: 0 -1.5mm;
-    padding: 2.4mm 1.5mm;
+    padding: 1.5mm 1.2mm;
     border-radius: 1.5mm;
     background: #eef9f7;
   }
@@ -227,7 +227,7 @@
   .knowledgeCardPrintCard.problemCard .printProblemLead,
   .knowledgeCardPrintCard.problemCard .printFinalAnswer {
     margin: 0 -1.5mm;
-    padding: 2.4mm 1.5mm;
+    padding: 1.5mm 1.2mm;
     border-radius: 1.5mm;
     background: #fff7e7;
   }
@@ -247,9 +247,45 @@
     font-style: italic;
   }
 
+  .practiceHiddenTitle {
+    min-height: 5mm;
+    border-radius: 1mm;
+    background: #dfe5e3;
+    color: transparent !important;
+  }
+
+  .practiceHiddenTitle * {
+    visibility: hidden !important;
+  }
+
+  .printPracticeArea {
+    min-height: 48mm;
+    border: 0 !important;
+    display: grid;
+    align-content: start;
+    gap: 5mm;
+    color: #738084;
+  }
+
+  .printPracticeArea strong {
+    font-size: 6.8pt;
+    letter-spacing: 0.06em;
+  }
+
+  .printPracticeArea i {
+    display: block;
+    height: 0;
+    border-top: 0.2mm solid #d7dfdd;
+  }
+
+  .printIncompleteLine {
+    color: #738084;
+    font-style: italic;
+  }
+
   .knowledgeCardPrintRoot .mathDisplay {
     overflow: visible;
-    margin: 1.5mm 0;
+    margin: 0.8mm 0;
     font-size: 0.92em;
   }
 

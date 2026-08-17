@@ -14,7 +14,9 @@ from app.routes import (
     cards,
     chat,
     checkpoints,
+    exam_papers,
     inputs,
+    mistake_sets,
     model_profiles,
     problem_images,
     problem_intake,
@@ -29,7 +31,7 @@ from app.storage.repositories import ModelProfileRepository, SessionRepository
 from app.storage.security import SecretBox
 from app.storage.session_logger import SessionLogger
 
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.6.0"
 logger = logging.getLogger(__name__)
 
 
@@ -54,6 +56,7 @@ async def lifespan(app: FastAPI):
             refresh_task.cancel()
             with suppress(asyncio.CancelledError):
                 await refresh_task
+        await app.state.session_logger.close_async_writer()
 
 
 def create_app() -> FastAPI:
@@ -119,6 +122,8 @@ def create_app() -> FastAPI:
     app.include_router(session_events.router)
     app.include_router(chat.router)
     app.include_router(checkpoints.router)
+    app.include_router(exam_papers.router)
+    app.include_router(mistake_sets.router)
     app.include_router(card_folders.router)
     app.include_router(cards.router)
     app.include_router(speech.router)

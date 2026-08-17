@@ -1,79 +1,194 @@
 .appShell {
-  width: 100vw;
-  height: 100vh;
+  --sidebar-width: 260px;
+  position: relative;
+  z-index: 1;
+  width: calc(100vw - (var(--shell-inset) * 2));
+  height: calc(100dvh - (var(--shell-inset) * 2));
+  margin: var(--shell-inset);
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 292px;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-rows: var(--shell-topbar) minmax(0, 1fr);
   overflow: hidden;
-  background: var(--page);
-  transition: grid-template-columns 180ms ease;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: var(--shell-radius);
+  background: var(--panda-canvas);
+  box-shadow: var(--stage-shadow);
+  transition: grid-template-columns 200ms var(--ease-standard);
+}
+
+.appShell.sidebarResizing {
+  cursor: col-resize;
+  user-select: none;
+  transition: none;
 }
 
 .appShell.leftClosed {
-  grid-template-columns: 0 minmax(0, 1fr) 292px;
+  grid-template-columns: 0 minmax(0, 1fr);
 }
 
-.appShell.rightClosed {
-  grid-template-columns: 260px minmax(0, 1fr) 0;
-}
-
-.appShell.leftClosed.rightClosed {
-  grid-template-columns: 0 minmax(0, 1fr) 0;
-}
-
-.sessionSidebar,
-.cardSidebar {
+.appTopbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
   min-width: 0;
-  height: 100vh;
-  overflow: hidden;
-  transition: opacity 150ms ease, visibility 150ms ease;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 22px 0 24px;
+  border-bottom: 1px solid var(--stage-line);
+  background: rgba(255, 255, 248, 0.86);
+  backdrop-filter: blur(16px);
+  z-index: 20;
 }
 
-.leftClosed .sessionSidebar,
-.rightClosed .cardSidebar {
+.appBrand,
+.topbarAccount,
+.accountButton {
+  display: flex;
+  align-items: center;
+}
+
+.appBrand {
+  gap: 10px;
+  color: var(--stage-forest);
+}
+
+.appBrand strong {
+  color: var(--stage-ink);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.pandaMark {
+  flex: 0 0 auto;
+  color: var(--primary-800);
+}
+
+.topbarAccount {
+  gap: 14px;
+  color: var(--neutral-600);
+}
+
+.topbarUtility,
+.accountButton {
+  min-width: 40px;
+  min-height: 40px;
+  border: 0;
+  color: var(--primary-800);
+  background: transparent;
+}
+
+.topbarUtility {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-full);
+}
+
+.topbarUtility:hover,
+.accountButton:hover {
+  background: var(--primary-50);
+}
+
+.topbarDivider {
+  width: 1px;
+  height: 26px;
+  background: var(--neutral-200);
+}
+
+.accountName {
+  color: var(--neutral-900);
+  font-size: 14px;
+  font-weight: 520;
+}
+
+.accountButton {
+  gap: 7px;
+  border-radius: var(--radius-md);
+  padding: 3px 7px 3px 3px;
+}
+
+.accountAvatar {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-full);
+  color: #fff;
+  background: var(--primary-500);
+}
+
+.sessionSidebar {
+  grid-row: 2;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  transition: opacity 160ms var(--ease-standard), visibility 160ms var(--ease-standard), transform 200ms var(--ease-standard);
+}
+
+.sidebarResizeHandle {
+  position: absolute;
+  top: var(--shell-topbar);
+  bottom: 0;
+  left: var(--sidebar-width);
+  z-index: 14;
+  width: 12px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  transform: translateX(-50%);
+}
+
+.sidebarResizeHandle::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--primary-500);
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity 140ms var(--ease-standard);
+}
+
+.sidebarResizeHandle:hover::after,
+.sidebarResizeHandle:focus-visible::after,
+.sidebarResizing .sidebarResizeHandle::after {
+  opacity: 0.72;
+}
+
+.sessionSidebar {
+  grid-column: 1;
+}
+
+.leftClosed .sessionSidebar {
   visibility: hidden;
   opacity: 0;
 }
 
 .sessionSidebar {
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
-  gap: 10px;
-  padding: 12px 10px 10px;
-  border-right: 1px solid var(--line);
-  background: var(--sidebar);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-3) var(--space-3);
+  border-right: 1px solid var(--stage-line);
+  background: var(--stage-wing);
+  backdrop-filter: blur(10px);
 }
 
-.sidebarBrand {
-  min-height: 38px;
+.sidebarLead {
+  min-height: 32px;
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 0 7px;
-  white-space: nowrap;
-}
-
-.sidebarBrand strong {
-  font-size: 16px;
-  letter-spacing: 0.02em;
-}
-
-.brandGlyph,
-.welcomeGlyph {
-  display: grid;
-  place-items: center;
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.brandGlyph {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
-  border-radius: 9px;
-}
-
-.sidebarCollapse {
-  margin-left: auto;
+  justify-content: space-between;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  color: var(--neutral-500);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
 }
 
 .plainIconButton,
@@ -89,53 +204,237 @@
 }
 
 .plainIconButton {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  border-radius: 8px;
-  color: #60605b;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: var(--radius-sm);
+  color: var(--neutral-600);
   background: transparent;
+  transition: color 150ms var(--ease-standard), background 150ms var(--ease-standard), transform 150ms var(--ease-standard);
 }
 
 .plainIconButton:hover:not(:disabled),
 .toolButton:hover:not(:disabled) {
-  background: var(--sidebar-hover);
+  color: var(--primary-800);
+  background: var(--primary-50);
 }
 
-.newChatButton {
+.plainIconButton:active:not(:disabled),
+.toolButton:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.primaryNavigation {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--neutral-300) transparent;
+}
+
+.historyNavigationGroup {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.historyNavigationGroup.expanded {
+  flex: 1 1 auto;
+}
+
+.primaryNavigation .primaryNavButton {
+  position: relative;
   width: 100%;
-  min-height: 42px;
-  border: 1px solid transparent;
+  min-height: 44px;
+  border: 0;
   border-radius: 10px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 12px;
-  color: var(--ink);
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  color: var(--neutral-600);
   background: transparent;
+  font-size: 14px;
+  text-align: left;
+  transition: color 180ms var(--ease-standard), background 180ms var(--ease-standard), transform 180ms var(--ease-standard);
+}
+
+.primaryNavigation .primaryNavButton::before {
+  content: "";
+  position: absolute;
+  inset: 9px auto 9px -12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--primary-500);
+  opacity: 0;
+  transform: scaleY(0.45);
+  transition: opacity 180ms var(--ease-standard), transform 180ms var(--ease-standard);
+}
+
+.primaryNavigation .primaryNavButton:hover {
+  color: var(--primary-800);
+  background: var(--primary-50);
+  transform: translateX(2px);
+}
+
+.primaryNavigation .primaryNavButton.active,
+.historyNavigationRow.active {
+  color: var(--primary-800);
+  background: var(--primary-100);
   font-weight: 600;
+}
+
+.primaryNavigation .primaryNavButton.active::before,
+.historyNavigationRow.active .historyNavigationMain::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+.historyNavigationRow {
+  min-width: 0;
+  border-radius: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: center;
+}
+
+.historyNavigationRow .historyNavigationMain {
+  min-width: 0;
+  border-radius: 10px 0 0 10px;
+  cursor: default;
+}
+
+.primaryNavigation .historyNavigationMain:hover {
+  color: inherit;
+  background: transparent;
+  transform: none;
+}
+
+.historyTreeToggle {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--neutral-600);
+  background: transparent;
+}
+
+.historyTreeToggle:hover {
+  color: var(--primary-800);
+  background: var(--primary-100);
+}
+
+.historyTree {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 var(--space-1) 12px;
+  padding: var(--space-2) 0 0 9px;
+  border-left: 1px solid var(--neutral-200);
+}
+
+.historyTree .historySection {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.paperTreeScroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--neutral-300) transparent;
+}
+
+.paperGroup + .paperGroup { margin-top: var(--space-1); }
+
+.paperGroupButton {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  border: 0;
+  border-radius: 9px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  color: var(--neutral-700);
+  background: var(--neutral-50);
   text-align: left;
 }
 
-.newChatButton:hover:not(:disabled) {
-  border-color: var(--line);
-  background: #ffffff;
+.paperGroupButton:hover {
+  color: var(--primary-800);
+  background: var(--primary-50);
 }
 
-.sidebarSectionHeader {
-  min-height: 32px;
+.paperGroupButton span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.paperGroupButton small {
+  color: var(--neutral-600);
+  font-size: 11px;
+}
+
+.paperQuestionList {
+  margin: 2px 0 5px 10px;
+  padding-left: 6px;
+  border-left: 1px solid var(--neutral-200);
+}
+
+.historySection {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--neutral-100);
+}
+
+.historySearch {
+  height: 40px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 4px 5px 0 11px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
+  gap: var(--space-2);
+  border: 1px solid var(--neutral-200);
+  border-radius: 10px;
+  padding: 0 var(--space-3);
+  color: var(--neutral-500);
+  background: var(--neutral-25);
+  transition: border-color 160ms var(--ease-standard), box-shadow 160ms var(--ease-standard), background 160ms var(--ease-standard);
 }
 
-.sidebarSectionHeader .plainIconButton {
-  width: 28px;
-  height: 28px;
+.historySearch:focus-within {
+  border-color: var(--primary-500);
+  background: var(--neutral-0);
+  box-shadow: 0 0 0 3px rgba(105, 185, 76, 0.18);
+}
+
+.historySearch input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: var(--neutral-900);
+  background: transparent;
+  font-size: 13px;
+}
+
+.historySearch input::placeholder {
+  color: var(--neutral-500);
 }
 
 .sessionList {
@@ -145,66 +444,75 @@
   display: grid;
   grid-auto-rows: max-content;
   align-content: start;
-  gap: 3px;
+  gap: var(--space-1);
   padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--neutral-300) transparent;
 }
 
 .sessionRow {
   position: relative;
   min-width: 0;
-  border-radius: 9px;
+  border-radius: 8px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 0;
   overflow: hidden;
+  transition: background 160ms var(--ease-standard);
 }
 
 .sessionRow:hover,
+.sessionRow:focus-within,
 .sessionRow.active {
   grid-template-columns: minmax(0, 1fr) 32px;
-  background: var(--sidebar-hover);
+  background: var(--primary-50);
 }
 
 .sessionRow.active {
-  box-shadow: inset 2px 0 var(--accent);
+  box-shadow: inset 2px 0 var(--primary-500);
 }
 
 .sessionEntry {
   min-width: 0;
+  min-height: 32px;
   border: 0;
-  display: grid;
-  gap: 4px;
-  padding: 9px 10px;
-  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  color: var(--neutral-900);
   background: transparent;
   text-align: left;
 }
 
-.sessionEntry > strong,
-.sessionEntry > span {
+.sessionEntry > strong {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.sessionEntry > strong > .titleMathText {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sessionEntry > strong {
-  font-size: 13px;
-  font-weight: 560;
-}
-
-.sessionEntry > span {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--muted);
-  font-size: 10px;
+.sessionRunningIcon {
+  flex: 0 0 auto;
+  color: var(--primary-600);
 }
 
 .sessionDeleteButton {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   align-self: center;
-  border-radius: 7px;
-  color: var(--faint);
+  border-radius: var(--radius-sm);
+  color: var(--neutral-500);
   background: transparent;
 }
 
@@ -213,34 +521,179 @@
   background: var(--danger-soft);
 }
 
-.sidebarEmpty {
-  min-height: 86px;
-  display: flex;
+.historyDangerZone {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--stage-line);
+}
+
+.clearSessionsButton {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
-  color: var(--faint);
+  padding: 0 12px;
+  color: #8f5754;
+  background: rgba(249, 232, 231, 0.58);
   font-size: 12px;
+  font-weight: 650;
+  transition: border-color 160ms var(--ease-standard), background 160ms var(--ease-standard), color 160ms var(--ease-standard);
+}
+
+.clearSessionsButton:hover:not(:disabled) {
+  border-color: rgba(180, 93, 93, 0.26);
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.sidebarEmpty {
+  min-height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  color: var(--neutral-500);
+  font-size: 12px;
+  text-align: center;
+}
+
+.sidebarFooterNote {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--neutral-500);
+  font-size: 11px;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-soft);
 }
 
 .conversationPanel {
+  position: relative;
+  grid-column: 2;
+  grid-row: 2;
   min-width: 0;
-  height: 100vh;
+  height: 100%;
   display: grid;
   grid-template-rows: 56px minmax(0, 1fr) auto;
-  background: var(--page);
+  background: var(--stage-canvas);
+}
+
+.conversationPanel.welcomeConversationPanel {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.welcomeSidebarExpand {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 9;
+  border: 1px solid var(--neutral-200);
+  background: rgba(255, 255, 248, 0.9);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(10px);
+}
+
+.cardShelfTabs {
+  position: absolute;
+  top: 96px;
+  right: -20px;
+  z-index: 7;
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  width: 82px;
+  padding: 14px 0 28px;
+  transition: opacity 180ms var(--ease-standard), transform 180ms var(--ease-standard);
+}
+
+.cardShelfTabs button {
+  position: relative;
+  z-index: calc(8 - var(--shelf-index));
+  width: 66px;
+  height: 128px;
+  min-height: 128px;
+  max-height: 128px;
+  margin-top: -28px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--flashcard-accent) 22%, white);
+  border-radius: 8px 2px 2px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 13px 10px;
+  color: var(--flashcard-ink);
+  background:
+    linear-gradient(155deg, color-mix(in srgb, var(--flashcard-panel-strong) 92%, white), var(--flashcard-panel));
+  box-shadow:
+    -8px 10px 20px var(--flashcard-shadow),
+    -2px 3px 6px rgba(44, 49, 39, 0.08),
+    inset 0 1px rgba(255, 255, 255, 0.48);
+  writing-mode: vertical-rl;
+  transform: translateX(var(--shelf-offset)) rotate(var(--shelf-angle));
+  transform-origin: right center;
+  transition: box-shadow 220ms var(--ease-standard), transform 220ms var(--ease-standard);
+}
+
+.cardShelfTabs button:first-child {
+  margin-top: 0;
+}
+
+.cardShelfTabs button.firstKnowledgeTab {
+  margin-top: 32px;
+}
+
+.cardShelfTabs button:hover,
+.cardShelfTabs button:focus-visible {
+  z-index: 12;
+  box-shadow:
+    -12px 14px 26px var(--flashcard-shadow),
+    -3px 5px 8px rgba(44, 49, 39, 0.1),
+    inset 0 1px rgba(255, 255, 255, 0.52);
+  transform: translateX(var(--shelf-offset)) rotate(0deg);
+}
+
+.cardShelfTabs button.shelfCardSourceHidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.cardShelfTabs button.problemTab {
+  color: var(--flashcard-ink);
+}
+
+.cardShelfTabs button > span {
+  display: block;
+  max-height: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .conversationHeader {
   min-width: 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--neutral-100);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-  background: rgba(255, 255, 255, 0.94);
+  gap: var(--space-2);
+  padding: 0 var(--space-5);
+  background: rgba(255, 255, 248, 0.94);
   backdrop-filter: blur(12px);
-  z-index: 2;
+  z-index: 8;
 }
 
 .conversationTitle {
@@ -258,12 +711,13 @@
 }
 
 .conversationTitle > strong {
+  color: var(--neutral-900);
   font-size: 14px;
   font-weight: 620;
 }
 
 .conversationTitle > span {
-  color: var(--muted);
+  color: var(--neutral-500);
   font-size: 11px;
 }
 
@@ -271,35 +725,48 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border-radius: 999px;
-  padding: 6px 9px;
-  color: var(--accent);
-  background: var(--accent-soft);
+  border-radius: var(--radius-full);
+  padding: 6px 10px;
+  color: var(--primary-800);
+  background: var(--primary-100);
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
-}
-
-.cardPanelToggle {
-  margin-left: 0;
 }
 
 .viewProblemButton {
-  min-height: 32px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
+  min-height: 36px;
+  border: 1px solid var(--neutral-200);
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 0 10px;
-  color: var(--text);
-  background: var(--panel);
+  padding: 0 12px;
+  color: var(--neutral-900);
+  background: var(--neutral-0);
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
+  transition: border-color 160ms var(--ease-standard), background 160ms var(--ease-standard);
 }
 
 .viewProblemButton:hover {
-  border-color: #c8cdc8;
-  background: #f7f8f6;
+  border-color: var(--primary-500);
+  background: var(--primary-50);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.mobileScrim {
+  display: none;
 }

@@ -1,9 +1,21 @@
 import { API_BASE, JSON_HEADERS, responseError } from "./http";
+import {
+  apiContracts,
+  checkpointAnswerResultSchema,
+  responseContract,
+  restoredSessionSchema,
+  sessionInputAcceptanceSchema,
+  sessionInterruptResultSchema,
+  sessionRunStatusSchema,
+  sessionStartResultSchema
+} from "./contracts";
 import type {
+  CheckpointAnswerResult,
   KnowledgeCardContent,
   RestoredSession,
   SessionHistoryItem,
   SessionInputAcceptance,
+  SessionInterruptResult,
   SessionRunStatus,
   SessionStartInput,
   SessionStartResult
@@ -16,7 +28,7 @@ export async function startSession(input: SessionStartInput): Promise<SessionSta
     body: JSON.stringify(input)
   });
   if (!response.ok) throw await responseError(response);
-  return response.json();
+  return responseContract(response, sessionStartResultSchema, "启动会话");
 }
 
 export async function batchStartSessions(
@@ -28,13 +40,14 @@ export async function batchStartSessions(
     body: JSON.stringify({ sessions })
   });
   if (!response.ok) throw await responseError(response);
-  return response.json();
+  return responseContract(response, apiContracts.sessionStarts, "批量启动会话");
 }
 
 export async function batchStartImageSessions(input: {
   grade_band: "junior" | "senior";
   subject: "math";
   model_profile_id: string;
+  paper_id: string;
   source_image_data_url: string;
   items: Array<{
     session_id: string;
@@ -48,26 +61,26 @@ export async function batchStartImageSessions(input: {
     body: JSON.stringify(input)
   });
   if (!response.ok) throw await responseError(response);
-  return response.json();
+  return responseContract(response, apiContracts.sessionStarts, "批量启动题图会话");
 }
 
 export async function fetchSessionHistory(): Promise<SessionHistoryItem[]> {
   const response = await fetch(`${API_BASE}/api/sessions/history`, { cache: "no-store" });
   if (!response.ok) throw await responseError(response, "历史会话加载失败");
-  const payload = await response.json();
+  const payload = await responseContract(response, apiContracts.sessionHistory, "历史会话列表");
   return payload.sessions;
 }
 
 export async function fetchSession(sessionId: string): Promise<RestoredSession> {
   const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, { cache: "no-store" });
   if (!response.ok) throw await responseError(response);
-  return response.json();
+  return responseContract(response, restoredSessionSchema, "恢复会话");
 }
 
 export async function fetchSessionRunStatus(sessionId: string): Promise<SessionRunStatus> {
   const response = await fetch(`${API_BASE}/api/sessions/${sessionId}/run`, { cache: "no-store" });
   if (!response.ok) throw await responseError(response, "会话运行状态加载失败");
-  return response.json();
+  return responseContract(response, sessionRunStatusSchema, "会话运行状态");
 }
 
 export async function deleteSession(sessionId: string) {
@@ -85,7 +98,7 @@ export async function answerCheckpoint(input: {
   session_id: string;
   selected_option_id: string;
   elapsed_ms: number;
-}) {
+}): Promise<CheckpointAnswerResult> {
   const response = await fetch(`${API_BASE}/api/checkpoints/${input.checkpointId}/answer`, {
     method: "POST",
     headers: JSON_HEADERS,
@@ -96,22 +109,14 @@ export async function answerCheckpoint(input: {
     })
   });
   if (!response.ok) throw await responseError(response);
-  return response.json() as Promise<{
-    input_id: string;
-    status: "accepted" | "duplicate";
-    is_correct: boolean;
-    elapsed_ms: number;
-    event: "CHECKPOINT_CORRECT" | "CHECKPOINT_WRONG" | "CHECKPOINT_UNKNOWN";
-    next_state_hint: string;
-    student_message: string;
-    action_id: string;
-  }>;
+  return responseContract(response, checkpointAnswerResultSchema, "提交检查点答案");
 }
 
 export async function acceptStudentMessage(input: {
   session_id: string;
   client_message_id: string;
   message: string;
+  image_data_url?: string | null;
 }): Promise<SessionInputAcceptance> {
   const response = await fetch(`${API_BASE}/api/sessions/${input.session_id}/inputs`, {
     method: "POST",
@@ -119,11 +124,12 @@ export async function acceptStudentMessage(input: {
     body: JSON.stringify({
       kind: "STUDENT_MESSAGE",
       client_message_id: input.client_message_id,
-      message: input.message
+      message: input.message,
+      ...(input.image_data_url ? { image_data_url: input.image_data_url } : {})
     })
   });
   if (!response.ok) throw await responseError(response);
-  return response.json();
+  return responseContract(response, sessionInputAcceptanceSchema, "接纳学生消息");
 }
 
 export async function dismissKnowledgeCardAndContinue(input: {
@@ -147,35 +153,13 @@ export async function dismissKnowledgeCardAndContinue(input: {
     })
   });
   if (!response.ok) throw await responseError(response);
-  return response.json();
+  return responseContract(response, sessionInputAcceptanceSchema, "接纳卡片继续命令");
 }
 
-export async function interruptSession(
-  sessionId: string,
-  input?: { partial_message?: string; reason?: "user_stop" | "student_message" }
-): Promise<{
-  interrupted: boolean;
-  active: boolean;
-  run_ids: string[];
-}> {
+export async function interruptSession(sessionId: string): Promise<SessionInterruptResult> {
   const response = await fetch(`${API_BASE}/api/sessions/${sessionId}/interrupt`, {
-    method: "POST",
-    ...(input ? {
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input)
-    } : {})
-  });
-  if (!response.ok) throw await responseError(response);
-  return response.json();
-}
-
-export async function resumeInterruptedExplanation(sessionId: string): Promise<{
-  message_id: string;
-  resume_state: "resuming";
-}> {
-  const response = await fetch(`${API_BASE}/api/sessions/${sessionId}/interruptions/resume`, {
     method: "POST"
   });
   if (!response.ok) throw await responseError(response);
-  return response.json();
+  return responseContract(response, sessionInterruptResultSchema, "中断会话");
 }

@@ -8,8 +8,8 @@ export type StreamEventKind =
   | "checkpoint_ready"
   | "card_ready"
   | "message_done"
+  | "stream_complete"
   | "run_interrupted"
-  | "interruption_state"
   | "error";
 
 export type StreamDecision = {
@@ -40,9 +40,13 @@ export type StreamEventData = {
   checkpoint_ready: Checkpoint;
   card_ready: StudyCard;
   message_done: StreamMessageDone;
+  stream_complete: {
+    run_id: string;
+    status: "completed";
+    last_committed_action_index: number;
+  };
   run_interrupted: { run_id: string; status: "interrupted" };
-  interruption_state: { message_id: string; resume_state: "resuming" | "resolved" };
-  error: { message: string; action_index?: number };
+  error: { message: string; code?: string; retryable?: boolean; action_index?: number };
 };
 
 export type CanonicalStreamEvent<K extends StreamEventKind = StreamEventKind> = {
@@ -71,8 +75,8 @@ const KNOWN_EVENTS = new Set<StreamEventKind>([
   "checkpoint_ready",
   "card_ready",
   "message_done",
+  "stream_complete",
   "run_interrupted",
-  "interruption_state",
   "error"
 ]);
 

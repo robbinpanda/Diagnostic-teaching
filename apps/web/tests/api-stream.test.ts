@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fetchSessionRunStatus, modelProfileLabel, streamChat } from "../lib/api";
+import {
+  ApiContractError,
+  ChatStreamClosedError,
+  ChatStreamTerminalError,
+  fetchSessionRunStatus,
+  modelProfileLabel,
+  streamChat
+} from "../lib/api";
 
 test("model labels use the intended middle-dot separator", () => {
   assert.equal(
@@ -42,14 +49,17 @@ test("legacy requests omit after_seq and replay requests add it only when explic
   const bodies: Array<Record<string, unknown>> = [];
   globalThis.fetch = (async (_input: URL | RequestInfo, init?: RequestInit) => {
     bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
-    return new Response("event: message_done\ndata: {\"ok\":true}\n\n", {
+    return new Response(
+      "event: stream_complete\ndata: {\"run_id\":\"run-1\",\"status\":\"completed\",\"last_committed_action_index\":0}\n\n",
+      {
       status: 200,
       headers: { "Content-Type": "text/event-stream" }
-    });
+      }
+    );
   }) as typeof fetch;
 
   try {
-    await streamChat({ session_id: "session-a" }, () => {});
+    await streamChat({ session_id: "session-a", client_run_id: "stable-run" }, () => {});
     await streamChat(
       { session_id: "session-a" },
       () => {},
@@ -60,7 +70,63 @@ test("legacy requests omit after_seq and replay requests add it only when explic
   }
 
   assert.equal("after_seq" in bodies[0], false);
+  assert.equal(bodies[0].client_run_id, "stable-run");
   assert.equal(bodies[1].after_seq, 12);
+});
+
+test("streamChat rejects a clean EOF without an explicit terminal event", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(
+    "event: message_done\ndata: {\"ok\":true}\n\n",
+    { status: 200, headers: { "Content-Type": "text/event-stream" } }
+  )) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      streamChat({ session_id: "session-eof" }, () => {}),
+      (error: unknown) => error instanceof ChatStreamClosedError && error.retryable
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("streamChat treats an explicit provider error as terminal failure", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(
+    "event: error\ndata: {\"message\":\"busy\",\"code\":\"provider_error\",\"retryable\":true}\n\n",
+    { status: 200, headers: { "Content-Type": "text/event-stream" } }
+  )) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      streamChat({ session_id: "session-error" }, () => {}),
+      (error: unknown) => (
+        error instanceof ChatStreamTerminalError
+        && error.code === "provider_error"
+        && error.retryable
+      )
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("streamChat rejects malformed payloads for known SSE events", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(
+    "event: message_delta\ndata: {\"text\":42}\n\n",
+    { status: 200, headers: { "Content-Type": "text/event-stream" } }
+  )) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      streamChat({ session_id: "session-invalid-event" }, () => {}),
+      ApiContractError
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("run status lookup uses a no-store session-scoped request", async () => {
@@ -85,4 +151,19 @@ test("run status lookup uses a no-store session-scoped request", async () => {
 
   assert.match(requestedUrl, /\/api\/sessions\/session-refresh\/run$/);
   assert.equal(requestedCache, "no-store");
+});
+
+test("run status lookup rejects a backend payload that violates its contract", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => Response.json({
+    active: true,
+    running: true,
+    run: { run_id: 42 }
+  })) as typeof fetch;
+
+  try {
+    await assert.rejects(fetchSessionRunStatus("session-invalid"), ApiContractError);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

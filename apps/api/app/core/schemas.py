@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 Provider = Literal["openai", "openai_compatible", "anthropic", "local_demo"]
 ContextStatus = Literal["need_problem", "need_thought", "ready"]
@@ -218,6 +218,7 @@ class SessionCreate(BaseModel):
     grade_band: Literal["junior", "senior"]
     subject: Literal["math"] = "math"
     model_profile_id: str
+    paper_id: str | None = Field(default=None, pattern=r"^paper_[0-9a-f]{12}$")
     problem_text: str = Field(default="", max_length=20_000)
     student_initial_thought: str = Field(default="", max_length=20_000)
     problem_image_data_url: str | None = Field(default=None, max_length=17_000_000)
@@ -273,6 +274,7 @@ class ImageSessionBatchStartRequest(BaseModel):
     grade_band: Literal["junior", "senior"]
     subject: Literal["math"] = "math"
     model_profile_id: str
+    paper_id: str = Field(pattern=r"^paper_[0-9a-f]{12}$")
     source_image_data_url: str = Field(min_length=1, max_length=17_000_000)
     items: list[ImageSessionStartItem] = Field(min_length=1, max_length=20)
 
@@ -280,6 +282,8 @@ class ImageSessionBatchStartRequest(BaseModel):
 class SessionHistoryItem(BaseModel):
     session_id: str
     restored_from: str | None = None
+    paper_id: str | None = None
+    paper_name: str | None = None
     title: str
     grade_band: Literal["junior", "senior"]
     model_profile_id: str
@@ -334,12 +338,15 @@ class SessionRestoredMessage(BaseModel):
     action_id: str | None = None
     action: str
     client_message_id: str | None = None
+    image_data_url: str | None = None
     checkpoint_result: SessionRestoredCheckpointResult | None = None
 
 
 class SessionRestoreResponse(BaseModel):
     session_id: str
     restored_from: str | None = None
+    paper_id: str | None = None
+    paper_name: str | None = None
     state_hint: str
     context_status: ContextStatus
     breakpoint_description: str | None = None
@@ -351,7 +358,63 @@ class SessionRestoreResponse(BaseModel):
     messages: list[SessionRestoredMessage]
     pending_checkpoint: dict[str, Any] | None = None
     pending_card: dict[str, Any] | None = None
-    pending_interruption: dict[str, Any] | None = None
+    pending_cards: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ExamPaperCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80, pattern=r".*\S.*")
+
+
+class ExamPaperPublic(BaseModel):
+    id: str
+    name: str
+    card_folder_id: str
+    session_count: int = 0
+    created_at: str
+    updated_at: str
+
+
+class ExamPaperListResponse(BaseModel):
+    papers: list[ExamPaperPublic]
+
+
+class MistakeSetCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80, pattern=r".*\S.*")
+    card_ids: list[str] = Field(min_length=1)
+
+
+class MistakeSetBulkDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mistake_set_ids: list[str] = Field(min_length=1, max_length=200)
+
+
+class MistakeSetItemPublic(BaseModel):
+    id: str
+    source_session_id: str | None = None
+    source_paper_name: str | None = None
+    title: str
+    problem_text: str
+    problem_image_data_url: str | None = None
+    problem_card: dict[str, Any] | None = None
+    position: int
+    created_at: str
+
+
+class MistakeSetPublic(BaseModel):
+    id: str
+    name: str
+    items: list[MistakeSetItemPublic]
+    created_at: str
+    updated_at: str
+
+
+class MistakeSetListResponse(BaseModel):
+    mistake_sets: list[MistakeSetPublic]
 
 
 RunStatus = Literal["queued", "running", "completed", "failed", "interrupted"]
@@ -359,6 +422,7 @@ RunStatus = Literal["queued", "running", "completed", "failed", "interrupted"]
 
 class SessionRunPublic(BaseModel):
     run_id: str
+    client_run_id: str | None = None
     session_id: str
     attempt: int
     status: RunStatus
@@ -382,13 +446,9 @@ class SessionInterruptResponse(BaseModel):
     run_ids: list[str] = Field(default_factory=list)
 
 
-class SessionInterruptRequest(BaseModel):
-    partial_message: str | None = Field(default=None, max_length=100_000)
-    reason: Literal["user_stop", "student_message"] = "user_stop"
-
-
 class ChatStreamRequest(BaseModel):
     session_id: str
+    client_run_id: str | None = Field(default=None, min_length=1, max_length=128)
     message: str | None = None
     client_message_id: str | None = Field(default=None, min_length=1, max_length=128)
     # 仅兼容旧前端；新流程由 checkpoint answer 接口原子写入 CHECKPOINT_RESPONSE。
@@ -400,7 +460,14 @@ class StudentMessageInputRequest(BaseModel):
 
     kind: Literal["STUDENT_MESSAGE"]
     client_message_id: str = Field(min_length=1, max_length=128)
-    message: str = Field(min_length=1, max_length=20_000)
+    message: str = Field(default="", max_length=20_000)
+    image_data_url: str | None = Field(default=None, max_length=17_000_000)
+
+    @model_validator(mode="after")
+    def require_content(self):
+        if not self.message.strip() and not self.image_data_url:
+            raise ValueError("学生消息必须包含文字或图片")
+        return self
 
 
 class CardDismissedContinueInputRequest(BaseModel):
@@ -435,7 +502,6 @@ class SessionInputAcceptResponse(BaseModel):
     card_discarded: bool = False
     deferred_card_id: str | None = None
     card_deferred_at: str | None = None
-    interruption_id: str | None = None
 
 
 class CheckpointAnswerRequest(BaseModel):
@@ -513,6 +579,12 @@ class StudyCardListResponse(BaseModel):
     cards: list[StudyCardPublic]
 
 
+class StudyCardBulkDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    card_ids: list[str] = Field(min_length=1, max_length=200)
+
+
 class StudyCardSaveRequest(BaseModel):
     session_id: str
     folder_id: str | None = Field(default=None, min_length=1, max_length=128)
@@ -528,6 +600,7 @@ class CardFolderPublic(BaseModel):
     parent_id: str | None = None
     is_system: bool = False
     default_card_type: Literal["knowledge_card", "problem_card"] | None = None
+    managed_kind: Literal["paper_archive_root", "paper_archive"] | None = None
     created_at: str
     updated_at: str
 

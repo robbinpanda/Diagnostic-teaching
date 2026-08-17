@@ -4,10 +4,10 @@ import json
 import sqlite3
 import uuid
 from collections.abc import Iterable, Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from app.storage.database import Database
+from app.storage.database import Database, with_sqlite_busy_retry
 
 SESSION_EVENT_SCHEMA_VERSION = 1
 DEFAULT_EVENT_HISTORY_LIMIT = 100
@@ -40,7 +40,7 @@ def append_session_event(
             session_id,
             event_type,
             json.dumps(data, ensure_ascii=False, separators=(",", ":")),
-            datetime.now(timezone.utc).isoformat(),
+            datetime.now(UTC).isoformat(),
             session_id,
         ),
     )
@@ -77,6 +77,7 @@ class SessionEventRepository:
     ) -> sqlite3.Row:
         return self.append_many(session_id, [(event_type, data)])[0]
 
+    @with_sqlite_busy_retry
     def append_many(
         self,
         session_id: str,

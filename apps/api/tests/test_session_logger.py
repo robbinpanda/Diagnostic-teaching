@@ -1,7 +1,58 @@
+import asyncio
 import json
+import threading
 from pathlib import Path
 
 from app.storage.session_logger import SessionLogger
+
+
+def test_async_writer_keeps_event_loop_responsive_and_bounds_queue(tmp_path: Path):
+    logger = SessionLogger(tmp_path, async_queue_size=1)
+    first_started = threading.Event()
+    release_first = threading.Event()
+    completed: list[str] = []
+
+    def write(name: str) -> None:
+        if name == "first":
+            first_started.set()
+            release_first.wait(timeout=1)
+        completed.append(name)
+
+    async def exercise() -> None:
+        first = asyncio.create_task(logger.write_async(write, "first"))
+        while not first_started.is_set():
+            await asyncio.sleep(0)
+
+        second = asyncio.create_task(logger.write_async(write, "second"))
+        while logger.queued_async_writes != 1:
+            await asyncio.sleep(0)
+        third = asyncio.create_task(logger.write_async(write, "third"))
+        await asyncio.sleep(0)
+
+        heartbeat = asyncio.create_task(asyncio.sleep(0.01, result="responsive"))
+        assert await asyncio.wait_for(heartbeat, timeout=0.1) == "responsive"
+        assert logger.queued_async_writes == 1
+        assert not third.done()
+
+        release_first.set()
+        await asyncio.gather(first, second, third)
+        await logger.close_async_writer()
+
+    asyncio.run(exercise())
+    assert completed == ["first", "second", "third"]
+
+
+def test_async_writer_swallows_write_failures(tmp_path: Path):
+    logger = SessionLogger(tmp_path)
+
+    def fail() -> None:
+        raise OSError("disk unavailable")
+
+    async def exercise() -> None:
+        await logger.write_async(fail)
+        await logger.close_async_writer()
+
+    asyncio.run(exercise())
 
 
 def test_tutor_turn_logs_raw_and_full_checkpoint(tmp_path: Path):
@@ -158,7 +209,7 @@ def test_problem_image_is_logged_once_then_replaced_with_placeholder(tmp_path: P
     first_url = events[0]["prompt_messages"][0]["content"][1]["image_url"]["url"]
     second_url = events[1]["prompt_messages"][0]["content"][1]["image_url"]["url"]
     assert first_url == image_data_url
-    assert second_url.startswith("[题目原图已在本会话首次")
+    assert second_url.startswith("[会话图片已在本会话首次")
     assert messages[0]["content"][1]["image_url"]["url"] == image_data_url
 
 

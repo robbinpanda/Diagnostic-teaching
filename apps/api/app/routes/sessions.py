@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
@@ -11,7 +12,6 @@ from app.core.schemas import (
     SessionCreate,
     SessionCreateResponse,
     SessionHistoryListResponse,
-    SessionInterruptRequest,
     SessionInterruptResponse,
     SessionRestoredMessage,
     SessionRestoreRequest,
@@ -29,8 +29,14 @@ from app.services.input_acceptance import (
     InputStateConflictError,
     InputValidationError,
 )
+from app.storage.exam_paper_repository import ExamPaperNotFoundError
+from app.storage.session_deletion_repository import (
+    MISSING_SESSION_PAPER_DETAIL,
+    SessionDeleteConflictError,
+)
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+LOGGER = logging.getLogger(__name__)
 
 
 def checkpoint_public_payload(row) -> dict:
@@ -42,6 +48,18 @@ def checkpoint_public_payload(row) -> dict:
     return payload
 
 
+def messages_have_images(message_rows) -> bool:
+    for row in message_rows:
+        try:
+            metadata = json.loads(row["metadata_json"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            continue
+        image_data_url = metadata.get("image_data_url")
+        if isinstance(image_data_url, str) and image_data_url.startswith("data:image/"):
+            return True
+    return False
+
+
 def restored_messages(message_rows, checkpoint_rows) -> list[SessionRestoredMessage]:
     checkpoints = {row["id"]: row for row in checkpoint_rows}
     restored: list[SessionRestoredMessage] = []
@@ -49,8 +67,11 @@ def restored_messages(message_rows, checkpoint_rows) -> list[SessionRestoredMess
         if row["role"] not in {"student", "assistant"}:
             continue
         checkpoint_result = None
-        if row["action"] == "CHECKPOINT_RESPONSE":
+        try:
             metadata = json.loads(row["metadata_json"] or "{}")
+        except json.JSONDecodeError:
+            metadata = {}
+        if row["action"] == "CHECKPOINT_RESPONSE":
             result = metadata.get("checkpoint_result") or metadata.get("checkpoint_answer")
             checkpoint = checkpoints.get(result.get("checkpoint_id")) if isinstance(result, dict) else None
             if checkpoint is not None and checkpoint["selected_option_id"] is not None:
@@ -67,6 +88,7 @@ def restored_messages(message_rows, checkpoint_rows) -> list[SessionRestoredMess
                 action_id=row["action_id"],
                 action=row["action"],
                 client_message_id=row["client_message_id"],
+                image_data_url=metadata.get("image_data_url"),
                 checkpoint_result=checkpoint_result,
             )
         )
@@ -76,6 +98,7 @@ def restored_messages(message_rows, checkpoint_rows) -> list[SessionRestoredMess
 def run_from_row(row) -> SessionRunPublic:
     return SessionRunPublic(
         run_id=row["id"],
+        client_run_id=row["client_run_id"],
         session_id=row["session_id"],
         attempt=row["attempt"],
         status=row["status"],
@@ -89,6 +112,11 @@ def run_from_row(row) -> SessionRunPublic:
 
 
 def validate_session_profile(payload: SessionCreate, request: Request):
+    if payload.paper_id:
+        try:
+            request.app.state.sessions.get_exam_paper(payload.paper_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=400, detail=MISSING_SESSION_PAPER_DETAIL) from exc
     try:
         profile = request.app.state.model_profiles.get(payload.model_profile_id)
     except KeyError as exc:
@@ -103,7 +131,10 @@ def validate_session_profile(payload: SessionCreate, request: Request):
 
 def persist_session(payload: SessionCreate, request: Request):
     profile = validate_session_profile(payload, request)
-    session = request.app.state.sessions.create(payload)
+    try:
+        session = request.app.state.sessions.create(payload)
+    except ExamPaperNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=MISSING_SESSION_PAPER_DETAIL) from exc
     logger = getattr(request.app.state, "session_logger", None)
     if logger is not None:
         logger.log_session_started(
@@ -147,6 +178,8 @@ def accept_session_starts(
                 "message": "同一个会话启动标识已被用于不同内容。",
             },
         ) from exc
+    except ExamPaperNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=MISSING_SESSION_PAPER_DETAIL) from exc
     except (InputValidationError, InputStateConflictError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -228,6 +261,7 @@ def batch_start_image_sessions(
                 grade_band=payload.grade_band,
                 subject=payload.subject,
                 model_profile_id=payload.model_profile_id,
+                paper_id=payload.paper_id,
                 message=f"上传了一张框选题目图片（第 {index} 题）",
                 problem_text="",
                 student_initial_thought="",
@@ -245,6 +279,8 @@ def list_session_history(request: Request) -> SessionHistoryListResponse:
             {
                 "session_id": row["id"],
                 "restored_from": row["restored_from"],
+                "paper_id": row["paper_id"],
+                "paper_name": row["paper_name"],
                 # Keep complete math delimiters; the frontend applies visual ellipsis.
                 "title": (
                     row["problem_text"].strip()
@@ -271,24 +307,22 @@ def session_detail_response(request: Request, session) -> SessionRestoreResponse
     checkpoints = request.app.state.sessions.list_checkpoints(session["id"])
     pending = next((row for row in reversed(checkpoints) if row["answered_at"] is None), None)
     pending_payload = checkpoint_public_payload(pending) if pending else None
-    pending_card_row = request.app.state.sessions.latest_pending_card(session["id"])
+    pending_card_rows = request.app.state.sessions.list_pending_cards(session["id"])
+    pending_card_row = pending_card_rows[-1] if pending_card_rows else None
     pending_card_payload = (
         card_from_row(pending_card_row).model_dump(mode="json")
         if pending_card_row is not None
         else None
     )
-    pending_interruption = request.app.state.sessions.latest_pending_interruption(session["id"])
-    pending_interruption_payload = (
-        {
-            "message_id": pending_interruption["row"]["id"],
-            "resume_state": pending_interruption["metadata"].get("resume_state"),
-        }
-        if pending_interruption is not None
-        else None
-    )
     return SessionRestoreResponse(
         session_id=session["id"],
         restored_from=session["restored_from"],
+        paper_id=session["paper_id"],
+        paper_name=(
+            request.app.state.sessions.get_exam_paper(session["paper_id"])["name"]
+            if session["paper_id"]
+            else None
+        ),
         state_hint=session["phase"],
         context_status=session["context_status"],
         breakpoint_description=session["breakpoint_description"],
@@ -300,7 +334,7 @@ def session_detail_response(request: Request, session) -> SessionRestoreResponse
         messages=restored_messages(messages, checkpoints),
         pending_checkpoint=pending_payload,
         pending_card=pending_card_payload,
-        pending_interruption=pending_interruption_payload,
+        pending_cards=[card_from_row(row).model_dump(mode="json") for row in pending_card_rows],
     )
 
 
@@ -311,22 +345,6 @@ def get_session(session_id: str, request: Request) -> SessionRestoreResponse:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
     return session_detail_response(request, session)
-
-
-@router.post("/{session_id}/interruptions/resume")
-def resume_interrupted_explanation(session_id: str, request: Request) -> dict:
-    try:
-        request.app.state.sessions.get(session_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="会话不存在") from exc
-    pending = request.app.state.sessions.latest_pending_interruption(session_id)
-    if pending is None:
-        raise HTTPException(status_code=409, detail="当前没有可恢复的原讲解")
-    request.app.state.sessions.set_interruption_resume_state(
-        pending["row"]["id"],
-        "resuming",
-    )
-    return {"message_id": pending["row"]["id"], "resume_state": "resuming"}
 
 
 @router.get("/{session_id}/run", response_model=SessionRunStatusResponse)
@@ -356,7 +374,6 @@ async def get_session_run_status(
 async def interrupt_session(
     session_id: str,
     request: Request,
-    payload: SessionInterruptRequest | None = None,
 ) -> SessionInterruptResponse:
     try:
         request.app.state.sessions.get(session_id)
@@ -364,15 +381,9 @@ async def interrupt_session(
         raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
 
     targets = await request.app.state.chat_streams.request_interrupt(session_id)
-    reason = payload.reason if payload is not None else "user_stop"
-    partial_message = payload.partial_message if payload is not None else None
     error = {
-        "code": "student_message_interrupt" if reason == "student_message" else "explicit_interrupt",
-        "message": (
-            "学生发送新问题，中断当前讲解。"
-            if reason == "student_message"
-            else "用户通过 interrupt 接口显式中断本轮生成。"
-        ),
+        "code": "explicit_interrupt",
+        "message": "用户通过 interrupt 接口显式中断本轮生成。",
         "type": "RunInterrupted",
         "retryable": True,
     }
@@ -380,7 +391,6 @@ async def interrupt_session(
         request.app.state.sessions.mark_run_interrupted(
             handle.run_id,
             error,
-            partial_message=partial_message if reason == "student_message" else None,
         )
     request.app.state.chat_streams.cancel_execution_tasks(targets)
     status = await request.app.state.chat_streams.status(session_id)
@@ -395,26 +405,49 @@ async def interrupt_session(
 async def delete_all_sessions(request: Request) -> Response:
     if await request.app.state.chat_streams.has_active_streams():
         raise HTTPException(status_code=409, detail="仍有答疑正在生成，请等待完成后再清空全部会话")
-    request.app.state.sessions.delete_all_sessions()
+    try:
+        request.app.state.sessions.delete_all_sessions()
+    except SessionDeleteConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="仍有答疑正在生成，请等待完成后再清空全部会话",
+        ) from exc
     logger = getattr(request.app.state, "session_logger", None)
     if logger is not None:
-        logger.delete_all()
+        try:
+            logger.delete_all()
+        except Exception:
+            LOGGER.warning(
+                "Failed to delete diagnostic session logs after SQLite delete-all commit",
+                exc_info=True,
+            )
     return Response(status_code=204)
 
 
 @router.delete("/{session_id}", status_code=204)
 async def delete_session(session_id: str, request: Request) -> Response:
-    try:
-        request.app.state.sessions.get(session_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
     if await request.app.state.chat_streams.has_session_streams(session_id):
         raise HTTPException(status_code=409, detail="该会话仍有答疑正在生成，请先中断或等待完成")
 
+    try:
+        request.app.state.sessions.delete(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
+    except SessionDeleteConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="该会话仍有答疑正在生成，请先中断或等待完成",
+        ) from exc
+
     logger = getattr(request.app.state, "session_logger", None)
     if logger is not None:
-        logger.delete(session_id)
-    request.app.state.sessions.delete(session_id)
+        try:
+            logger.delete(session_id)
+        except Exception:
+            LOGGER.warning(
+                "Failed to delete diagnostic session logs after SQLite session commit",
+                exc_info=True,
+            )
     return Response(status_code=204)
 
 
@@ -428,15 +461,24 @@ def restore_session(payload: SessionRestoreRequest, request: Request) -> Session
         source = request.app.state.sessions.get(payload.session_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
-    if source["problem_image_data_url"] and not profile["is_multimodal"]:
-        raise HTTPException(status_code=400, detail="该历史题目包含原图，必须选择支持图片识别的模型")
+    source_messages = request.app.state.sessions.list_messages(payload.session_id)
+    if not profile["is_multimodal"] and (
+        source["problem_image_data_url"] or messages_have_images(source_messages)
+    ):
+        raise HTTPException(status_code=400, detail="该历史会话包含图片，必须选择支持图片识别的模型")
 
-    session = request.app.state.sessions.restore(payload.session_id, payload.model_profile_id)
+    try:
+        session = request.app.state.sessions.restore(payload.session_id, payload.model_profile_id)
+    except ExamPaperNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=MISSING_SESSION_PAPER_DETAIL) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="SQLite 中不存在该历史会话") from exc
     messages = request.app.state.sessions.list_messages(session["id"])
     checkpoints = request.app.state.sessions.list_checkpoints(session["id"])
     pending = next((row for row in reversed(checkpoints) if row["answered_at"] is None), None)
     pending_payload = checkpoint_public_payload(pending) if pending else None
-    pending_card_row = request.app.state.sessions.latest_pending_card(session["id"])
+    pending_card_rows = request.app.state.sessions.list_pending_cards(session["id"])
+    pending_card_row = pending_card_rows[-1] if pending_card_rows else None
     pending_card_payload = (
         card_from_row(pending_card_row).model_dump(mode="json")
         if pending_card_row is not None
@@ -467,6 +509,12 @@ def restore_session(payload: SessionRestoreRequest, request: Request) -> Session
     return SessionRestoreResponse(
         session_id=session["id"],
         restored_from=payload.session_id,
+        paper_id=session["paper_id"],
+        paper_name=(
+            request.app.state.sessions.get_exam_paper(session["paper_id"])["name"]
+            if session["paper_id"]
+            else None
+        ),
         state_hint=session["phase"],
         context_status=session["context_status"],
         breakpoint_description=session["breakpoint_description"],
@@ -478,4 +526,5 @@ def restore_session(payload: SessionRestoreRequest, request: Request) -> Session
         messages=restored_messages(messages, checkpoints),
         pending_checkpoint=pending_payload,
         pending_card=pending_card_payload,
+        pending_cards=[card_from_row(row).model_dump(mode="json") for row in pending_card_rows],
     )

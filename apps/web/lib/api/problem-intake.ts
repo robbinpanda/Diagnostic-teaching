@@ -1,5 +1,5 @@
 import { API_BASE, JSON_HEADERS, responseError } from "./http";
-import type { SplitTextProblem } from "./types";
+import { apiContracts, responseContract } from "./contracts";
 
 export async function analyzeProblemText(input: {
   model_profile_id: string;
@@ -11,5 +11,5 @@ export async function analyzeProblemText(input: {
     body: JSON.stringify(input)
   });
   if (!response.ok) throw await responseError(response);
-  return response.json() as Promise<{ problems: SplitTextProblem[] }>;
+  return responseContract(response, apiContracts.splitTextProblems, "文本拆题");
 }

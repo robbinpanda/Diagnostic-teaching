@@ -6,8 +6,6 @@ from typing import Any
 
 WORKFLOW_CONTROL_KINDS = {
     "workflow_continue",
-    "student_interruption_detour",
-    "resume_interrupted_explanation",
 }
 
 
@@ -220,43 +218,6 @@ def local_demo_response(messages: list[dict[str, Any]]) -> str:
                     ensure_ascii=False,
                 )
             context_fields["student_thought_summary"] = latest_student_text
-    if latest_workflow_control is not None:
-        control_kind = latest_workflow_control["kind"]
-        if control_kind == "student_interruption_detour":
-            question = str(
-                latest_workflow_control.get("student_interruption_question")
-                or latest_student_text
-            ).strip()
-            payload = {
-                "state_hint": "explaining",
-                **context_fields,
-                "action": "EXPLAIN_LOCAL",
-                "message": (
-                    f"先回应你刚才打断时问的“{question}”：在本地演示题中，平方项本身始终非负，"
-                    "但乘上负系数后大小关系会反过来；平方项越大，负项越小，所以求整体最大值时"
-                    "要让平方项取得最小值 0。"
-                ),
-                "debug": {
-                    "source": "local_demo",
-                    "interruption_detour_resolved": True,
-                },
-            }
-            return json.dumps(payload, ensure_ascii=False)
-        if control_kind == "resume_interrupted_explanation":
-            payload = {
-                "state_hint": "explaining",
-                **context_fields,
-                "action": "EXPLAIN_LOCAL",
-                "message": (
-                    "回到刚才被打断的讲解，从断点之后继续：当 $(x-3)^2=0$ 时必须有 $x=3$，"
-                    "此时 $-2(x-3)^2+5=5$，因此函数在 $x=3$ 时取得最大值 5。"
-                ),
-                "debug": {
-                    "source": "local_demo",
-                    "interruption_resume_completed": True,
-                },
-            }
-            return json.dumps(payload, ensure_ascii=False)
     assistants_after_last_user = (
         [message for message in messages[last_user_index + 1 :] if message["role"] == "assistant"]
         if last_user_index >= 0

@@ -20,6 +20,14 @@ function responseDetail(body: string) {
     if (parsed && typeof parsed === "object" && "detail" in parsed) {
       const detail = (parsed as { detail?: unknown }).detail;
       if (typeof detail === "string") return detail;
+      if (
+        detail
+        && typeof detail === "object"
+        && "message" in detail
+        && typeof (detail as { message?: unknown }).message === "string"
+      ) {
+        return (detail as { message: string }).message;
+      }
     }
   } catch {
     // Non-JSON provider/proxy errors should remain readable as plain text.

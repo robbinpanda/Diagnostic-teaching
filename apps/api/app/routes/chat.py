@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from app.core.async_support import run_blocking, run_blocking_cleanup
 from app.core.schemas import ChatStreamRequest
 from app.core.teaching_controller import NONBLOCKING_ACTIONS, generate_tutor_turn_stream
 from app.llm.provider import LlmProfile, LlmProviderError
@@ -42,6 +43,18 @@ MAX_NONBLOCKING_ACTIONS = 3
 
 def _pending_card_blocks(row) -> bool:
     return row is not None and row["deferred_at"] is None
+
+
+def _history_has_image(message_rows) -> bool:
+    for row in message_rows:
+        try:
+            metadata = json.loads(row["metadata_json"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            continue
+        image_data_url = metadata.get("image_data_url")
+        if isinstance(image_data_url, str) and image_data_url.startswith("data:image/"):
+            return True
+    return False
 
 
 def run_error(
@@ -109,13 +122,24 @@ def _accept_legacy_stream_input(
 @router.post("/stream")
 async def chat_stream(payload: ChatStreamRequest, request: Request) -> StreamingResponse:
     try:
-        session = request.app.state.sessions.get(payload.session_id)
-        profile_row = request.app.state.model_profiles.get(session["model_profile_id"])
+        session = await run_blocking(request.app.state.sessions.get, payload.session_id)
+        profile_row = await run_blocking(
+            request.app.state.model_profiles.get,
+            session["model_profile_id"],
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="会话或模型不存在") from exc
-    if session["problem_image_data_url"] and not profile_row["is_multimodal"]:
-        raise HTTPException(status_code=400, detail="该会话包含题图，必须使用支持图片识别的多模态模型")
-    pending_card = request.app.state.sessions.latest_pending_card(payload.session_id)
+    if not profile_row["is_multimodal"]:
+        history = await run_blocking(
+            request.app.state.sessions.list_messages,
+            payload.session_id,
+        )
+        if session["problem_image_data_url"] or _history_has_image(history):
+            raise HTTPException(status_code=400, detail="该会话包含图片，必须使用支持图片识别的多模态模型")
+    pending_card = await run_blocking(
+        request.app.state.sessions.latest_pending_card,
+        payload.session_id,
+    )
     has_legacy_student_message = bool(payload.message and payload.message.strip())
     if _pending_card_blocks(pending_card) and not has_legacy_student_message:
         raise HTTPException(status_code=409, detail="请先关闭并保存当前学习卡片，再继续答疑")
@@ -123,11 +147,29 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
     coordinator: SessionStreamCoordinator = request.app.state.chat_streams
     run_row = None
     try:
-        run_row = request.app.state.sessions.create_run(payload.session_id)
+        run_row, created = await run_blocking(
+            request.app.state.sessions.admit_run,
+            payload.session_id,
+            client_run_id=payload.client_run_id,
+        )
+        if not created:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "RUN_ALREADY_EXISTS",
+                    "message": "该生成请求已经被服务端接纳，请按现有 run 状态恢复。",
+                    "run_id": run_row["id"],
+                    "status": run_row["status"],
+                    "last_committed_action_index": run_row[
+                        "last_committed_action_index"
+                    ],
+                },
+            )
         handle = await coordinator.enqueue(payload.session_id, run_row["id"])
     except asyncio.CancelledError:
         if run_row is not None:
-            request.app.state.sessions.mark_run_failed(
+            await run_blocking_cleanup(
+                request.app.state.sessions.mark_run_failed,
                 run_row["id"],
                 run_error(
                     "client_disconnected",
@@ -139,9 +181,12 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
         raise
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="会话不存在") from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         if run_row is not None:
-            request.app.state.sessions.mark_run_failed(
+            await run_blocking(
+                request.app.state.sessions.mark_run_failed,
                 run_row["id"],
                 run_error(
                     "coordinator_error",
@@ -158,7 +203,10 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
             await coordinator.start(handle)
             if handle.interrupt_requested:
                 raise RunInterrupted(handle.run_id)
-            running_row = request.app.state.sessions.mark_run_running(handle.run_id)
+            running_row = await run_blocking(
+                request.app.state.sessions.mark_run_running,
+                handle.run_id,
+            )
             yield sse(
                 "run_started",
                 {
@@ -168,10 +216,14 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                 },
             )
 
-            pending_card = request.app.state.sessions.latest_pending_card(payload.session_id)
+            pending_card = await run_blocking(
+                request.app.state.sessions.latest_pending_card,
+                payload.session_id,
+            )
             if _pending_card_blocks(pending_card) and not has_legacy_student_message:
                 raise InputWorkflowConflictError("请先关闭并保存当前学习卡片，再继续答疑")
-            accepted_input = _accept_legacy_stream_input(
+            accepted_input = await run_blocking(
+                _accept_legacy_stream_input,
                 payload,
                 request,
                 run_id=handle.run_id,
@@ -184,7 +236,8 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                 student_row = accepted_input.message_row
                 logger = getattr(request.app.state, "session_logger", None)
                 if logger is not None:
-                    logger.log_message(
+                    await logger.write_async(
+                        logger.log_message,
                         session_id=payload.session_id,
                         message_id=student_row["id"],
                         role="student",
@@ -194,14 +247,10 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                         content=student_row["content"],
                     )
 
-            # Keep card suppression stable for the entire run. The student may
-            # archive the deferred card while this run is still producing a
-            # bounded sequence of actions; that must not let a later action in
-            # the same run create a replacement card.
-            suppress_cards_for_run = (
-                request.app.state.sessions.latest_pending_card(payload.session_id) is not None
+            initial_history = await run_blocking(
+                request.app.state.sessions.list_messages,
+                payload.session_id,
             )
-            initial_history = request.app.state.sessions.list_messages(payload.session_id)
             nonblocking_streak = 0
             for row in reversed(initial_history):
                 if row["role"] == "assistant" and row["action"] in NONBLOCKING_ACTIONS:
@@ -212,15 +261,13 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
             while True:
                 if handle.interrupt_requested:
                     raise RunInterrupted(handle.run_id)
-                current_session = request.app.state.sessions.get(payload.session_id)
-                history = request.app.state.sessions.list_messages(payload.session_id)
-                pending_interruption = request.app.state.sessions.latest_pending_interruption(
-                    payload.session_id
+                current_session = await run_blocking(
+                    request.app.state.sessions.get,
+                    payload.session_id,
                 )
-                interruption_state = (
-                    pending_interruption["metadata"].get("resume_state")
-                    if pending_interruption is not None
-                    else None
+                history = await run_blocking(
+                    request.app.state.sessions.list_messages,
+                    payload.session_id,
                 )
                 force_blocking = nonblocking_streak >= MAX_NONBLOCKING_ACTIONS
                 generation = generate_tutor_turn_stream(
@@ -230,10 +277,9 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                     logger=getattr(request.app.state, "session_logger", None),
                     nonblocking_streak=nonblocking_streak,
                     force_blocking=force_blocking,
-                    suppress_cards=suppress_cards_for_run,
-                    interruption_state=interruption_state,
                 )
                 turn = None
+                provider_response = None
                 async for kind, value in coordinated_generation(coordinator, handle, generation):
                     if kind == "progress":
                         yield sse(
@@ -244,6 +290,13 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                         yield sse("message_delta", {"text": value, "action_index": action_index})
                     elif kind == "message_reset":
                         yield sse("message_reset", {"action_index": action_index})
+                    elif kind == "provider_response":
+                        provider_response = {
+                            "provider": profile_row["provider"],
+                            "model_profile_id": profile_row["id"],
+                            "model": profile_row["model"],
+                            "id": value,
+                        }
                     elif kind == "turn":
                         turn = value
                 if handle.interrupt_requested:
@@ -251,33 +304,14 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                 if turn is None:
                     raise RuntimeError("本轮未拿到任何 teaching turn")
 
-                interruption_message_id = None
-                interruption_transition = None
-                if pending_interruption is not None:
-                    candidate_message_id = pending_interruption["row"]["id"]
-                    if (
-                        interruption_state == "detour_active"
-                        and turn.debug.get("interruption_detour_resolved") is True
-                    ):
-                        interruption_message_id = candidate_message_id
-                        interruption_transition = "resuming"
-                    elif (
-                        interruption_state == "resuming"
-                        and turn.debug.get("interruption_resume_completed") is True
-                    ):
-                        interruption_message_id = candidate_message_id
-                        interruption_transition = "resolved"
-
                 try:
-                    assistant_row, checkpoint_row, card_row = (
-                        request.app.state.sessions.record_tutor_action(
-                            payload.session_id,
-                            turn,
-                            action_index=action_index,
-                            run_id=handle.run_id,
-                            interruption_message_id=interruption_message_id,
-                            interruption_resume_state=interruption_transition,
-                        )
+                    assistant_row, checkpoint_row, card_row = await run_blocking(
+                        request.app.state.sessions.record_tutor_action,
+                        payload.session_id,
+                        turn,
+                        action_index=action_index,
+                        run_id=handle.run_id,
+                        provider_response=provider_response,
                     )
                 except RunStateConflict as exc:
                     if exc.status == "interrupted" or handle.interrupt_requested:
@@ -296,7 +330,8 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
 
                 logger = getattr(request.app.state, "session_logger", None)
                 if logger is not None:
-                    logger.log_message(
+                    await logger.write_async(
+                        logger.log_message,
                         session_id=payload.session_id,
                         message_id=assistant_row["id"],
                         role="assistant",
@@ -313,7 +348,10 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                     or awaiting_card_dismissal
                 )
                 if should_stop:
-                    completed_row = request.app.state.sessions.mark_run_completed(handle.run_id)
+                    completed_row = await run_blocking(
+                        request.app.state.sessions.mark_run_completed,
+                        handle.run_id,
+                    )
                     if completed_row["status"] != "completed":
                         if completed_row["status"] == "interrupted" or handle.interrupt_requested:
                             raise RunInterrupted(handle.run_id)
@@ -335,14 +373,6 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                         "run_id": handle.run_id,
                     },
                 )
-                if interruption_transition:
-                    yield sse(
-                        "interruption_state",
-                        {
-                            "message_id": pending_interruption["row"]["id"],
-                            "resume_state": interruption_transition,
-                        },
-                    )
                 if checkpoint_payload:
                     for option in checkpoint_payload["options"]:
                         option.pop("is_correct", None)
@@ -363,6 +393,14 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                     },
                 )
                 if should_stop:
+                    yield sse(
+                        "stream_complete",
+                        {
+                            "run_id": handle.run_id,
+                            "status": "completed",
+                            "last_committed_action_index": action_index,
+                        },
+                    )
                     return
 
                 nonblocking_streak = (
@@ -376,7 +414,11 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                 error_type="RunInterrupted",
                 retryable=True,
             )
-            request.app.state.sessions.mark_run_interrupted(handle.run_id, error)
+            await run_blocking(
+                request.app.state.sessions.mark_run_interrupted,
+                handle.run_id,
+                error,
+            )
             terminal = True
             yield sse("run_interrupted", {"run_id": handle.run_id, "status": "interrupted"})
         except asyncio.CancelledError:
@@ -386,7 +428,11 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                 error_type="ClientDisconnected",
                 retryable=True,
             )
-            request.app.state.sessions.mark_run_failed(handle.run_id, error)
+            await run_blocking_cleanup(
+                request.app.state.sessions.mark_run_failed,
+                handle.run_id,
+                error,
+            )
             terminal = True
             raise
         except Exception as exc:
@@ -409,11 +455,34 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                 code,
                 message,
                 error_type=exc.__class__.__name__,
-                retryable=code != "input_error",
+                retryable=(exc.retryable if isinstance(exc, LlmProviderError) else code != "input_error"),
             )
-            request.app.state.sessions.mark_run_failed(handle.run_id, error)
+            if isinstance(exc, LlmProviderError):
+                diagnostic = exc.diagnostic()
+                error.update(
+                    {
+                        "provider_code": diagnostic["code"],
+                        "status_code": diagnostic["status_code"],
+                        "response_headers": diagnostic["response_headers"],
+                        "phase": diagnostic["phase"],
+                        "saw_content": diagnostic["saw_content"],
+                    }
+                )
+            await run_blocking(
+                request.app.state.sessions.mark_run_failed,
+                handle.run_id,
+                error,
+            )
             terminal = True
-            yield sse("error", {"message": message, "run_id": handle.run_id, "code": code})
+            yield sse(
+                "error",
+                {
+                    "message": message,
+                    "run_id": handle.run_id,
+                    "code": code,
+                    "retryable": bool(error["retryable"]),
+                },
+            )
         finally:
             if not terminal:
                 error = run_error(
@@ -422,7 +491,11 @@ async def chat_stream(payload: ChatStreamRequest, request: Request) -> Streaming
                     error_type="StreamClosed",
                     retryable=True,
                 )
-                request.app.state.sessions.mark_run_failed(handle.run_id, error)
+                await run_blocking(
+                    request.app.state.sessions.mark_run_failed,
+                    handle.run_id,
+                    error,
+                )
             await coordinator.finish(handle)
 
     return StreamingResponse(

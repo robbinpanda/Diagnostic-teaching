@@ -1,4 +1,5 @@
 import { API_BASE, JSON_HEADERS, responseError } from "./http";
+import { apiContracts, cardFolderSchema, responseContract, studyCardSchema } from "./contracts";
 import type { CardFolder, KnowledgeCardContent, StudyCard } from "./types";
 
 export async function fetchCards(
@@ -9,7 +10,7 @@ export async function fetchCards(
   const query = params.toString();
   const response = await fetch(`${API_BASE}/api/cards${query ? `?${query}` : ""}`, { cache: "no-store" });
   if (!response.ok) throw await responseError(response, "学习卡片加载失败");
-  const payload = await response.json();
+  const payload = await responseContract(response, apiContracts.cards, "学习卡片列表");
   return payload.cards;
 }
 
@@ -24,13 +25,13 @@ export async function saveCard(
     body: JSON.stringify({ session_id: sessionId, folder_id: folderId || null })
   });
   if (!response.ok) throw await responseError(response);
-  return response.json();
+  return responseContract(response, studyCardSchema, "保存学习卡片");
 }
 
 export async function fetchCardFolders(): Promise<CardFolder[]> {
   const response = await fetch(`${API_BASE}/api/card-folders`, { cache: "no-store" });
   if (!response.ok) throw await responseError(response, "卡片文件夹加载失败");
-  const payload = await response.json();
+  const payload = await responseContract(response, apiContracts.cardFolders, "卡片文件夹列表");
   return payload.folders;
 }
 
@@ -44,7 +45,7 @@ export async function createCardFolder(input: {
     body: JSON.stringify(input)
   });
   if (!response.ok) throw await responseError(response);
-  return response.json();
+  return responseContract(response, cardFolderSchema, "创建卡片文件夹");
 }
 
 export async function updateCardFolder(
@@ -57,7 +58,7 @@ export async function updateCardFolder(
     body: JSON.stringify(input)
   });
   if (!response.ok) throw await responseError(response);
-  return response.json();
+  return responseContract(response, cardFolderSchema, "更新卡片文件夹");
 }
 
 export async function deleteCardFolder(folderId: string) {
@@ -74,7 +75,7 @@ export async function moveCard(cardId: string, folderId: string): Promise<StudyC
     body: JSON.stringify({ folder_id: folderId })
   });
   if (!response.ok) throw await responseError(response);
-  return response.json();
+  return responseContract(response, studyCardSchema, "移动学习卡片");
 }
 
 export async function copyCard(cardId: string, folderId: string): Promise<StudyCard> {
@@ -84,7 +85,7 @@ export async function copyCard(cardId: string, folderId: string): Promise<StudyC
     body: JSON.stringify({ folder_id: folderId })
   });
   if (!response.ok) throw await responseError(response);
-  return response.json();
+  return responseContract(response, studyCardSchema, "复制学习卡片");
 }
 
 export async function updateKnowledgeCard(
@@ -97,7 +98,7 @@ export async function updateKnowledgeCard(
     body: JSON.stringify({ content })
   });
   if (!response.ok) throw await responseError(response);
-  return response.json();
+  return responseContract(response, studyCardSchema, "更新知识卡片");
 }
 
 export async function deleteCard(cardId: string) {
@@ -105,6 +106,15 @@ export async function deleteCard(cardId: string) {
     method: "DELETE"
   });
   if (!response.ok) throw await responseError(response);
+}
+
+export async function deleteCards(cardIds: string[]) {
+  const response = await fetch(`${API_BASE}/api/cards/bulk-delete`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ card_ids: cardIds })
+  });
+  if (!response.ok) throw await responseError(response, "批量删除学习卡片失败");
 }
 
 export async function deleteAllCards() {

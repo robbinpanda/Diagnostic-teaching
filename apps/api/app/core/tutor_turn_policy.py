@@ -131,9 +131,7 @@ def apply_backend_action_policy(
         or current_problem_text.strip()
         or turn.problem_summary
     )
-    if proposed_status == "ready" and not has_problem:
-        proposed_status = "need_problem"
-    elif proposed_status == "need_thought" and not has_problem:
+    if proposed_status in {"ready", "need_thought"} and not has_problem:
         proposed_status = "need_problem"
     turn.context_status = proposed_status
 
@@ -150,12 +148,6 @@ def apply_backend_action_policy(
         turn.action = "EXPLAIN_LOCAL"
 
     if turn.context_status != "ready":
-        if turn.action != "ASK_OPEN_QUESTION" or not re.search(r"[？?]\s*$", turn.message):
-            turn.message = (
-                "请把你想解决的完整题目发给我，可以直接粘贴文字，也可以上传题目图片。你现在想解决的是哪道题？"
-                if turn.context_status == "need_problem"
-                else "这道题你已经试过什么、想到哪一步，或者具体卡在哪里？完全没思路也可以直接说。"
-            )
         turn.debug["context_action_guard"] = {
             "from": turn.action,
             "context_status": turn.context_status,
@@ -170,8 +162,6 @@ def apply_backend_action_policy(
         turn.action = "ASK_OPEN_QUESTION"
         turn.knowledge_card = None
         turn.problem_card = None
-        if not re.search(r"[？?]\s*$", turn.message):
-            turn.message = turn.message.rstrip("。！？!?") + "。你先说说：这一步你觉得下一步应该做什么？"
 
     turn.wait_for_student = turn.action in BLOCKING_ACTIONS
     if turn.action == "ASK_MULTIPLE_CHOICE" and not turn.checkpoint:

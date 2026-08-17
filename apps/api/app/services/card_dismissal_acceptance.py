@@ -13,10 +13,12 @@ from app.services.input_acceptance_models import (
     load_json as _load_json,
 )
 from app.storage.card_folder_repository import resolve_card_folder
+from app.storage.database import with_sqlite_busy_retry
 from app.storage.repository_utils import new_id, now_iso
 
 
 class CardDismissalAcceptanceMixin:
+    @with_sqlite_busy_retry
     def accept_card_dismissed_continue(
         self,
         session_id: str,
@@ -77,7 +79,12 @@ class CardDismissalAcceptanceMixin:
                 raise PermissionError(card_id)
             if card_row["card_type"] != "knowledge_card":
                 raise InputValidationError("只有知识卡片关闭后需要继续生成")
-            resolved_folder_id = resolve_card_folder(conn, folder_id, card_row["card_type"])
+            resolved_folder_id = resolve_card_folder(
+                conn,
+                folder_id,
+                card_row["card_type"],
+                preferred_folder_id=card_row["folder_id"],
+            )
             if not save_to_library and card_row["saved_at"] is not None:
                 raise InputStateConflictError(card_id)
             if content is not None and card_row["saved_at"] is not None:

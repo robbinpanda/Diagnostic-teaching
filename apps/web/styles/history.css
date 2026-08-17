@@ -1,0 +1,1054 @@
+.historyWorkspace {
+  grid-row: 1 / -1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  color: var(--neutral-900);
+  background: var(--stage-canvas);
+}
+
+.historyWorkspaceHeader,
+.historyWorkspaceBodyInner {
+  width: min(1120px, 100%);
+  margin-inline: auto;
+}
+
+.historyWorkspaceHeader {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+  border-bottom: 1px solid var(--stage-line);
+  background: var(--stage-canvas);
+}
+
+.historyWorkspaceHeader.historyWorkspaceHeaderDetail {
+  width: min(1184px, 100%);
+}
+
+.historyWorkspaceTitle {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.historyWorkspaceTitle h1 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--stage-ink);
+  font-size: clamp(28px, 3vw, 32px);
+  font-weight: 720;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+}
+
+.historyWorkspaceTitle p,
+.historyPaperMeta,
+.historyQuestionMeta {
+  color: var(--neutral-600);
+}
+
+.historyWorkspaceTitle p {
+  margin-top: var(--space-1);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.historyWorkspaceToolbar {
+  min-width: 0;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.historySelectionActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.historyWorkspaceAction.active,
+.historyWorkspaceAction[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--stage-forest) 54%, var(--stage-line));
+  color: var(--stage-canvas);
+  background: var(--stage-forest);
+}
+
+.historyWorkspaceNav,
+.historyWorkspaceBack,
+.historyWorkspaceSort,
+.historyWorkspaceAction {
+  min-height: 44px;
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-md);
+  color: var(--stage-forest);
+  background: var(--neutral-25);
+  transition:
+    border-color 180ms var(--ease-standard),
+    color 180ms var(--ease-standard),
+    background 180ms var(--ease-standard),
+    box-shadow 180ms var(--ease-standard);
+}
+
+.historyWorkspaceNav,
+.historyWorkspaceBack,
+.historyWorkspaceAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.historyWorkspaceNav {
+  min-width: 44px;
+  flex: 0 0 44px;
+  align-self: flex-start;
+  padding: 0;
+}
+
+.historyWorkspaceBack {
+  width: 44px;
+  min-width: 44px;
+  flex: 0 0 44px;
+  align-self: flex-start;
+  padding: 0;
+}
+
+.historyWorkspaceAction {
+  padding: 0 var(--space-3);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.historyWorkspaceSort {
+  min-width: 132px;
+  padding: 0 var(--space-8) 0 var(--space-3);
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.historyWorkspaceNav:hover:not(:disabled),
+.historyWorkspaceBack:hover:not(:disabled),
+.historyWorkspaceAction:hover:not(:disabled),
+.historyWorkspaceSort:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--stage-sage) 58%, var(--stage-line));
+  color: var(--stage-ink);
+  background: var(--stage-sage-soft);
+}
+
+.historyWorkspaceNav:disabled,
+.historyWorkspaceBack:disabled,
+.historyWorkspaceSort:disabled,
+.historyWorkspaceAction:disabled {
+  color: var(--neutral-500);
+  background: var(--neutral-100);
+  box-shadow: none;
+}
+
+.historyWorkspaceSearch {
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-inline: var(--space-3);
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-md);
+  color: var(--neutral-600);
+  background: var(--neutral-25);
+  transition:
+    border-color 180ms var(--ease-standard),
+    box-shadow 180ms var(--ease-standard),
+    background 180ms var(--ease-standard);
+}
+
+.historyWorkspaceSearch:focus-within {
+  border-color: var(--stage-sage);
+  background: var(--stage-canvas);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--stage-sage-soft) 76%, transparent);
+}
+
+.historyWorkspaceSearch svg,
+.historyWorkspaceNav svg,
+.historyWorkspaceBack svg,
+.historyWorkspaceAction svg,
+.historyQuestionMeta svg {
+  flex: 0 0 auto;
+}
+
+.historyWorkspaceSearch input {
+  min-width: 0;
+  width: 240px;
+  height: 42px;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  caret-color: var(--stage-forest);
+  color: var(--neutral-900);
+  background: transparent;
+  font-size: 13px;
+}
+
+.historyWorkspaceSearch input:focus-visible {
+  outline: 2px solid var(--primary-700);
+  outline-offset: -2px;
+}
+
+.historyWorkspaceSearch input::placeholder {
+  color: var(--neutral-600);
+}
+
+.historyWorkspaceBody {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 var(--space-8) var(--space-8);
+  scrollbar-color: var(--stage-sage) var(--neutral-100);
+}
+
+.historyWorkspaceBodyInner {
+  padding-top: var(--space-4);
+  animation: historyWorkspaceEnter 180ms var(--ease-standard) both;
+}
+
+.historyPaperGrid,
+.historySkeletonGrid {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.historyPaperGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.historySkeletonGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  animation: historySkeletonBreath 1600ms var(--ease-standard) infinite alternate;
+}
+
+.historyPaperCard {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 0;
+  overflow: hidden;
+  appearance: none;
+  text-align: left;
+  color: var(--neutral-900);
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-lg);
+  background: var(--stage-canvas);
+  box-shadow: var(--shadow-card);
+  transition:
+    transform 180ms var(--ease-standard),
+    box-shadow 180ms var(--ease-standard),
+    border-color 180ms var(--ease-standard);
+}
+
+.historyPaperCard:hover,
+.historyPaperCard:focus-visible {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--stage-sage) 54%, var(--stage-line));
+  box-shadow: var(--shadow-float);
+}
+
+.historyPaperCard:active {
+  transform: translateY(0);
+}
+
+.historyPaperPreview {
+  position: relative;
+  min-width: 0;
+  min-height: 210px;
+  aspect-ratio: 2 / 1;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-content: start;
+  padding: var(--space-5);
+  overflow: hidden;
+  background-color: var(--stage-canvas);
+  background-image:
+    linear-gradient(var(--stage-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--stage-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.historyPaperCard[data-accent="yellow"] .historyPaperPreview {
+  background-color: color-mix(in srgb, var(--stage-yellow-soft) 16%, var(--stage-canvas));
+}
+
+.historyPaperCard[data-accent="lavender"] .historyPaperPreview {
+  background-color: color-mix(in srgb, var(--stage-lavender-deep) 8%, var(--stage-canvas));
+}
+
+.historyPaperCard[data-accent="sage"] .historyPaperPreview {
+  background-color: color-mix(in srgb, var(--stage-sage-soft) 18%, var(--stage-canvas));
+}
+
+.historyPaperTab {
+  position: absolute;
+  top: 0;
+  right: var(--space-5);
+  width: 30px;
+  height: 7px;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.historyPaperCard[data-accent="lavender"] .historyPaperTab {
+  background: var(--stage-lavender-deep);
+}
+
+.historyPaperCard[data-accent="sage"] .historyPaperTab {
+  background: var(--stage-sage);
+}
+
+.historyPaperCard[data-accent="yellow"] .historyPaperTab {
+  background: var(--stage-yellow);
+}
+
+.historyGradeBadge {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-full);
+  color: var(--primary-800);
+  background: var(--stage-sage-soft);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.historyPaperCoverTitle {
+  min-width: 0;
+  display: -webkit-box;
+  margin-top: var(--space-3);
+  overflow: hidden;
+  color: var(--stage-ink);
+  font-size: 17px;
+  font-weight: 720;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.historyPaperPreviewList {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  overflow: hidden;
+  counter-reset: history-question;
+}
+
+.historyPaperQuestionPreview {
+  min-width: 0;
+  max-height: 3em;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: var(--space-1);
+  overflow-x: auto;
+  overflow-y: hidden;
+  color: var(--neutral-900);
+  font-size: 12px;
+  line-height: 1.5;
+  scrollbar-width: thin;
+  counter-increment: history-question;
+}
+
+.historyPaperQuestionPreview::before {
+  content: counter(history-question) ".";
+  color: var(--neutral-600);
+  font-variant-numeric: tabular-nums;
+}
+
+.historyPaperQuestionPreview .mathText,
+.historyQuestionTitle .mathText {
+  min-width: 0;
+}
+
+.historyDeleteSelectionAction:not(:disabled) {
+  color: var(--danger);
+}
+
+.historyDeleteSelectionAction:hover:not(:disabled),
+.historyDeleteSelectionAction:focus-visible:not(:disabled) {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--stage-line));
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.problemCardLibraryWorkspace .historyPaperCoverTitle {
+  display: block;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.problemCardLibraryWorkspace .historyPaperQuestionPreview {
+  max-height: 1.5em;
+  overflow: hidden;
+}
+
+.problemCardLibraryWorkspace .historyPaperQuestionPreview .mathText {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.problemCardLibraryWorkspace .historyPaperQuestionPreview .mathDisplay,
+.problemCardLibraryWorkspace .historyPaperQuestionPreview .katex-display {
+  display: inline;
+  margin: 0;
+}
+
+.mistakeSetLibraryWorkspace .historyPaperCoverTitle {
+  display: block;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mistakeSetLibraryWorkspace .historyPaperQuestionPreview {
+  max-height: 1.5em;
+  overflow: hidden;
+}
+
+.mistakeSetLibraryWorkspace .historyPaperQuestionPreview .mathText {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mistakeSetLibraryWorkspace .historyPaperQuestionPreview .mathDisplay,
+.mistakeSetLibraryWorkspace .historyPaperQuestionPreview .katex-display {
+  display: inline;
+  margin: 0;
+}
+
+.historyPaperQuestionPreview .mathDisplay,
+.historyQuestionTitle .mathDisplay {
+  max-width: none;
+  margin-block: 0;
+  overflow: visible;
+}
+
+.historyPaperMeta {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--stage-line);
+  background: var(--neutral-25);
+}
+
+.historyPaperMeta strong {
+  overflow: hidden;
+  color: var(--stage-ink);
+  font-size: 14px;
+  font-weight: 680;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.historyPaperMeta span {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.historyQuestionList {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.historyQuestionRow {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: var(--space-3);
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-lg);
+  background: var(--neutral-25);
+  transition:
+    border-color 180ms var(--ease-standard),
+    background 180ms var(--ease-standard),
+    box-shadow 180ms var(--ease-standard);
+}
+
+.historyQuestionRow:hover,
+.historyQuestionRow:focus-within {
+  border-color: color-mix(in srgb, var(--stage-sage) 46%, var(--stage-line));
+  background: var(--stage-canvas);
+  box-shadow: var(--shadow-card);
+}
+
+.historyQuestionOpen {
+  min-width: 0;
+  min-height: 72px;
+  padding: var(--space-4);
+  border: 0;
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+  text-align: left;
+  color: inherit;
+  background: transparent;
+}
+
+.historyQuestionOpen:disabled {
+  color: var(--neutral-500);
+}
+
+.historyQuestionTitle {
+  min-width: 0;
+  display: block;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.historyQuestionTitle strong {
+  display: block;
+  margin: 0;
+  color: var(--stage-ink);
+  font-size: 15px;
+  font-weight: 680;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.historyQuestionMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.historyQuestionMeta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.historyQuestionDelete {
+  min-width: 44px;
+  min-height: 44px;
+  align-self: center;
+  justify-self: center;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-md);
+  color: var(--danger);
+  background: transparent;
+  transition:
+    color 180ms var(--ease-standard),
+    background 180ms var(--ease-standard),
+    transform 180ms var(--ease-standard);
+}
+
+.historyQuestionDelete:hover:not(:disabled),
+.historyQuestionDelete:focus-visible:not(:disabled) {
+  background: var(--danger-soft);
+  transform: translateY(-1px);
+}
+
+.historyQuestionDelete:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.historyQuestionDelete:disabled {
+  color: var(--neutral-500);
+  background: var(--neutral-100);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.historyWorkspaceState,
+.historyWorkspaceAlert {
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-lg);
+  background: var(--neutral-50);
+}
+
+.historyWorkspaceState {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: var(--space-3);
+  min-height: 280px;
+  padding: var(--space-8);
+  text-align: center;
+}
+
+.historyWorkspaceState strong {
+  color: var(--stage-ink);
+  font-size: 17px;
+  line-height: 1.4;
+}
+
+.historyWorkspaceState p {
+  max-width: 52ch;
+  color: var(--neutral-600);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.historyWorkspaceState .historyWorkspaceAction {
+  margin-top: var(--space-1);
+}
+
+.historyWorkspaceAlert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  color: var(--neutral-900);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.historyWorkspaceAlert[role="alert"] {
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--stage-line));
+  background: var(--danger-soft);
+}
+
+.historyWorkspaceAlert > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.historyCardOverlayStage {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.historyCardOverlayStage .activeKnowledgeCardDock {
+  bottom: 24px;
+}
+
+.historyWorkspaceNotice {
+  border-color: color-mix(in srgb, var(--success) 28%, var(--stage-line));
+  background: var(--success-soft);
+}
+
+.historyWorkspaceNotice > span {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.historyPaperSkeleton {
+  aspect-ratio: 8 / 5;
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--stage-sage-soft) 44%, transparent),
+      transparent
+    ),
+    color-mix(in srgb, var(--stage-sage-soft) 18%, var(--stage-canvas));
+  background-size: 200% 100%, auto;
+}
+
+.historyPaperCardShell {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  border-radius: var(--radius-lg);
+}
+
+.historyPaperCardShell > .historyPaperCard {
+  height: 100%;
+}
+
+.historyPaperSelect {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-md);
+  color: var(--stage-forest);
+  background: var(--neutral-25);
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.historyPaperSelect:hover,
+.historyPaperSelect:focus-visible,
+.historyPaperSelect[aria-pressed="true"] {
+  border-color: var(--stage-sage);
+  background: var(--stage-sage-soft);
+}
+
+.historyPaperSelect small {
+  color: var(--neutral-600);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.historyQuestionRow.selectionMode {
+  grid-template-columns: 44px minmax(0, 1fr);
+}
+
+.historyQuestionSelect {
+  width: 44px;
+  min-height: 44px;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-right: 1px solid var(--stage-line);
+  color: var(--neutral-600);
+  background: transparent;
+}
+
+.historyQuestionSelect:hover,
+.historyQuestionSelect:focus-visible,
+.historyQuestionSelect[aria-pressed="true"] {
+  color: var(--stage-forest);
+  background: var(--stage-sage-soft);
+}
+
+.knowledgePointMove {
+  color: var(--stage-forest);
+}
+
+.knowledgePointMove:hover:not(:disabled),
+.knowledgePointMove:focus-visible:not(:disabled) {
+  color: var(--stage-ink);
+  background: var(--stage-sage-soft);
+}
+
+.mistakeSetPreview {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--stage-canvas);
+}
+
+.mistakeSetPreviewToolbar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-8);
+  border-bottom: 1px solid var(--stage-line);
+}
+
+.mistakeSetPreviewTitle {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.mistakeSetPreviewTitle h1,
+.mistakeSetPreviewTitle p {
+  margin: 0;
+}
+
+.mistakeSetPreviewTitle h1 {
+  color: var(--stage-ink);
+  font-size: 22px;
+  line-height: 1.3;
+}
+
+.mistakeSetPreviewTitle p {
+  margin-top: var(--space-1);
+  color: var(--neutral-600);
+  font-size: 12px;
+}
+
+.mistakeSetPreviewTitle label {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--neutral-600);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mistakeSetPreviewTitle input {
+  width: min(420px, 100%);
+  height: 42px;
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-md);
+  outline: 0;
+  padding: 0 var(--space-3);
+  color: var(--stage-ink);
+  background: var(--neutral-25);
+  font-size: 16px;
+  font-weight: 680;
+}
+
+.mistakeSetPreviewTitle input:focus {
+  border-color: var(--stage-sage);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--stage-sage-soft) 76%, transparent);
+}
+
+.mistakeSetPreviewActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.mistakePracticeToggle {
+  min-height: 40px;
+  border: 1px solid var(--stage-line);
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  color: var(--neutral-700);
+  background: var(--neutral-25);
+  font-size: 12px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.mistakePracticeToggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mistakePracticeToggle.active,
+.mistakePracticeToggle:focus-within {
+  border-color: var(--stage-sage);
+  color: var(--stage-forest);
+  background: var(--stage-sage-soft);
+}
+
+.mistakeSetNameError {
+  margin: var(--space-3) var(--space-8) 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.mistakeSetPreviewCanvas {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-8);
+  background: color-mix(in srgb, var(--neutral-200) 66%, var(--stage-canvas));
+}
+
+.mistakeSetPreviewSheet {
+  width: min(794px, 100%);
+  min-height: 1123px;
+  margin: 0 auto;
+  padding: 48px 54px;
+  color: var(--neutral-900);
+  background: var(--neutral-0);
+  box-shadow: 0 18px 44px rgba(29, 45, 43, 0.14);
+}
+
+.mistakeSetDocumentHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-5);
+  padding-bottom: var(--space-4);
+  border-bottom: 3px solid var(--stage-forest);
+}
+
+.mistakeSetDocumentHeader span {
+  color: var(--stage-forest);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.mistakeSetDocumentHeader h1,
+.mistakeSetDocumentHeader p {
+  margin: 0;
+}
+
+.mistakeSetDocumentHeader h1 {
+  margin-top: var(--space-1);
+  font-size: 27px;
+  line-height: 1.25;
+}
+
+.mistakeSetDocumentHeader p {
+  color: var(--neutral-600);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.mistakeSetDocumentQuestions {
+  column-count: 2;
+  column-gap: 18px;
+  margin-top: 20px;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard {
+  width: 100%;
+  margin: 0 0 16px;
+  border: 1px solid var(--neutral-300);
+  border-top: 4px solid var(--stage-forest);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--neutral-0);
+  break-inside: avoid;
+  font-size: 11px;
+  line-height: 1.48;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard.problemCard {
+  border-color: var(--neutral-300);
+  border-top-color: var(--stage-yellow);
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard > header {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  margin-bottom: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--neutral-200);
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard > header > span {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--neutral-0);
+  background: var(--stage-yellow-ink);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard small {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--stage-yellow-ink);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard h2 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard section {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--neutral-200);
+  break-inside: avoid;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard section:last-child {
+  border-bottom: 0;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard h3 {
+  margin: 0 0 3px;
+  color: var(--stage-yellow-ink);
+  font-size: 9px;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard p,
+.mistakeSetPreviewSheet .knowledgeCardPrintCard ul,
+.mistakeSetPreviewSheet .knowledgeCardPrintCard ol {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard ul,
+.mistakeSetPreviewSheet .knowledgeCardPrintCard ol {
+  padding-left: 18px;
+}
+
+.mistakeSetPreviewSheet .knowledgeCardPrintCard li + li {
+  margin-top: 4px;
+}
+
+.mistakeSetPreviewSheet .printStepResult {
+  margin-top: 4px;
+  border-left: 3px solid var(--stage-yellow);
+  padding: 4px 6px;
+  background: var(--stage-yellow-soft);
+}
+
+.mistakeSetPreviewSheet .printProblemLead,
+.mistakeSetPreviewSheet .printFinalAnswer {
+  margin: 0 -5px;
+  padding: 7px 5px !important;
+  border-radius: 5px;
+  background: var(--stage-yellow-soft);
+}
+
+.mistakeSetPreviewSheet .practiceHiddenTitle {
+  min-height: 20px;
+  border-radius: 4px;
+  color: transparent;
+  background: var(--neutral-200);
+}
+
+.mistakeSetPreviewSheet .practiceHiddenTitle * {
+  visibility: hidden;
+}
+
+.mistakeSetPreviewSheet .printPracticeArea {
+  min-height: 180px;
+  border: 0;
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  color: var(--neutral-500);
+}
+
+.mistakeSetPreviewSheet .printPracticeArea i {
+  display: block;
+  border-top: 1px solid var(--neutral-200);
+}
+
+.mistakeSetPreviewSheet .printIncompleteLine {
+  color: var(--neutral-500);
+  font-style: italic;
+}
+
+@keyframes historyWorkspaceEnter {
+  from {
+    opacity: 0.78;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes historySkeletonBreath {
+  from { opacity: 0.58; }
+  to { opacity: 0.9; }
+}

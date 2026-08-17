@@ -1,4 +1,4 @@
-export type StreamCancellationReason = "session-change" | "unmount" | "user" | "student-message" | "superseded";
+export type StreamCancellationReason = "session-change" | "unmount" | "user" | "superseded";
 
 export type ActiveStream = {
   sessionId: string;

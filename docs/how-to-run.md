@@ -1,8 +1,10 @@
 # 本地启动与关闭
 
+> 产品与系统逻辑见 [系统总览](./system-overview.md)；本文只负责安装、启停、验证和故障排查。
+
 ## 运行方式选择
 
-普通用户优先下载 [Windows 0.5.0 安装包](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest)；参与开发时使用本页的源码模式；需要可复现的隔离环境或局域网服务时使用 Docker。第一次从 0.4.0 安装 0.5.0 会清空 `%APPDATA%\DiagnosticTeaching` 下的旧数据库、密钥和日志，必须先备份需要保留的数据。三种方式共用同一套教学核心和 SQLite schema。
+普通用户优先下载 [Windows 0.6.0 安装包](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest)；参与开发时使用本页的源码模式；需要可复现的本机隔离环境时使用 Docker。0.5.0 引入的一次性旧数据清理合同仍然有效，但已经运行过 0.5.0 的用户升级到 0.6.0 不会再次清理。三种方式共用同一套教学核心和 SQLite schema。
 
 ### Docker 轻量核心版
 
@@ -11,6 +13,8 @@ docker compose -f compose.local.yml up -d --build
 ```
 
 打开 `http://127.0.0.1:3000`。默认镜像不安装 FunASR、PyTorch 和 FFmpeg，因此麦克风会显示本地语音不可用，其余教学、模型、会话恢复和卡片功能不受影响。
+
+Compose 明确把宿主机端口绑定到 `127.0.0.1`。当前 API 没有多用户认证，不能把映射改成 `3000:8010` 或直接暴露到局域网/公网；若未来提供远程访问，必须先增加认证、传输加密和请求来源防护。
 
 ### Docker CPU 语音版
 
@@ -42,9 +46,30 @@ docker compose -f compose.local.yml -f compose.speech.yml down
 
 ```bat
 conda create -n ai4edu-tutor python=3.11
-conda run -n ai4edu-tutor python -m pip install -r apps/api/requirements-dev.txt
+conda run -n ai4edu-tutor python scripts/install-python-deps.py dev
 npm --prefix apps/web install
 ```
+
+`requirements-core.txt` 是轻量运行时和 Docker 共用的、带 SHA-256 哈希的完整锁文件。pip 看到其中任一哈希后会要求同一次解析里的全部依赖都有哈希，因此核心、语音和工具层不能通过嵌套 `-r` 混装。统一安装入口会使用当前 `sys.executable` 逐层调用 pip：
+
+```bat
+python scripts\install-python-deps.py core
+python scripts\install-python-deps.py runtime
+python scripts\install-python-deps.py dev
+python scripts\install-python-deps.py ci
+python scripts\install-python-deps.py build
+```
+
+五个 profile 依次表示：仅轻量后端、轻量后端加本地语音、本地开发全套、无语音的 CI 测试环境、Windows 安装包构建环境。
+
+需要升级核心 Python 依赖时，在项目根目录执行：
+
+```bat
+python -m pip install -r apps\api\requirements-lock.txt
+scripts\lock-python-deps.cmd
+```
+
+直接依赖及允许的版本范围只写入 `apps/api/requirements-core.in`；`requirements-core.txt` 由固定版本的 `pip-tools` 生成，不应手工修改。提交依赖变更时应同时提交输入文件与生成后的锁文件。
 
 项目不依赖 `.env` 也能使用默认路径。需要改数据库、密钥或 session 日志位置时，再创建本地配置：
 
@@ -69,7 +94,7 @@ copy .env.example .env
 
 ## 本地语音输入（SenseVoiceSmall）
 
-`requirements-dev.txt` 会安装 `torch`、`torchaudio`、`funasr==1.3.29`。启动页面后点击输入框下方的麦克风并授权：浏览器会通过 WebSocket 持续发送重采样后的 16 kHz 单声道 16 位 PCM，录音不会在 60 秒或其他固定总时长后自动停止，用户再次点击麦克风时才结束。FSMN-VAD 判断发声和停顿，SenseVoiceSmall 约每 1.2 秒刷新一次临时文字。短暂停顿只进入待确认状态，默认 2.5 秒内重新开口会继续合并为同一句；连续静音超过该窗口或再次点击麦克风才确认最终文字。结果只回填输入框，不会自动发送，可修改后再按 Enter。
+`scripts/install-python-deps.py dev` 会分层安装 `torch`、`torchaudio`、`funasr==1.3.29` 以及测试工具。启动页面后点击输入框下方的麦克风并授权：浏览器会通过 WebSocket 持续发送重采样后的 16 kHz 单声道 16 位 PCM，录音不会在 60 秒或其他固定总时长后自动停止，用户再次点击麦克风时才结束。FSMN-VAD 判断发声和停顿，SenseVoiceSmall 约每 1.2 秒刷新一次临时文字。短暂停顿只进入待确认状态，默认 2.5 秒内重新开口会继续合并为同一句；连续静音超过该窗口或再次点击麦克风才确认最终文字。结果只回填输入框，不会自动发送，可修改后再按 Enter。
 
 流式录音不保存原始录音文件。后端默认最多保留当前 30 秒的 PCM（约 0.92 MiB/连接），达到滚动分段边界时会先确认当前文字，再清空已处理音频并继续接收；没有检测到语音的静音窗口也会直接丢弃。SenseVoice 推理所需 WAV 只存在于系统临时目录，并在单次推理结束后自动删除。因此总录音时长不受限，但内存和临时磁盘占用不会随录音时长持续增长。兼容用 `POST /api/speech/transcribe` 仍接受完整 WAV，但请求体最多 16 MiB；长时间麦克风输入应使用 WebSocket 接口。
 
@@ -120,7 +145,9 @@ npm exec tsc -- --noEmit
 
 验证文字多题时，在新答疑输入框一次粘贴两道带独立题号的题目并发送。当前所选模型应先完成拆题，左栏随后出现两个 session；第一题自动打开，两题可同时显示“正在思考”，每个 session 的首条学生消息与标题只包含自己的题目。同一大题的共享题干和多个小问应保留在一个 session。
 
-验证图片多题时，先选中明确标记“支持上传图片”的多模态模型再上传 PNG/JPEG/WebP。检测完成后必须先出现题目框确认页，不应立即创建 session：点选框后可按 Delete/Backspace 删除，拖动框内可平移，拖动四边或角点可缩放。确认后左栏出现与保留框数量相同的 session；逐一打开时，首条消息展示的图片应只是对应框的裁剪内容，且所有 session 使用同一答疑模型。取消确认不应创建任何 session。
+验证图片多题时，先选中明确标记“支持上传图片”的多模态模型再上传不超过 12 MiB 的 PNG/JPEG/WebP。前端应在读取图片前拒绝超限文件；检测完成后必须先出现题目框确认页，不应立即创建 session：点选框后可按 Delete/Backspace 删除，拖动框内可平移，拖动四边或角点可缩放。确认后左栏出现与保留框数量相同的 session；逐一打开时，首条消息展示的图片应只是对应框的裁剪内容，且所有 session 使用同一答疑模型。取消确认不应创建任何 session。
+
+验证会话内图片时，打开一个使用多模态模型的正式 session，再通过回形针或粘贴添加一张 PNG/JPEG/WebP。此时只应出现普通待发送缩略图，不应进入题目框选页；可在输入框补充说明后一起发送。消息时间线应在该条学生消息中显示图片，刷新页面后仍在原位；下一轮模型请求应包含该图片。AI 正在输出时发送图片，应与文字插嘴一样先进入 outbox，当前完整回复结束后再接纳并触发一轮后续生成。使用文本模型的 session 上传图片时应明确提示需要新建多模态答疑。
 
 提交代码前还应执行完整工程门禁：
 
@@ -196,7 +223,7 @@ http://127.0.0.1:3000
 
 ## 查看某个 Session 的过程
 
-右侧区域现在是学习卡片库，不再显示 session id。需要排查时，先打开命令行并进入你的项目目录，例如：
+答疑工作台不直接显示 session id。需要排查时，先打开命令行并进入项目目录，例如：
 
 ```bat
 cd /d "D:\path\to\产品验证"
@@ -216,16 +243,20 @@ scripts\inspect-session.cmd sess_c4052d2538a6
 
 该脚本会自动定位 `ai4edu-tutor` Conda 环境，并读取 `.env` 中自定义的 `DATABASE_URL` 与 `SESSION_LOG_DIR`。
 
-你重点看八张表：
+重点查看以下十二张表：
 
 1. `sessions`：`context_status`、当前教学阶段、题目/思路语义摘要、模型与可选原图。
 2. `session_inputs`：已可靠接纳的普通消息、checkpoint answer、卡片关闭继续命令，以及幂等键和首次结果。
 3. `messages`：学生消息、AI 回复，以及每条消息的 `action_id / action / in_reply_to_action_id`。
 4. `checkpoints`：每个检查点的问题、选项、正确答案、学生选择，以及产生它的 `source_action_id`。
-5. `card_folders`：卡片目录名称、父目录、系统默认目录标记与默认卡片类型。
-6. `study_cards`：全局知识/题目卡片内容、来源 session/action/message、`folder_id`，以及是否已由学生保存归档的 `saved_at`。
-7. `session_events`：按 session 严格递增的 durable change feed，用于有限历史、SSE 断线补发和事件顺序排查；它与 JSONL 诊断日志无关。
-8. `session_runs`：每次生成的 `run_id / attempt / status`、开始结束时间、最后提交 action 下标和结构化错误。
+5. `exam_papers`：试卷实体与受管归档目录的来源；session 通过 `paper_id` 归属试卷。
+6. `card_folders`：卡片目录名称、父目录、系统默认目录标记与默认卡片类型。
+7. `study_cards`：全局知识/题目卡片内容、来源 session/action/message、`folder_id`，以及是否已由学生保存归档的 `saved_at`。
+8. `mistake_sets`：用户保存或打印过的错题集名称与时间。
+9. `mistake_set_items`：错题集内按顺序保存的题目文字、题图和来源试卷快照；来源 session 删除后快照仍保留。
+10. `session_events`：按 session 严格递增的 durable change feed，用于有限历史、SSE 断线补发和事件顺序排查；它与 JSONL 诊断日志无关。
+11. `session_runs`：每次生成的 `run_id / client_run_id / attempt / status`、开始结束时间、最后提交 action 下标和结构化错误；`session_id + client_run_id` 唯一，防止响应丢失后重复启动 run。
+12. `model_profiles`：provider 协议、模型能力、生成参数与后端加密后的凭据；session 固定引用一个 profile。
 
 生成过程中可查询或显式停止当前 session：
 
@@ -238,11 +269,11 @@ POST /api/sessions/<session_id>/interrupt
 
 页面左侧会话栏直接读取 SQLite。点击一条会话会打开原 session，并恢复其 messages、待答 checkpoint 和待归档 card，不会因为查看而复制记录；需要显式创建实验分支时仍可调用 `POST /api/sessions/restore`。
 
-右侧卡片库点击已归档卡片后，会在屏幕右侧打开无暗色遮罩的浮层；浮层外的对话仍可滚动和操作。知识卡片可点“修改内容”编辑，再点“保存修改”通过 `PUT /api/cards/<card_id>` 持久化；题目卡片只读。待归档知识卡片的“舍弃”需要连续点击“舍弃”和“确认舍弃”两次才会生效。
+从知识卡片库、错题卡片库或对话内卡片入口打开已归档卡片后，会显示无暗色遮罩的浮动窗口；视口宽度 `>900px` 时可拖动整张卡片的非交互区域，`≤900px` 使用全宽安全位置，窗口外的对话仍可滚动和操作。待归档和已归档卡片都可重新选择保存试卷，也可直接新建试卷文件夹；知识卡片还能点“修改”编辑内容，再通过 `PUT /api/cards/<card_id>` 持久化，题目卡片内容只读。待归档知识卡片的“舍弃”需要连续点击“舍弃”和“确认舍弃”两次才会生效。
 
 需要重置测试数据时：
 
-1. 在左侧会话栏标题旁点击清空按钮，会删除 SQLite 中的全部会话业务态和全部 session 日志，但保留已归档学习卡片和模型配置。
+1. 在左侧历史快速树点击清空按钮，会删除 SQLite 中的全部会话业务态、全部 `exam_papers` 和全部 session 日志，但保留已归档学习卡片、受管“按试卷归档”目录和模型配置。
 2. 在右侧学习卡片库点击“清空全部卡片”，会删除全部知识卡片和题目卡片，但保留文件夹、会话与日志。
 3. 两个按钮都要求二次确认；答疑正在生成时不能执行。
 

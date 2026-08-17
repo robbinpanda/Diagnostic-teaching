@@ -98,6 +98,7 @@ export type CardFolder = {
   parent_id?: string | null;
   is_system: boolean;
   default_card_type?: "knowledge_card" | "problem_card" | null;
+  managed_kind?: "paper_archive_root" | "paper_archive" | null;
   created_at: string;
   updated_at: string;
 };
@@ -111,9 +112,9 @@ type SseEventPayload =
   | { event: "checkpoint_ready"; data: Checkpoint }
   | { event: "card_ready"; data: StudyCard }
   | { event: "message_done"; data: { ok: boolean; action_index?: number; wait_for_student?: boolean; will_continue?: boolean; awaiting_card_dismissal?: boolean; continue_after_card?: boolean } }
+  | { event: "stream_complete"; data: { run_id: string; status: "completed"; last_committed_action_index: number } }
   | { event: "run_interrupted"; data: { run_id: string; status: "interrupted" } }
-  | { event: "interruption_state"; data: { message_id: string; resume_state: "resuming" | "resolved" } }
-  | { event: "error"; data: { message: string } }
+  | { event: "error"; data: { message: string; code?: string; retryable?: boolean } }
   | { event: string; data: Record<string, unknown> };
 
 export type SseEvent = SseEventPayload & { id?: string };
@@ -121,6 +122,8 @@ export type SseEvent = SseEventPayload & { id?: string };
 export type SessionHistoryItem = {
   session_id: string;
   restored_from?: string | null;
+  paper_id?: string | null;
+  paper_name?: string | null;
   title: string;
   grade_band: "junior" | "senior";
   model_profile_id: string;
@@ -136,6 +139,8 @@ export type SessionHistoryItem = {
 export type RestoredSession = {
   session_id: string;
   restored_from?: string | null;
+  paper_id?: string | null;
+  paper_name?: string | null;
   state_hint: string;
   context_status: "need_problem" | "need_thought" | "ready";
   breakpoint_description?: string | null;
@@ -151,14 +156,12 @@ export type RestoredSession = {
     action_id?: string | null;
     action: string;
     client_message_id?: string | null;
+    image_data_url?: string | null;
     checkpoint_result?: AnsweredCheckpoint | null;
   }>;
   pending_checkpoint?: Checkpoint | null;
   pending_card?: StudyCard | null;
-  pending_interruption?: {
-    message_id: string;
-    resume_state: "awaiting_question" | "detour_active" | "resuming";
-  } | null;
+  pending_cards?: StudyCard[];
 };
 
 export type SessionStartResult = {
@@ -179,10 +182,40 @@ export type SessionStartInput = {
   grade_band: "junior" | "senior";
   subject: "math";
   model_profile_id: string;
+  paper_id?: string | null;
   message: string;
   problem_text: string;
   student_initial_thought: string;
   problem_image_data_url?: string | null;
+};
+
+export type ExamPaper = {
+  id: string;
+  name: string;
+  card_folder_id: string;
+  session_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MistakeSetItem = {
+  id: string;
+  source_session_id?: string | null;
+  source_paper_name?: string | null;
+  title: string;
+  problem_text: string;
+  problem_image_data_url?: string | null;
+  problem_card?: ProblemCardContent | null;
+  position: number;
+  created_at: string;
+};
+
+export type MistakeSet = {
+  id: string;
+  name: string;
+  items: MistakeSetItem[];
+  created_at: string;
+  updated_at: string;
 };
 
 export type SessionInputAcceptance = {
@@ -200,11 +233,11 @@ export type SessionInputAcceptance = {
   card_discarded?: boolean;
   deferred_card_id?: string | null;
   card_deferred_at?: string | null;
-  interruption_id?: string | null;
 };
 
 export type SessionRun = {
   run_id: string;
+  client_run_id?: string | null;
   session_id: string;
   attempt: number;
   status: "queued" | "running" | "completed" | "failed" | "interrupted";
@@ -226,3 +259,74 @@ export type SessionRunStatus = {
   running: boolean;
   run?: SessionRun | null;
 };
+
+export type CheckpointAnswerResult = {
+  input_id: string;
+  status: "accepted" | "duplicate";
+  is_correct: boolean;
+  elapsed_ms: number;
+  event: "CHECKPOINT_CORRECT" | "CHECKPOINT_WRONG" | "CHECKPOINT_UNKNOWN";
+  next_state_hint: string;
+  student_message: string;
+  action_id: string;
+};
+
+export type SessionInterruptResult = {
+  interrupted: boolean;
+  active: boolean;
+  run_ids: string[];
+};
+
+export type ModelProfileTestResult = {
+  ok: boolean;
+  latency_ms: number | null;
+  message: string;
+  reasoning_effort_options: ReasoningEffort[];
+  reasoning_effort_results: Array<{
+    effort: ReasoningEffort;
+    ok: boolean;
+    latency_ms: number | null;
+    message: string;
+  }>;
+  multimodal_ok?: boolean | null;
+  multimodal_latency_ms?: number | null;
+  multimodal_message?: string | null;
+};
+
+export type ProblemImageDetectionResult = {
+  problems: DetectedProblemRegion[];
+  image_width: number;
+  image_height: number;
+};
+
+export type ProblemImageAnalysisResult = {
+  problem_text: string;
+  student_work_summary: string;
+  answer_text: string;
+  correctness: "correct" | "incorrect" | "unknown" | "not_present";
+  mistake_summary: string;
+  needs_diagram: boolean;
+  diagram_image_data_url?: string | null;
+  diagram_note?: string | null;
+};
+
+export type SpeechTranscription = {
+  text: string;
+  duration_seconds: number;
+  language: string | null;
+  emotion: string | null;
+  event: string | null;
+};
+
+export type SpeechStreamEvent =
+  | {
+    type: "ready";
+    sample_rate: number;
+    partial_interval_ms: number;
+    commit_silence_ms: number;
+    stream_segment_seconds: number;
+  }
+  | ({ type: "partial" | "final" } & SpeechTranscription)
+  | { type: "empty"; message: string }
+  | { type: "error"; message: string }
+  | { type: "done" };

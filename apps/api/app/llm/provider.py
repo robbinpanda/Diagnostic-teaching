@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import random
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
@@ -23,13 +28,13 @@ from app.llm.reasoning import (
 __all__ = [
     "IMAGE_ANALYSIS_PROMPT",
     "IMAGE_PROBLEM_DETECTION_PROMPT",
-    "LlmProfile",
-    "LlmEmptyResponseError",
-    "LlmProviderError",
     "TEXT_PROBLEM_SPLIT_PROMPT",
+    "LlmEmptyResponseError",
+    "LlmProfile",
+    "LlmProviderError",
     "_anthropic_response_events",
-    "analyze_problem_text",
     "analyze_problem_image",
+    "analyze_problem_text",
     "anthropic_messages_url",
     "anthropic_request_payload",
     "chat_completion",
@@ -42,6 +47,10 @@ __all__ = [
     "local_demo_response",
     "local_demo_stream",
     "message_text",
+    "openai_responses_request_payload",
+    "provider_retry_delay_seconds",
+    "responses_url",
+    "structured_json_completion",
     "test_connection",
     "test_multimodal_connection",
 ]
@@ -61,13 +70,151 @@ class LlmProfile:
 
 
 class LlmProviderError(RuntimeError):
-    pass
+    """Normalized provider failure used by every supported wire protocol."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        response_headers: dict[str, str] | None = None,
+        phase: str = "unknown",
+        saw_content: bool = False,
+        retryable: bool = False,
+        code: str = "provider_error",
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.response_headers = response_headers or {}
+        self.phase = phase
+        self.saw_content = saw_content
+        self.retryable = retryable
+        self.code = code
+
+    def diagnostic(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "message": str(self),
+            "status_code": self.status_code,
+            "response_headers": self.response_headers,
+            "phase": self.phase,
+            "saw_content": self.saw_content,
+            "retryable": self.retryable,
+        }
 
 
 class LlmEmptyResponseError(LlmProviderError):
     """Provider completed a request without emitting any visible model content."""
 
-    pass
+
+
+_TRANSIENT_HTTP_STATUSES = {408, 409, 425, 429}
+_TRANSIENT_ERROR_MARKERS = (
+    "overload",
+    "overloaded",
+    "server is busy",
+    "server busy",
+    "too many requests",
+    "rate limit",
+    "rate_limit",
+    "temporarily unavailable",
+    "service unavailable",
+    "resource exhausted",
+    "resource_exhausted",
+    "unavailable",
+)
+
+
+def _safe_response_headers(headers: Any) -> dict[str, str]:
+    if headers is None:
+        return {}
+    blocked = {"authorization", "proxy-authorization", "set-cookie"}
+    try:
+        return {
+            str(key).lower(): str(value)
+            for key, value in headers.items()
+            if str(key).lower() not in blocked
+        }
+    except (AttributeError, TypeError):
+        return {}
+
+
+def _provider_error_retryable(status_code: int | None, message: str) -> bool:
+    if status_code in _TRANSIENT_HTTP_STATUSES or (
+        status_code is not None and status_code >= 500
+    ):
+        return True
+    lowered = message.lower()
+    return any(marker in lowered for marker in _TRANSIENT_ERROR_MARKERS)
+
+
+def _http_status_error(
+    prefix: str,
+    response: Any,
+    body: bytes,
+) -> LlmProviderError:
+    status_code = int(response.status_code)
+    body_preview = body.decode("utf-8", "ignore")[:300]
+    message = f"{prefix} {status_code}: {body_preview}"
+    return LlmProviderError(
+        message,
+        status_code=status_code,
+        response_headers=_safe_response_headers(response.headers),
+        phase="response_headers",
+        retryable=_provider_error_retryable(status_code, body_preview),
+        code="provider_http_error",
+    )
+
+
+def _transport_error(
+    prefix: str,
+    exc: httpx.HTTPError,
+    *,
+    headers_received: bool,
+    saw_content: bool,
+) -> LlmProviderError:
+    is_timeout = isinstance(exc, httpx.TimeoutException)
+    return LlmProviderError(
+        prefix,
+        phase="response_stream" if headers_received else "request",
+        saw_content=saw_content,
+        retryable=True,
+        code="provider_timeout" if is_timeout else "provider_network_error",
+    )
+
+
+def provider_retry_delay_seconds(
+    error: LlmProviderError,
+    retry_number: int,
+    *,
+    now: datetime | None = None,
+    jitter: float | None = None,
+) -> float:
+    """Return Retry-After or 2/4/8/16s exponential delay with ±20% jitter."""
+
+    headers = {key.lower(): value for key, value in error.response_headers.items()}
+    retry_after_ms = headers.get("retry-after-ms")
+    if retry_after_ms:
+        try:
+            return max(0.0, min(float(retry_after_ms) / 1000.0, 30.0))
+        except ValueError:
+            pass
+    retry_after = headers.get("retry-after")
+    if retry_after:
+        try:
+            return max(0.0, min(float(retry_after), 30.0))
+        except ValueError:
+            try:
+                target = parsedate_to_datetime(retry_after)
+                if target.tzinfo is None:
+                    target = target.replace(tzinfo=UTC)
+                current = now or datetime.now(UTC)
+                return max(0.0, min((target - current).total_seconds(), 30.0))
+            except (TypeError, ValueError, OverflowError):
+                pass
+    base = min(2.0 * (2 ** max(0, retry_number - 1)), 30.0)
+    factor = jitter if jitter is not None else random.uniform(0.8, 1.2)
+    return max(0.0, min(base * factor, 30.0))
 
 
 IMAGE_ANALYSIS_PROMPT = """你是数学题图片录入助手，不是解题助手或学情评估助手。请识别图片中的数学题和学生实际写下的内容，并只返回 JSON，不要 Markdown。
@@ -152,6 +299,13 @@ def chat_completions_url(base_url: str) -> str:
     if clean.endswith("/chat/completions"):
         return clean
     return f"{clean}/chat/completions"
+
+
+def responses_url(base_url: str) -> str:
+    clean = base_url.rstrip("/")
+    if clean.endswith("/responses"):
+        return clean
+    return f"{clean}/responses"
 
 
 def anthropic_messages_url(base_url: str) -> str:
@@ -292,6 +446,159 @@ async def chat_completion(
     return content
 
 
+def _extract_structured_json_object(raw: str) -> dict[str, Any]:
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
+        text = re.sub(r"```$", "", text).strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        text = text[start : end + 1]
+    parsed = json.loads(text)
+    if not isinstance(parsed, dict):
+        raise ValueError("structured output must be a JSON object")
+    return parsed
+
+
+def _structured_json_retry_messages(
+    messages: list[dict[str, Any]],
+    raw: str,
+    error: Exception,
+) -> list[dict[str, Any]]:
+    error_summary = str(error).strip().replace("\n", " ")[:500]
+    return [
+        *messages,
+        {"role": "assistant", "content": raw},
+        {
+            "role": "user",
+            "content": (
+                "你刚才的输出不是完整、合法且满足字段要求的 JSON。"
+                f"校验错误：{error_summary or error.__class__.__name__}。"
+                "请依据原任务重新生成，只输出一个完整 JSON 对象，不要解释、"
+                "不要 Markdown，也不要省略必需字段。"
+            ),
+        },
+    ]
+
+
+async def structured_json_completion(
+    profile: LlmProfile,
+    messages: list[dict[str, Any]],
+    *,
+    validate: Callable[[dict[str, Any]], None],
+    max_tokens: int,
+    temperature: float | None = None,
+    max_structured_attempts: int = 3,
+    max_provider_attempts: int = 4,
+    retry_budget_seconds: float = 60.0,
+) -> str:
+    """Return schema-valid JSON with bounded format and transient retries."""
+    request_messages = messages
+    provider_calls = 0
+    structured_attempts = 0
+    transient_retries = 0
+    started = time.perf_counter()
+    last_error: Exception | None = None
+
+    while provider_calls < max_provider_attempts:
+        provider_calls += 1
+        try:
+            raw = await chat_completion(
+                profile,
+                request_messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+        except LlmProviderError as exc:
+            last_error = exc
+            transient_retries += 1
+            delay_seconds = provider_retry_delay_seconds(exc, transient_retries)
+            within_budget = (
+                time.perf_counter() - started + delay_seconds <= retry_budget_seconds
+            )
+            retryable = exc.retryable or isinstance(exc, LlmEmptyResponseError)
+            if retryable and provider_calls < max_provider_attempts and within_budget:
+                await asyncio.sleep(delay_seconds)
+                continue
+            raise
+
+        structured_attempts += 1
+        try:
+            parsed = _extract_structured_json_object(raw)
+            validate(parsed)
+            return raw
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            last_error = exc
+            if (
+                structured_attempts < max_structured_attempts
+                and provider_calls < max_provider_attempts
+            ):
+                request_messages = _structured_json_retry_messages(messages, raw, exc)
+                continue
+            raise LlmProviderError(
+                "模型连续返回不完整或不符合字段要求的 JSON，请重试",
+                phase="response_parse",
+                saw_content=bool(raw.strip()),
+                retryable=True,
+                code="invalid_structured_json",
+            ) from exc
+
+    raise LlmProviderError(
+        str(last_error) if last_error else "结构化模型请求失败",
+        phase="response_parse",
+        retryable=True,
+        code="invalid_structured_json",
+    )
+
+
+def _validate_image_analysis_payload(data: dict[str, Any]) -> None:
+    string_fields = (
+        "problem_text",
+        "student_work_summary",
+        "answer_text",
+        "mistake_summary",
+    )
+    if any(field not in data or not isinstance(data[field], str) for field in string_fields):
+        raise ValueError("image analysis string fields are missing or invalid")
+    if not isinstance(data.get("needs_diagram"), bool):
+        raise ValueError("needs_diagram must be a boolean")
+    if data.get("diagram_bbox") is not None and not isinstance(
+        data.get("diagram_bbox"), dict
+    ):
+        raise ValueError("diagram_bbox must be an object or null")
+    if data.get("correctness") not in {"correct", "incorrect", "unknown", "not_present"}:
+        raise ValueError("correctness has an unsupported value")
+
+
+def _validate_problem_regions_payload(data: dict[str, Any]) -> None:
+    problems = data.get("problems")
+    if not isinstance(problems, list):
+        raise ValueError("problems must be an array")
+    for item in problems:
+        if not isinstance(item, dict) or not isinstance(item.get("bbox"), dict):
+            raise ValueError("every detected problem must contain a bbox object")
+        bbox = item["bbox"]
+        if any(
+            key not in bbox or not isinstance(bbox[key], (int, float))
+            for key in ("x", "y", "width", "height")
+        ):
+            raise ValueError("bbox must contain numeric x, y, width and height")
+
+
+def _validate_text_problems_payload(data: dict[str, Any]) -> None:
+    problems = data.get("problems")
+    if not isinstance(problems, list):
+        raise ValueError("problems must be an array")
+    for item in problems:
+        if not isinstance(item, dict) or not isinstance(item.get("problem_text"), str):
+            raise ValueError("every text problem must contain problem_text")
+        if "student_initial_thought" not in item or not isinstance(
+            item["student_initial_thought"], str
+        ):
+            raise ValueError("every text problem must contain student_initial_thought")
+
+
 async def analyze_problem_image(profile: LlmProfile, image_data_url: str) -> str:
     if profile.provider == "local_demo":
         return json.dumps(
@@ -317,9 +624,10 @@ async def analyze_problem_image(profile: LlmProfile, image_data_url: str) -> str
             ],
         },
     ]
-    return await chat_completion(
+    return await structured_json_completion(
         profile,
         messages,
+        validate=_validate_image_analysis_payload,
         max_tokens=min(max(profile.max_output_tokens, 4000), 16000),
         temperature=profile.temperature,
     )
@@ -352,9 +660,10 @@ async def detect_problem_regions(profile: LlmProfile, image_data_url: str) -> st
             ],
         },
     ]
-    return await chat_completion(
+    return await structured_json_completion(
         profile,
         messages,
+        validate=_validate_problem_regions_payload,
         max_tokens=min(max(profile.max_output_tokens, 2000), 8000),
         temperature=profile.temperature,
     )
@@ -387,12 +696,13 @@ async def analyze_problem_text(profile: LlmProfile, text: str) -> str:
             ensure_ascii=False,
         )
 
-    return await chat_completion(
+    return await structured_json_completion(
         profile,
         [
             {"role": "system", "content": TEXT_PROBLEM_SPLIT_PROMPT},
             {"role": "user", "content": text},
         ],
+        validate=_validate_text_problems_payload,
         max_tokens=min(max(profile.max_output_tokens, 3000), 12000),
         temperature=profile.temperature,
     )
@@ -419,7 +729,8 @@ async def chat_stream_completion(
 ):
     """按 profile 协议流式调用模型，逐 chunk yield {delta, finish_reason}。
 
-    OpenAI-compatible 使用 chat completions，Anthropic 使用 Messages API。
+    OpenAI 使用 Responses API，OpenAI-compatible 使用 Chat Completions，
+    Anthropic 使用 Messages API。
     httpx 的 read 超时按两次 chunk 之间计算，避免长思考被静默截断成空响应。
     """
     if profile.provider == "local_demo":
@@ -429,6 +740,16 @@ async def chat_stream_completion(
 
     if profile.provider == "anthropic":
         async for event in _anthropic_stream_completion(
+            profile,
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        ):
+            yield event
+        return
+
+    if profile.provider == "openai":
+        async for event in _openai_responses_stream_completion(
             profile,
             messages,
             max_tokens=max_tokens,
@@ -459,9 +780,13 @@ async def _openai_chat_stream_completion(
         "Content-Type": "application/json",
     }
     requested_max_tokens = max_tokens or profile.max_output_tokens
+    wire_messages = [
+        {key: value for key, value in message.items() if not key.startswith("_")}
+        for message in messages
+    ]
     payload: dict[str, Any] = {
         "model": profile.model,
-        "messages": messages,
+        "messages": wire_messages,
         "temperature": profile.temperature if temperature is None else temperature,
         "max_tokens": requested_max_tokens,
         "stream": True,
@@ -478,77 +803,380 @@ async def _openai_chat_stream_completion(
     connect_timeout = min(profile.timeout_ms / 1000, 10.0)
     read_timeout = max(profile.timeout_ms / 1000, 60.0)
     timeout = httpx.Timeout(connect_timeout, read=read_timeout, write=10.0, pool=10.0)
+    headers_received = False
+    saw_content = False
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream(
-                "POST", chat_completions_url(profile.base_url), headers=headers, json=payload
-            ) as response:
-                if response.status_code >= 400:
-                    body = await response.aread()
-                    raise LlmProviderError(
-                        f"模型请求失败 {response.status_code}: {body.decode('utf-8', 'ignore')[:300]}"
-                    )
-                yield {"event": "response_headers", "delta": "", "finish_reason": None}
-                finish_reason: str | None = None
-                saw_any_data = False
-                saw_content = False
-                async for line in response.aiter_lines():
-                    line = line.strip()
-                    if not line or not line.startswith("data:"):
-                        continue
-                    saw_any_data = True
-                    data_str = line[len("data:") :].strip()
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
-                    try:
-                        choice = chunk["choices"][0]
-                    except (KeyError, IndexError, TypeError):
-                        continue
-                    delta_payload = choice.get("delta")
-                    delta_payload = delta_payload if isinstance(delta_payload, dict) else {}
-                    reasoning = (
-                        delta_payload.get("reasoning_content")
-                        or delta_payload.get("reasoning")
-                        or delta_payload.get("thinking")
-                    )
-                    reasoning_details = delta_payload.get("reasoning_details")
-                    if reasoning or (
-                        isinstance(reasoning_details, list) and reasoning_details
-                    ):
-                        # Never forward raw chain-of-thought. The controller only
-                        # needs to know that the provider entered a reasoning phase.
-                        yield {
-                            "event": "reasoning_delta",
-                            "delta": "",
-                            "finish_reason": None,
-                        }
-                    delta = delta_payload.get("content") or ""
-                    if delta:
-                        saw_content = True
-                        yield {
-                            "event": "content_delta",
-                            "delta": delta,
-                            "finish_reason": None,
-                        }
-                    if choice.get("finish_reason"):
-                        finish_reason = choice["finish_reason"]
-                if not saw_any_data:
-                    raise LlmProviderError(
-                        "模型流式响应中没有任何 data 事件，请确认 base_url/模型配置"
-                    )
-                if not saw_content:
-                    _assert_nonempty("", finish_reason, requested_max_tokens)
-                yield {"delta": "", "finish_reason": finish_reason}
+        async with httpx.AsyncClient(timeout=timeout) as client, client.stream(
+            "POST", chat_completions_url(profile.base_url), headers=headers, json=payload
+        ) as response:
+            if response.status_code >= 400:
+                body = await response.aread()
+                raise _http_status_error("模型请求失败", response, body)
+            headers_received = True
+            yield {"event": "response_headers", "delta": "", "finish_reason": None}
+            finish_reason: str | None = None
+            saw_any_data = False
+            saw_terminal = False
+            async for line in response.aiter_lines():
+                line = line.strip()
+                if not line or not line.startswith("data:"):
+                    continue
+                saw_any_data = True
+                data_str = line[len("data:") :].strip()
+                if data_str == "[DONE]":
+                    saw_terminal = True
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+                try:
+                    choice = chunk["choices"][0]
+                except (KeyError, IndexError, TypeError):
+                    continue
+                delta_payload = choice.get("delta")
+                delta_payload = delta_payload if isinstance(delta_payload, dict) else {}
+                reasoning = (
+                    delta_payload.get("reasoning_content")
+                    or delta_payload.get("reasoning")
+                    or delta_payload.get("thinking")
+                )
+                reasoning_details = delta_payload.get("reasoning_details")
+                if reasoning or (
+                    isinstance(reasoning_details, list) and reasoning_details
+                ):
+                    # Never forward raw chain-of-thought. The controller only
+                    # needs to know that the provider entered a reasoning phase.
+                    yield {
+                        "event": "reasoning_delta",
+                        "delta": "",
+                        "finish_reason": None,
+                    }
+                delta = delta_payload.get("content") or ""
+                if delta:
+                    saw_content = True
+                    yield {
+                        "event": "content_delta",
+                        "delta": delta,
+                        "finish_reason": None,
+                    }
+                if choice.get("finish_reason"):
+                    finish_reason = choice["finish_reason"]
+                    saw_terminal = True
+            if not saw_any_data:
+                raise LlmProviderError(
+                    "模型流式响应中没有任何 data 事件，请确认 base_url/模型配置",
+                    phase="response_stream",
+                    retryable=True,
+                    code="provider_empty_stream",
+                )
+            if not saw_content:
+                _assert_nonempty("", finish_reason, requested_max_tokens)
+            if not saw_terminal:
+                raise LlmProviderError(
+                    "模型流式响应在明确完成事件之前关闭",
+                    phase="response_stream",
+                    saw_content=saw_content,
+                    retryable=True,
+                    code="provider_stream_closed",
+                )
+            yield {"delta": "", "finish_reason": finish_reason}
     except httpx.TimeoutException as exc:
-        raise LlmProviderError(
-            "模型流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置"
+        raise _transport_error(
+            "模型流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置",
+            exc,
+            headers_received=headers_received,
+            saw_content=saw_content,
         ) from exc
     except httpx.HTTPError as exc:
-        raise LlmProviderError(f"模型请求异常：{str(exc) or exc.__class__.__name__}") from exc
+        raise _transport_error(
+            f"模型请求异常：{str(exc) or exc.__class__.__name__}",
+            exc,
+            headers_received=headers_received,
+            saw_content=saw_content,
+        ) from exc
+
+
+def openai_responses_request_payload(
+    profile: LlmProfile,
+    messages: list[dict[str, Any]],
+    *,
+    max_output_tokens: int,
+    temperature: float,
+    use_previous_response_id: bool = True,
+) -> dict[str, Any]:
+    instructions: list[str] = []
+    input_messages: list[dict[str, Any]] = []
+    previous_response_id: str | None = None
+    previous_response_index: int | None = None
+    if use_previous_response_id:
+        for index, message in enumerate(messages):
+            marker = message.get("_provider_response")
+            if not isinstance(marker, dict):
+                continue
+            if (
+                marker.get("provider") == "openai"
+                and marker.get("model_profile_id") == profile.id
+                and marker.get("model") == profile.model
+                and isinstance(marker.get("id"), str)
+                and marker["id"]
+            ):
+                previous_response_id = marker["id"]
+                previous_response_index = index
+
+    for index, message in enumerate(messages):
+        role = str(message.get("role") or "user")
+        content = message.get("content")
+        if role == "system":
+            text = message_text(content)
+            if text:
+                instructions.append(text)
+            continue
+        if previous_response_index is not None and index <= previous_response_index:
+            continue
+        if role == "assistant":
+            input_messages.append(
+                {"role": "assistant", "content": message_text(content)}
+            )
+            continue
+        input_messages.append(
+            {
+                "role": "developer" if role == "developer" else "user",
+                "content": _openai_responses_content(content),
+            }
+        )
+
+    payload: dict[str, Any] = {
+        "model": profile.model,
+        "input": input_messages,
+        "temperature": temperature,
+        "max_output_tokens": max_output_tokens,
+        "stream": True,
+    }
+    if instructions:
+        payload["instructions"] = "\n\n".join(instructions)
+    if previous_response_id:
+        payload["previous_response_id"] = previous_response_id
+    reasoning_options, _ = reasoning_request_options(
+        profile.provider,
+        profile.base_url,
+        profile.model,
+        profile.reasoning_effort,
+    )
+    payload.update(reasoning_options)
+    return payload
+
+
+def _openai_responses_content(content: Any) -> str | list[dict[str, Any]]:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content or "")
+
+    blocks: list[dict[str, Any]] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "text":
+            blocks.append({"type": "input_text", "text": str(item.get("text") or "")})
+            continue
+        if item.get("type") != "image_url":
+            continue
+        image_url = item.get("image_url")
+        url = image_url.get("url") if isinstance(image_url, dict) else image_url
+        if isinstance(url, str) and url:
+            block: dict[str, Any] = {"type": "input_image", "image_url": url}
+            detail = image_url.get("detail") if isinstance(image_url, dict) else None
+            if detail in {"low", "high", "auto", "original"}:
+                block["detail"] = detail
+            blocks.append(block)
+    return blocks
+
+
+async def _openai_responses_stream_completion(
+    profile: LlmProfile,
+    messages: list[dict[str, Any]],
+    *,
+    max_tokens: int | None,
+    temperature: float | None,
+):
+    headers = {
+        "Authorization": f"Bearer {profile.api_key}",
+        "Content-Type": "application/json",
+    }
+    requested_max_tokens = max_tokens or profile.max_output_tokens
+    payload = openai_responses_request_payload(
+        profile,
+        messages,
+        max_output_tokens=requested_max_tokens,
+        temperature=profile.temperature if temperature is None else temperature,
+    )
+    connect_timeout = min(profile.timeout_ms / 1000, 10.0)
+    read_timeout = max(profile.timeout_ms / 1000, 60.0)
+    timeout = httpx.Timeout(connect_timeout, read=read_timeout, write=10.0, pool=10.0)
+    headers_received = False
+    saw_content = False
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            attempts = [payload]
+            if payload.get("previous_response_id"):
+                attempts.append(
+                    openai_responses_request_payload(
+                        profile,
+                        messages,
+                        max_output_tokens=requested_max_tokens,
+                        temperature=profile.temperature if temperature is None else temperature,
+                        use_previous_response_id=False,
+                    )
+                )
+            for attempt_index, attempt_payload in enumerate(attempts):
+                async with client.stream(
+                    "POST",
+                    responses_url(profile.base_url),
+                    headers=headers,
+                    json=attempt_payload,
+                ) as response:
+                    if response.status_code >= 400:
+                        body = await response.aread()
+                        can_replay_full_history = (
+                            attempt_index == 0
+                            and len(attempts) > 1
+                            and response.status_code in {400, 404}
+                        )
+                        if can_replay_full_history:
+                            continue
+                        raise _http_status_error(
+                            "OpenAI Responses 请求失败",
+                            response,
+                            body,
+                        )
+                    headers_received = True
+                    yield {"event": "response_headers", "delta": "", "finish_reason": None}
+                    async for event in _openai_responses_events(
+                        response, requested_max_tokens
+                    ):
+                        if event.get("delta"):
+                            saw_content = True
+                        yield event
+                    return
+    except httpx.TimeoutException as exc:
+        raise _transport_error(
+            "OpenAI Responses 流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置",
+            exc,
+            headers_received=headers_received,
+            saw_content=saw_content,
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise _transport_error(
+            f"OpenAI Responses 请求异常：{str(exc) or exc.__class__.__name__}",
+            exc,
+            headers_received=headers_received,
+            saw_content=saw_content,
+        ) from exc
+
+
+async def _openai_responses_events(response: Any, requested_max_tokens: int):
+    saw_any_data = False
+    saw_content = False
+    finish_reason: str | None = None
+    saw_terminal = False
+    async for raw_line in response.aiter_lines():
+        line = raw_line.strip()
+        if not line or not line.startswith("data:"):
+            continue
+        saw_any_data = True
+        data_str = line[len("data:") :].strip()
+        if data_str == "[DONE]":
+            break
+        try:
+            event = json.loads(data_str)
+        except json.JSONDecodeError:
+            continue
+        event_type = str(event.get("type") or "")
+        if event_type == "response.output_text.delta":
+            delta = event.get("delta")
+            if isinstance(delta, str) and delta:
+                saw_content = True
+                yield {"event": "content_delta", "delta": delta, "finish_reason": None}
+            continue
+        if event_type == "response.refusal.delta":
+            delta = event.get("delta")
+            if isinstance(delta, str) and delta:
+                saw_content = True
+                yield {"event": "content_delta", "delta": delta, "finish_reason": None}
+            continue
+        if event_type.startswith("response.reasoning") or (
+            event_type == "response.output_item.added"
+            and isinstance(event.get("item"), dict)
+            and event["item"].get("type") == "reasoning"
+        ):
+            yield {"event": "reasoning_delta", "delta": "", "finish_reason": None}
+            continue
+        if event_type in {"response.completed", "response.incomplete"}:
+            saw_terminal = True
+            response_payload = event.get("response")
+            response_payload = response_payload if isinstance(response_payload, dict) else {}
+            status = response_payload.get("status")
+            incomplete_details = response_payload.get("incomplete_details")
+            incomplete_details = (
+                incomplete_details if isinstance(incomplete_details, dict) else {}
+            )
+            incomplete_reason = incomplete_details.get("reason")
+            response_id = response_payload.get("id")
+            if (
+                event_type == "response.completed"
+                and isinstance(response_id, str)
+                and response_id
+            ):
+                yield {
+                    "event": "provider_response",
+                    "response_id": response_id,
+                    "delta": "",
+                    "finish_reason": None,
+                }
+            if status == "completed":
+                finish_reason = "stop"
+            elif incomplete_reason == "max_output_tokens":
+                finish_reason = "length"
+            else:
+                finish_reason = str(incomplete_reason or status or "incomplete")
+            continue
+        if event_type in {"error", "response.failed"}:
+            error = event.get("error")
+            if event_type == "response.failed" and not error:
+                response_payload = event.get("response")
+                if isinstance(response_payload, dict):
+                    error = response_payload.get("error")
+            if isinstance(error, dict):
+                message = error.get("message") or error.get("code") or json.dumps(error)
+            else:
+                message = str(error or "未知错误")
+            raise LlmProviderError(
+                f"OpenAI Responses 流式响应错误：{message}",
+                phase="response_stream",
+                saw_content=saw_content,
+                retryable=_provider_error_retryable(None, message),
+                code="provider_stream_error",
+            )
+
+    if not saw_any_data:
+        raise LlmProviderError(
+            "OpenAI Responses 流式响应中没有任何 data 事件，请确认 base_url/模型配置",
+            phase="response_stream",
+            retryable=True,
+            code="provider_empty_stream",
+        )
+    if not saw_content:
+        _assert_nonempty("", finish_reason, requested_max_tokens)
+    if not saw_terminal:
+        raise LlmProviderError(
+            "OpenAI Responses 流在明确完成事件之前关闭",
+            phase="response_stream",
+            saw_content=saw_content,
+            retryable=True,
+            code="provider_stream_closed",
+        )
+    yield {"delta": "", "finish_reason": finish_reason or "stop"}
 
 
 async def _anthropic_stream_completion(
@@ -573,30 +1201,41 @@ async def _anthropic_stream_completion(
     connect_timeout = min(profile.timeout_ms / 1000, 10.0)
     read_timeout = max(profile.timeout_ms / 1000, 60.0)
     timeout = httpx.Timeout(connect_timeout, read=read_timeout, write=10.0, pool=10.0)
+    headers_received = False
+    saw_content = False
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream(
-                "POST",
-                anthropic_messages_url(profile.base_url),
-                headers=headers,
-                json=payload,
-            ) as response:
-                if response.status_code >= 400:
-                    body = await response.aread()
-                    raise LlmProviderError(
-                        f"Anthropic 模型请求失败 {response.status_code}: "
-                        f"{body.decode('utf-8', 'ignore')[:300]}"
-                    )
-                yield {"event": "response_headers", "delta": "", "finish_reason": None}
-                async for event in _anthropic_response_events(response, requested_max_tokens):
-                    yield event
+        async with httpx.AsyncClient(timeout=timeout) as client, client.stream(
+            "POST",
+            anthropic_messages_url(profile.base_url),
+            headers=headers,
+            json=payload,
+        ) as response:
+            if response.status_code >= 400:
+                body = await response.aread()
+                raise _http_status_error(
+                    "Anthropic 模型请求失败",
+                    response,
+                    body,
+                )
+            headers_received = True
+            yield {"event": "response_headers", "delta": "", "finish_reason": None}
+            async for event in _anthropic_response_events(response, requested_max_tokens):
+                if event.get("delta"):
+                    saw_content = True
+                yield event
     except httpx.TimeoutException as exc:
-        raise LlmProviderError(
-            "Anthropic 流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置"
+        raise _transport_error(
+            "Anthropic 流式响应超时：长时间没有收到可见内容，请重试或换一个模型配置",
+            exc,
+            headers_received=headers_received,
+            saw_content=saw_content,
         ) from exc
     except httpx.HTTPError as exc:
-        raise LlmProviderError(
-            f"Anthropic 模型请求异常：{str(exc) or exc.__class__.__name__}"
+        raise _transport_error(
+            f"Anthropic 模型请求异常：{str(exc) or exc.__class__.__name__}",
+            exc,
+            headers_received=headers_received,
+            saw_content=saw_content,
         ) from exc
 
 
@@ -682,6 +1321,7 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
     saw_any_data = False
     saw_content = False
     finish_reason: str | None = None
+    saw_terminal = False
     async for raw_line in response.aiter_lines():
         line = raw_line.strip()
         if not line or not line.startswith("data:"):
@@ -698,7 +1338,13 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
             message = (
                 error.get("message") if isinstance(error, dict) else str(error or "unknown error")
             )
-            raise LlmProviderError(f"Anthropic 流式响应错误：{message}")
+            raise LlmProviderError(
+                f"Anthropic 流式响应错误：{message}",
+                phase="response_stream",
+                saw_content=saw_content,
+                retryable=_provider_error_retryable(None, message),
+                code="provider_stream_error",
+            )
         if event_type == "content_block_delta":
             delta = event.get("delta")
             if isinstance(delta, dict) and delta.get("type") in {
@@ -724,8 +1370,10 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
             delta = event.get("delta")
             if isinstance(delta, dict) and delta.get("stop_reason"):
                 finish_reason = str(delta["stop_reason"])
+                saw_terminal = True
         elif event_type == "message_stop":
             finish_reason = finish_reason or "end_turn"
+            saw_terminal = True
         if text:
             saw_content = True
             yield {
@@ -735,9 +1383,22 @@ async def _anthropic_response_events(response: Any, requested_max_tokens: int):
             }
 
     if not saw_any_data:
-        raise LlmProviderError("Anthropic 流式响应中没有任何 data 事件，请确认 base_url/模型配置")
+        raise LlmProviderError(
+            "Anthropic 流式响应中没有任何 data 事件，请确认 base_url/模型配置",
+            phase="response_stream",
+            retryable=True,
+            code="provider_empty_stream",
+        )
     if not saw_content:
         _assert_nonempty(
             "", "length" if finish_reason == "max_tokens" else finish_reason, requested_max_tokens
+        )
+    if not saw_terminal:
+        raise LlmProviderError(
+            "Anthropic 流在明确完成事件之前关闭",
+            phase="response_stream",
+            saw_content=saw_content,
+            retryable=True,
+            code="provider_stream_closed",
         )
     yield {"delta": "", "finish_reason": finish_reason}

@@ -1,5 +1,11 @@
 import { API_BASE, JSON_HEADERS, responseError } from "./http";
-import type { ModelProfile, ReasoningEffort } from "./types";
+import {
+  apiContracts,
+  modelProfileSchema,
+  modelProfileTestResultSchema,
+  responseContract
+} from "./contracts";
+import type { ModelProfile, ModelProfileTestResult, ReasoningEffort } from "./types";
 
 export function modelProfileLabel(profile: Pick<ModelProfile, "display_name" | "model"> & Partial<Pick<ModelProfile, "managed">>) {
   return profile.managed ? profile.display_name : `${profile.display_name} · ${profile.model}`;
@@ -8,7 +14,7 @@ export function modelProfileLabel(profile: Pick<ModelProfile, "display_name" | "
 export async function fetchProfiles(): Promise<ModelProfile[]> {
   const response = await fetch(`${API_BASE}/api/model-profiles`, { cache: "no-store" });
   if (!response.ok) throw await responseError(response, "模型列表加载失败");
-  const payload = await response.json();
+  const payload = await responseContract(response, apiContracts.profiles, "模型配置列表");
   return payload.profiles;
 }
 
@@ -34,7 +40,7 @@ export async function updateModelProfile(
     body: JSON.stringify(input)
   });
   if (!response.ok) throw await responseError(response);
-  return response.json() as Promise<ModelProfile>;
+  return responseContract(response, modelProfileSchema, "更新模型配置");
 }
 
 export async function updateModelProfileReasoning(
@@ -47,7 +53,7 @@ export async function updateModelProfileReasoning(
     body: JSON.stringify({ reasoning_effort: reasoningEffort })
   });
   if (!response.ok) throw await responseError(response);
-  return response.json() as Promise<ModelProfile>;
+  return responseContract(response, modelProfileSchema, "更新模型推理强度");
 }
 
 export async function testModelProfile(input: {
@@ -61,28 +67,14 @@ export async function testModelProfile(input: {
   max_output_tokens: number;
   probe_multimodal?: boolean;
   require_multimodal?: boolean;
-}) {
+}): Promise<ModelProfileTestResult> {
   const response = await fetch(`${API_BASE}/api/model-profiles/test`, {
     method: "POST",
     headers: JSON_HEADERS,
     body: JSON.stringify(input)
   });
   if (!response.ok) throw await responseError(response);
-  return response.json() as Promise<{
-    ok: boolean;
-    latency_ms: number | null;
-    message: string;
-    reasoning_effort_options: ReasoningEffort[];
-    reasoning_effort_results: Array<{
-      effort: ReasoningEffort;
-      ok: boolean;
-      latency_ms: number | null;
-      message: string;
-    }>;
-    multimodal_ok?: boolean | null;
-    multimodal_latency_ms?: number | null;
-    multimodal_message?: string | null;
-  }>;
+  return responseContract(response, modelProfileTestResultSchema, "测试模型配置");
 }
 
 export async function createModelProfiles(input: {
@@ -106,7 +98,7 @@ export async function createModelProfiles(input: {
     body: JSON.stringify(input)
   });
   if (!response.ok) throw await responseError(response);
-  return response.json() as Promise<{ profiles: ModelProfile[] }>;
+  return responseContract(response, apiContracts.profiles, "批量创建模型配置");
 }
 
 export async function deleteModelProfile(profileId: string) {
@@ -123,5 +115,5 @@ export async function deleteModelProfiles(profileIds: string[]) {
     body: JSON.stringify({ profile_ids: profileIds })
   });
   if (!response.ok) throw await responseError(response);
-  return response.json() as Promise<{ deleted_profile_ids: string[] }>;
+  return responseContract(response, apiContracts.deletedProfileIds, "批量删除模型配置");
 }

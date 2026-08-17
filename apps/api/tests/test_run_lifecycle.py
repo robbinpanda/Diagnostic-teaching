@@ -1,5 +1,6 @@
 import asyncio
 import json
+from contextlib import suppress
 from pathlib import Path
 
 import httpx
@@ -98,6 +99,47 @@ def test_run_attempts_and_structured_terminal_state_are_durable(tmp_path: Path):
     assert completed["error_json"] is None
 
 
+def test_client_run_id_admission_is_idempotent(tmp_path: Path):
+    app, session_id = bootstrap(tmp_path)
+    repository = app.state.sessions
+
+    first, first_created = repository.admit_run(
+        session_id,
+        client_run_id="client-run-stable",
+    )
+    duplicate, duplicate_created = repository.admit_run(
+        session_id,
+        client_run_id="client-run-stable",
+    )
+
+    assert first_created is True
+    assert duplicate_created is False
+    assert duplicate["id"] == first["id"]
+    assert duplicate["client_run_id"] == "client-run-stable"
+    assert len(repository.list_runs(session_id)) == 1
+
+
+def test_duplicate_client_run_id_returns_existing_run_without_new_generation(tmp_path: Path):
+    app, session_id = bootstrap(tmp_path)
+    client = TestClient(app)
+
+    first = client.post(
+        "/api/chat/stream",
+        json={"session_id": session_id, "client_run_id": "browser-run-1"},
+    )
+    duplicate = client.post(
+        "/api/chat/stream",
+        json={"session_id": session_id, "client_run_id": "browser-run-1"},
+    )
+
+    assert first.status_code == 200
+    assert any(event == "stream_complete" for event, _ in parse_sse(first.text))
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"]["code"] == "RUN_ALREADY_EXISTS"
+    assert duplicate.json()["detail"]["status"] == "completed"
+    assert len(app.state.sessions.list_runs(session_id)) == 1
+
+
 def test_session_runs_migration_is_idempotent_for_existing_database(tmp_path: Path):
     app, session_id = bootstrap(tmp_path)
     first = app.state.sessions.create_run(session_id)
@@ -191,7 +233,7 @@ def test_interrupt_cancels_provider_loop_and_keeps_only_complete_actions(tmp_pat
     assert asyncio.run(app.state.chat_streams.status(session_id))["active"] is False
 
 
-def test_student_message_interrupt_persists_visible_partial_explanation(tmp_path: Path, monkeypatch):
+def test_explicit_interrupt_discards_partial_output_and_keeps_next_input_normal(tmp_path: Path, monkeypatch):
     app, session_id = bootstrap(tmp_path)
 
     async def exercise():
@@ -216,17 +258,9 @@ def test_student_message_interrupt_persists_visible_partial_explanation(tmp_path
             await asyncio.wait_for(partial_started.wait(), timeout=1)
             interrupted = await client.post(
                 f"/api/sessions/{session_id}/interrupt",
-                json={
-                    "reason": "student_message",
-                    "partial_message": "先把等式两边",
-                },
             )
             duplicate = await client.post(
                 f"/api/sessions/{session_id}/interrupt",
-                json={
-                    "reason": "student_message",
-                    "partial_message": "先把等式两边",
-                },
             )
             await asyncio.wait_for(stream_task, timeout=1)
 
@@ -237,13 +271,7 @@ def test_student_message_interrupt_persists_visible_partial_explanation(tmp_path
     asyncio.run(exercise())
 
     messages = app.state.sessions.list_messages(session_id)
-    partials = [row for row in messages if row["action"] == "INTERRUPTED_EXPLANATION"]
-    assert len(partials) == 1
-    assert partials[0]["content"] == "先把等式两边"
-    metadata = json.loads(partials[0]["metadata_json"])
-    assert metadata["interrupted"] is True
-    assert metadata["resume_pending"] is True
-    assert metadata["resume_state"] == "awaiting_question"
+    assert messages == []
     client = TestClient(app)
     accepted = client.post(
         f"/api/sessions/{session_id}/inputs",
@@ -254,12 +282,10 @@ def test_student_message_interrupt_persists_visible_partial_explanation(tmp_path
         },
     )
     assert accepted.status_code == 201
-    assert accepted.json()["interruption_id"] == partials[0]["id"]
-    linked = app.state.sessions.latest_pending_interruption(session_id)
-    assert linked["metadata"]["resume_state"] == "detour_active"
-    assert linked["metadata"]["interruption_question_message_id"] == accepted.json()["message_id"]
+    assert accepted.json()["message_id"]
+    assert app.state.sessions.list_messages(session_id)[0]["content"] == "我刚才其实想选 A。"
     run = app.state.sessions.list_runs(session_id)[0]
-    assert json.loads(run["error_json"])["code"] == "student_message_interrupt"
+    assert json.loads(run["error_json"])["code"] == "explicit_interrupt"
 
 
 def test_provider_exception_marks_failed_releases_coordinator_and_allows_retry(
@@ -318,10 +344,8 @@ def test_client_disconnect_is_failed_not_explicitly_interrupted(tmp_path: Path, 
             )
             await asyncio.wait_for(started.wait(), timeout=1)
             stream_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await stream_task
-            except asyncio.CancelledError:
-                pass
         assert provider_cancelled.is_set()
 
     asyncio.run(exercise())

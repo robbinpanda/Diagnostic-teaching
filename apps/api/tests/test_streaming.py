@@ -1,16 +1,79 @@
 import asyncio
 import json
 from dataclasses import replace
+from datetime import UTC, datetime
+
+import pytest
 
 from app.core.streaming import MessageStreamExtractor
 from app.llm import provider
 from app.llm.provider import (
+    LlmEmptyResponseError,
     LlmProfile,
+    LlmProviderError,
     _anthropic_response_events,
+    _openai_responses_events,
     anthropic_messages_url,
     anthropic_request_payload,
     chat_stream_completion,
+    openai_responses_request_payload,
+    provider_retry_delay_seconds,
+    responses_url,
 )
+
+
+def test_provider_retry_delay_honors_headers_and_exponential_jitter():
+    assert provider_retry_delay_seconds(
+        LlmProviderError(
+            "busy",
+            response_headers={"retry-after-ms": "1500"},
+            retryable=True,
+        ),
+        1,
+    ) == 1.5
+    assert provider_retry_delay_seconds(
+        LlmProviderError(
+            "busy",
+            response_headers={"retry-after": "7"},
+            retryable=True,
+        ),
+        1,
+    ) == 7.0
+    assert provider_retry_delay_seconds(
+        LlmProviderError(
+            "busy",
+            response_headers={"retry-after": "Wed, 05 Aug 2026 08:00:09 GMT"},
+            retryable=True,
+        ),
+        1,
+        now=datetime(2026, 8, 5, 8, 0, 0, tzinfo=UTC),
+    ) == 9.0
+    error = LlmProviderError("busy", retryable=True)
+    assert provider_retry_delay_seconds(error, 1, jitter=1.0) == 2.0
+    assert provider_retry_delay_seconds(error, 2, jitter=1.0) == 4.0
+    assert provider_retry_delay_seconds(error, 5, jitter=1.0) == 30.0
+
+
+def test_provider_error_diagnostic_keeps_transport_context():
+    error = LlmProviderError(
+        "server overloaded",
+        status_code=503,
+        response_headers={"retry-after": "4", "x-request-id": "req_1"},
+        phase="response_headers",
+        saw_content=False,
+        retryable=True,
+        code="provider_http_error",
+    )
+
+    assert error.diagnostic() == {
+        "code": "provider_http_error",
+        "message": "server overloaded",
+        "status_code": 503,
+        "response_headers": {"retry-after": "4", "x-request-id": "req_1"},
+        "phase": "response_headers",
+        "saw_content": False,
+        "retryable": True,
+    }
 
 
 def _profile(provider="local_demo"):
@@ -90,75 +153,6 @@ def test_local_demo_stream_emits_deltas_then_finish():
     assert deltas.strip() != ""
     assert "state_hint" in deltas  # local_demo 输出的 JSON
     assert finish == "stop"
-
-
-def test_local_demo_resolves_student_interruption_detour():
-    response = provider.local_demo_response(
-        [
-            {"role": "system", "content": "S"},
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {"kind": "session_context", "context_status": "ready"},
-                    ensure_ascii=False,
-                ),
-            },
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {"kind": "student_message", "message": "为什么负号会改变大小关系？"},
-                    ensure_ascii=False,
-                ),
-            },
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {
-                        "kind": "student_interruption_detour",
-                        "student_interruption_question": "为什么负号会改变大小关系？",
-                        "interrupted_partial_explanation": "这里是已显示的原讲解片段。",
-                    },
-                    ensure_ascii=False,
-                ),
-            },
-        ]
-    )
-
-    turn = json.loads(response)
-    assert turn["action"] == "EXPLAIN_LOCAL"
-    assert "为什么负号会改变大小关系" in turn["message"]
-    assert turn["debug"]["interruption_detour_resolved"] is True
-
-
-def test_local_demo_resumes_interrupted_explanation_from_breakpoint():
-    response = provider.local_demo_response(
-        [
-            {"role": "system", "content": "S"},
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {"kind": "session_context", "context_status": "ready"},
-                    ensure_ascii=False,
-                ),
-            },
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {
-                        "kind": "resume_interrupted_explanation",
-                        "interrupted_partial_explanation": "这里是已显示的原讲解片段。",
-                    },
-                    ensure_ascii=False,
-                ),
-            },
-        ]
-    )
-
-    turn = json.loads(response)
-    assert turn["action"] == "EXPLAIN_LOCAL"
-    assert "从断点之后继续" in turn["message"]
-    assert "这里是已显示的原讲解片段" not in turn["message"]
-    assert turn["debug"]["interruption_resume_completed"] is True
 
 
 def test_profile_factory_local_demo_works():
@@ -283,7 +277,36 @@ def test_structured_intake_calls_keep_task_prompts_and_profile_temperature(monke
 
     async def fake_chat_completion(profile, messages, *, max_tokens=None, temperature=None):
         captured.append((messages, temperature))
-        return "{}"
+        system_prompt = messages[0]["content"]
+        if "图片录入助手" in system_prompt:
+            return json.dumps(
+                {
+                    "problem_text": "计算 $1+1$。",
+                    "needs_diagram": False,
+                    "diagram_bbox": None,
+                    "student_work_summary": "",
+                    "answer_text": "",
+                    "correctness": "not_present",
+                    "mistake_summary": "",
+                },
+                ensure_ascii=False,
+            )
+        if "作答区域检测助手" in system_prompt:
+            return json.dumps(
+                {
+                    "problems": [
+                        {
+                            "label": "题目 1",
+                            "bbox": {"x": 0, "y": 0, "width": 1, "height": 1},
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        return json.dumps(
+            {"problems": [{"problem_text": "计算 $1+1$。", "student_initial_thought": ""}]},
+            ensure_ascii=False,
+        )
 
     monkeypatch.setattr(provider, "chat_completion", fake_chat_completion)
     profile = replace(
@@ -307,6 +330,321 @@ def test_structured_intake_calls_keep_task_prompts_and_profile_temperature(monke
         assert "TutorTurn" not in system_prompt
         assert "message 为第一个字段" not in system_prompt
     assert "数学题目拆分助手" in captured[2][0][0]["content"]
+
+
+@pytest.mark.parametrize(
+    ("operation", "valid_payload"),
+    [
+        (
+            "image",
+            {
+                "problem_text": "计算 $1+1$。",
+                "needs_diagram": False,
+                "diagram_bbox": None,
+                "student_work_summary": "",
+                "answer_text": "",
+                "correctness": "not_present",
+                "mistake_summary": "",
+            },
+        ),
+        (
+            "regions",
+            {
+                "problems": [
+                    {
+                        "label": "题目 1",
+                        "bbox": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+                    }
+                ]
+            },
+        ),
+        (
+            "text",
+            {"problems": [{"problem_text": "计算 $1+1$。", "student_initial_thought": ""}]},
+        ),
+    ],
+)
+def test_intake_structured_json_retries_invalid_first_response(
+    monkeypatch,
+    operation,
+    valid_payload,
+):
+    calls = []
+
+    async def fake_chat_completion(profile, messages, **kwargs):
+        calls.append(messages)
+        if len(calls) == 1:
+            return "not-json"
+        return json.dumps(valid_payload, ensure_ascii=False)
+
+    monkeypatch.setattr(provider, "chat_completion", fake_chat_completion)
+    profile = _profile("openai_compatible")
+
+    async def run():
+        if operation == "image":
+            return await provider.analyze_problem_image(profile, "data:image/png;base64,dGVzdA==")
+        if operation == "regions":
+            return await provider.detect_problem_regions(profile, "data:image/png;base64,dGVzdA==")
+        return await provider.analyze_problem_text(profile, "计算 $1+1$。")
+
+    raw = asyncio.run(run())
+
+    assert json.loads(raw) == valid_payload
+    assert len(calls) == 2
+    assert calls[1][-2] == {"role": "assistant", "content": "not-json"}
+    assert "完整、合法" in calls[1][-1]["content"]
+
+
+def test_structured_json_stops_after_three_invalid_outputs(monkeypatch):
+    calls = 0
+
+    async def fake_chat_completion(profile, messages, **kwargs):
+        nonlocal calls
+        calls += 1
+        return "{}"
+
+    monkeypatch.setattr(provider, "chat_completion", fake_chat_completion)
+
+    with pytest.raises(LlmProviderError) as raised:
+        asyncio.run(
+            provider.analyze_problem_text(
+                _profile("openai_compatible"),
+                "计算 $1+1$。",
+            )
+        )
+
+    assert calls == 3
+    assert raised.value.code == "invalid_structured_json"
+    assert raised.value.phase == "response_parse"
+    assert raised.value.retryable is True
+
+
+def test_structured_json_retries_transient_provider_failure(monkeypatch):
+    calls = 0
+    sleeps = []
+
+    async def fake_chat_completion(profile, messages, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise LlmProviderError(
+                "busy",
+                status_code=503,
+                phase="response_headers",
+                retryable=True,
+            )
+        return json.dumps(
+            {"problems": [{"problem_text": "计算 $1+1$。", "student_initial_thought": ""}]},
+            ensure_ascii=False,
+        )
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+
+    monkeypatch.setattr(provider, "chat_completion", fake_chat_completion)
+    monkeypatch.setattr(provider.asyncio, "sleep", fake_sleep)
+
+    asyncio.run(
+        provider.analyze_problem_text(
+            _profile("openai_compatible"),
+            "计算 $1+1$。",
+        )
+    )
+
+    assert calls == 2
+    assert len(sleeps) == 1
+    assert 1.6 <= sleeps[0] <= 2.4
+
+
+def test_provider_types_route_to_their_bound_protocols(monkeypatch):
+    called = []
+
+    async def fake_responses(*args, **kwargs):
+        called.append("responses")
+        yield {"delta": "R", "finish_reason": "stop"}
+
+    async def fake_chat_completions(*args, **kwargs):
+        called.append("chat_completions")
+        yield {"delta": "C", "finish_reason": "stop"}
+
+    async def fake_anthropic(*args, **kwargs):
+        called.append("anthropic_messages")
+        yield {"delta": "A", "finish_reason": "end_turn"}
+
+    monkeypatch.setattr(provider, "_openai_responses_stream_completion", fake_responses)
+    monkeypatch.setattr(provider, "_openai_chat_stream_completion", fake_chat_completions)
+    monkeypatch.setattr(provider, "_anthropic_stream_completion", fake_anthropic)
+
+    async def run():
+        for provider_name in ("openai", "openai_compatible", "anthropic"):
+            async for _ in chat_stream_completion(
+                _profile(provider_name), [{"role": "user", "content": "你好"}]
+            ):
+                pass
+
+    asyncio.run(run())
+
+    assert called == ["responses", "chat_completions", "anthropic_messages"]
+
+
+def test_openai_responses_payload_maps_system_image_and_reasoning_fields():
+    profile = replace(_profile("openai"), reasoning_effort="high")
+    payload = openai_responses_request_payload(
+        profile,
+        [
+            {"role": "system", "content": "系统规则"},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "看图"},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "data:image/png;base64,aW1hZ2U=",
+                            "detail": "original",
+                        },
+                    },
+                ],
+            },
+            {"role": "assistant", "content": "收到"},
+        ],
+        max_output_tokens=8000,
+        temperature=0.2,
+    )
+
+    assert responses_url("https://api.openai.com/v1") == "https://api.openai.com/v1/responses"
+    assert payload == {
+        "model": "local-demo",
+        "instructions": "系统规则",
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "看图"},
+                    {
+                        "type": "input_image",
+                        "image_url": "data:image/png;base64,aW1hZ2U=",
+                        "detail": "original",
+                    },
+                ],
+            },
+            {"role": "assistant", "content": "收到"},
+        ],
+        "temperature": 0.2,
+        "max_output_tokens": 8000,
+        "stream": True,
+        "reasoning": {"effort": "high"},
+    }
+    assert "messages" not in payload
+    assert "max_tokens" not in payload
+    assert "reasoning_effort" not in payload
+
+
+def test_openai_responses_payload_continues_from_last_persisted_response():
+    profile = _profile("openai")
+    payload = openai_responses_request_payload(
+        profile,
+        [
+            {"role": "system", "content": "系统规则"},
+            {"role": "user", "content": "第一问"},
+            {
+                "role": "assistant",
+                "content": "第一答",
+                "_provider_response": {
+                    "provider": "openai",
+                    "model_profile_id": profile.id,
+                    "model": profile.model,
+                    "id": "resp_previous",
+                },
+            },
+            {"role": "user", "content": "第二问"},
+        ],
+        max_output_tokens=8000,
+        temperature=0.2,
+    )
+
+    assert payload["previous_response_id"] == "resp_previous"
+    assert payload["instructions"] == "系统规则"
+    assert payload["input"] == [{"role": "user", "content": "第二问"}]
+
+    replay_payload = openai_responses_request_payload(
+        profile,
+        [
+            {"role": "system", "content": "系统规则"},
+            {"role": "user", "content": "第一问"},
+            {
+                "role": "assistant",
+                "content": "第一答",
+                "_provider_response": {
+                    "provider": "openai",
+                    "model_profile_id": profile.id,
+                    "model": profile.model,
+                    "id": "resp_previous",
+                },
+            },
+            {"role": "user", "content": "第二问"},
+        ],
+        max_output_tokens=8000,
+        temperature=0.2,
+        use_previous_response_id=False,
+    )
+
+    assert "previous_response_id" not in replay_payload
+    assert [item["role"] for item in replay_payload["input"]] == [
+        "user",
+        "assistant",
+        "user",
+    ]
+
+
+def test_openai_responses_sse_yields_reasoning_text_and_stop_reason():
+    class FakeResponse:
+        async def aiter_lines(self):
+            for line in [
+                "event: response.created",
+                'data: {"type":"response.created","response":{"status":"in_progress"}}',
+                "event: response.output_item.added",
+                'data: {"type":"response.output_item.added","item":{"type":"reasoning"}}',
+                "event: response.output_text.delta",
+                'data: {"type":"response.output_text.delta","delta":"你"}',
+                'data: {"type":"response.output_text.delta","delta":"好"}',
+                "event: response.completed",
+                'data: {"type":"response.completed","response":{"id":"resp_123","status":"completed"}}',
+            ]:
+                yield line
+
+    async def run():
+        return [event async for event in _openai_responses_events(FakeResponse(), 8000)]
+
+    events = asyncio.run(run())
+
+    assert events == [
+        {"event": "reasoning_delta", "delta": "", "finish_reason": None},
+        {"event": "content_delta", "delta": "你", "finish_reason": None},
+        {"event": "content_delta", "delta": "好", "finish_reason": None},
+        {
+            "event": "provider_response",
+            "response_id": "resp_123",
+            "delta": "",
+            "finish_reason": None,
+        },
+        {"delta": "", "finish_reason": "stop"},
+    ]
+
+
+def test_openai_responses_incomplete_without_text_reports_token_limit():
+    class FakeResponse:
+        async def aiter_lines(self):
+            yield (
+                'data: {"type":"response.incomplete","response":{"status":"incomplete",'
+                '"incomplete_details":{"reason":"max_output_tokens"}}}'
+            )
+
+    async def run():
+        return [event async for event in _openai_responses_events(FakeResponse(), 1200)]
+
+    with pytest.raises(LlmEmptyResponseError, match="max_tokens=1200"):
+        asyncio.run(run())
 
 
 def test_anthropic_payload_moves_system_and_converts_image_data_url():
@@ -370,3 +708,38 @@ def test_anthropic_sse_yields_text_deltas_and_stop_reason():
         {"event": "content_delta", "delta": "好", "finish_reason": None},
         {"delta": "", "finish_reason": "end_turn"},
     ]
+
+
+def test_openai_responses_clean_eof_before_terminal_is_retryable_failure():
+    class FakeResponse:
+        async def aiter_lines(self):
+            yield 'data: {"type":"response.output_text.delta","delta":"partial"}'
+
+    async def run():
+        return [event async for event in _openai_responses_events(FakeResponse(), 8000)]
+
+    with pytest.raises(LlmProviderError) as raised:
+        asyncio.run(run())
+    assert raised.value.code == "provider_stream_closed"
+    assert raised.value.phase == "response_stream"
+    assert raised.value.saw_content is True
+    assert raised.value.retryable is True
+
+
+def test_anthropic_clean_eof_before_terminal_is_retryable_failure():
+    class FakeResponse:
+        async def aiter_lines(self):
+            yield (
+                'data: {"type":"content_block_delta",'
+                '"delta":{"type":"text_delta","text":"partial"}}'
+            )
+
+    async def run():
+        return [event async for event in _anthropic_response_events(FakeResponse(), 8000)]
+
+    with pytest.raises(LlmProviderError) as raised:
+        asyncio.run(run())
+    assert raised.value.code == "provider_stream_closed"
+    assert raised.value.phase == "response_stream"
+    assert raised.value.saw_content is True
+    assert raised.value.retryable is True

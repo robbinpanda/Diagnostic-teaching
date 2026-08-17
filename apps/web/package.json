@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && node scripts/inject-design-contract.mjs",
     "test": "node -e \"require('node:fs').rmSync('dist/test',{recursive:true,force:true})\" && tsc -p tsconfig.test.json && node --test dist/test/tests/*.test.js",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
@@ -15,7 +15,8 @@
     "lucide-react": "^0.468.0",
     "next": "^15.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.6",

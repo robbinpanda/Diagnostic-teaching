@@ -169,7 +169,7 @@ class SenseVoiceTranscriber:
                 from funasr import AutoModel
             except ImportError as exc:
                 raise SpeechModelUnavailable(
-                    "本地语音依赖未安装，请重新执行 apps/api/requirements-dev.txt 的安装命令"
+                    "本地语音依赖未安装，请重新执行 scripts/install-python-deps.py dev"
                 ) from exc
             try:
                 model_reference = _cached_model_reference(self.model_name)

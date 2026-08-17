@@ -4,6 +4,8 @@ import json
 import sqlite3
 
 from app.core.schemas import TutorCheckpoint
+from app.storage.database import with_sqlite_busy_retry
+from app.storage.exam_paper_repository import require_exam_paper
 from app.storage.repository_utils import new_id, now_iso
 
 
@@ -128,6 +130,7 @@ class SessionHistoryRepositoryMixin:
             return conn.execute(
                 """
                 SELECT s.*,
+                       p.name AS paper_name,
                        CASE
                          WHEN mp.id IS NULL THEN '已删除的模型'
                          ELSE mp.display_name || ' · ' || mp.model
@@ -138,11 +141,13 @@ class SessionHistoryRepositoryMixin:
                         WHERE m.session_id = s.id AND m.role = 'student'
                         ORDER BY m.created_at ASC, m.rowid ASC LIMIT 1) AS first_student_message
                 FROM sessions s
+                LEFT JOIN exam_papers p ON p.id = s.paper_id
                 LEFT JOIN model_profiles mp ON mp.id = s.model_profile_id
                 ORDER BY s.updated_at DESC
                 """
             ).fetchall()
 
+    @with_sqlite_busy_retry
     def restore(self, source_session_id: str, model_profile_id: str) -> sqlite3.Row:
         """Copy one SQLite session into a new resumable session."""
         source = self.get(source_session_id)
@@ -167,20 +172,23 @@ class SessionHistoryRepositoryMixin:
         card_map = {card["id"]: new_id("card") for card in cards}
 
         with self.db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            require_exam_paper(conn, source["paper_id"])
             conn.execute(
                 """
                 INSERT INTO sessions (
-                  id, grade_band, subject, model_profile_id, problem_text,
+                  id, grade_band, subject, model_profile_id, paper_id, problem_text,
                   problem_image_data_url, student_initial_thought, phase,
                   context_status, breakpoint_description, breakpoint_confidence, restored_from,
                   created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     new_session_id,
                     source["grade_band"],
                     source["subject"],
                     model_profile_id,
+                    source["paper_id"],
                     source["problem_text"],
                     source["problem_image_data_url"],
                     source["student_initial_thought"],
@@ -339,5 +347,11 @@ class SessionHistoryRepositoryMixin:
                     )
                 ],
             )
+            restored_session = conn.execute(
+                "SELECT * FROM sessions WHERE id = ?",
+                (new_session_id,),
+            ).fetchone()
+            if restored_session is None:
+                raise RuntimeError("restored session insert returned no row")
 
-        return self.get(new_session_id)
+        return restored_session

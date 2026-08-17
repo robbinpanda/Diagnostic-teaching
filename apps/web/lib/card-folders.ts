@@ -2,6 +2,10 @@ import type { CardFolder, StudyCard } from "./api";
 
 export type FolderOption = CardFolder & { depth: number; path: string };
 
+export function isProtectedFolder(folder: CardFolder) {
+  return folder.is_system || Boolean(folder.managed_kind);
+}
+
 export function sortCardFolders(folders: CardFolder[]) {
   return [...folders].sort((left, right) => {
     if (left.is_system !== right.is_system) return left.is_system ? -1 : 1;
@@ -39,6 +43,15 @@ export function flattenCardFolders(folders: CardFolder[]): FolderOption[] {
   }
   visit(null, 0, "");
   return result;
+}
+
+export function foldersForCardType(
+  folders: CardFolder[],
+  cardType: StudyCard["card_type"]
+) {
+  return folders.filter((folder) => (
+    !folder.default_card_type || folder.default_card_type === cardType
+  ));
 }
 
 export function descendantFolderIds(folders: CardFolder[], folderId: string) {

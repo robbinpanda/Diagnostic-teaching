@@ -6,7 +6,7 @@ from app.llm.reasoning import (
 )
 
 
-def test_openai_reasoning_effort_maps_to_standard_field():
+def test_openai_reasoning_effort_maps_to_responses_field():
     options, capability = reasoning_request_options(
         "openai",
         "https://api.openai.com/v1",
@@ -14,9 +14,9 @@ def test_openai_reasoning_effort_maps_to_standard_field():
         "low",
     )
 
-    assert capability.control == "openai_compatible_reasoning_effort"
+    assert capability.control == "openai_responses_reasoning"
     assert capability.efforts == ("none", "low", "high")
-    assert options == {"reasoning_effort": "low"}
+    assert options == {"reasoning": {"effort": "low"}}
 
 
 def test_generic_openai_compatible_model_always_receives_protocol_field():
