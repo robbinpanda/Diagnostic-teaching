@@ -1,36 +1,78 @@
-# 诊断式数学答疑
+<p align="center">
+  <img src="./apps/web/public/branding/panda-app-logo.svg" width="72" alt="熊猫析题 Logo">
+</p>
 
-> Windows 优先、数据留在本机的诊断式数学答疑应用：先找到学生真正卡住的地方，再提问、讲解、检查和总结。
+<h1 align="center">熊猫析题</h1>
 
-[![版本](https://img.shields.io/badge/版本-0.6.1-4c7dff)](https://github.com/robbinpanda/Diagnostic-teaching/releases/tag/v0.6.1)
-[![平台](https://img.shields.io/badge/平台-Windows-0078d4)](https://github.com/robbinpanda/Diagnostic-teaching/releases)
-[![存储](https://img.shields.io/badge/存储-SQLite-0f80cc)](./docs/database.md)
-[![Docker](https://img.shields.io/badge/Docker-可用-2496ed)](./compose.local.yml)
+<p align="center">
+  <strong>先找到学生真正卡住的地方，再提问、讲解、检查和总结。</strong><br>
+  Windows 优先、数据留在本机的诊断式数学答疑应用。
+</p>
 
-前端使用 Next.js，后端使用 FastAPI。SQLite 保存可恢复业务状态，JSONL/Markdown 只记录诊断信息。Windows 安装版、源码模式和 Docker 共用同一套教学协议与数据结构。
+<p align="center">
+  <a href="https://github.com/robbinpanda/Diagnostic-teaching/releases/tag/v0.6.1"><img src="https://img.shields.io/badge/版本-0.6.1-4c7dff" alt="版本 0.6.1"></a>
+  <a href="https://github.com/robbinpanda/Diagnostic-teaching/releases"><img src="https://img.shields.io/badge/平台-Windows-0078d4" alt="Windows"></a>
+  <a href="./docs/database.md"><img src="https://img.shields.io/badge/存储-SQLite-0f80cc" alt="SQLite"></a>
+  <a href="./compose.local.yml"><img src="https://img.shields.io/badge/Docker-可用-2496ed" alt="Docker"></a>
+</p>
 
-## 主要能力
+![熊猫析题首页：从文字或题图开始一轮诊断式答疑](./docs/assets/screenshots/home.png)
 
-- 文字单题/多题拆分，以及 PNG/JPEG/WebP 题图检测、框选、裁剪和批量建会话。
-- 六种受约束的教学动作：追问、诊断选择题、局部讲解、原理讲解、检查点反馈和总结。
-- 用户自行配置的 OpenAI Responses、OpenAI-compatible Chat Completions 与 Anthropic Messages 模型；应用不提供预设模型或公共 API 凭据。
-- 可恢复的多会话并发、持久化 run、中断、幂等输入和 durable event 重放。
-- 知识卡片、题目卡片、试卷归档、错题卡片库、错题集及双列 PDF/练习模式。
-- 本地 SenseVoiceSmall 语音输入、SQLite 历史恢复和逐 session 诊断日志。
+<p align="center"><sub>输入一道或多道题，也可以粘贴、上传并框选题图。</sub></p>
+
+## 这不是一个直接给答案的聊天窗口
+
+熊猫析题把一次答疑拆成可验证的教学动作：先确认题目与已有思路，再用开放问题或诊断选择题定位卡点；讲解只推进当前需要的一小步，最后把过程沉淀为可以复习的知识卡和题目卡。
+
+| 诊断卡点 | 保持参与 | 沉淀复习 |
+|---|---|---|
+| 先收集题目和学生思路，不凭消息顺序猜测上下文 | 用开放问题、诊断选项和“我不知道”持续获取理解证据 | 自动生成知识卡、题目卡，按试卷归档并支持 PDF/练习模式 |
+
+## 一次真实答疑如何进行
+
+1. **输入题目**：粘贴文字，或上传 PNG/JPEG/WebP 题图；多题会拆成独立会话。
+2. **说明思路**：学生可以写下已做到哪一步，也可以直接说明“完全没思路”。
+3. **定位卡点**：系统用开放问题或三选一诊断检查点，确认错误发生在哪个连接上。
+4. **小步讲解**：一次只修复一个局部步骤，或讲清一个可迁移的数学原理。
+5. **检查与总结**：学生完成关键判断后，系统收束本题，并生成可归档的学习卡片。
+
+### 诊断检查点
+
+![交互式答疑中的诊断选择题](./docs/assets/screenshots/diagnostic-checkpoint.png)
+
+检查点不是为了“考试”，而是用三个有诊断意义的选项快速区分理解、误区和不确定状态。学生也可以选择“我不知道”，或直接输入自己的回答。
+
+### 从讲解到知识卡
+
+![答疑过程中生成并编辑知识卡片](./docs/assets/screenshots/knowledge-card.png)
+
+值得迁移复用的公式、定理和方法会生成知识卡；当前题目的完整条件、步骤与答案则进入题目卡。卡片可以编辑、按试卷归档、跨卷选择并导出。
+
+## 核心能力
+
+| 能力 | 说明 |
+|---|---|
+| 文字与题图输入 | 支持单题、多题拆分，以及题图检测、框选、裁剪和批量建会话 |
+| 诊断式教学 | 只允许六种受约束教学动作，避免模型一路代做整题 |
+| 多会话工作台 | 不同会话可并行生成、停止、恢复和继续追问 |
+| 学习资产 | 知识卡、题目卡、试卷归档、错题卡片库、错题集和双列打印 |
+| 自选模型 | 支持 OpenAI Responses、OpenAI-compatible Chat Completions 与 Anthropic Messages；应用不内置公共 API 凭据 |
+| 本地语音 | 可选 SenseVoiceSmall 流式语音输入，识别结果先回填输入框再由学生确认发送 |
+| 可靠恢复 | SQLite 保存会话、输入、生成 run、检查点和卡片；刷新或重启后可恢复已提交状态 |
 
 完整能力边界和端到端数据流见 [系统总览](./docs/system-overview.md)。
 
 ## 快速开始
 
-### Windows 安装版
+### 方式一：Windows 安装版
 
-普通用户可从 [GitHub Releases](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest) 下载 `Diagnostic-Teaching-Setup-0.6.1-x64.exe`。安装版包含前后端、Python 运行时和语音依赖，不要求另装 Node.js、Python、Conda 或 SQLite。
+从 [GitHub Releases](https://github.com/robbinpanda/Diagnostic-teaching/releases/latest) 下载 `Diagnostic-Teaching-Setup-0.6.1-x64.exe`。安装版已经包含前后端、Python 运行时和语音依赖，不要求另装 Node.js、Python、Conda 或 SQLite。
 
-> 0.5.0 引入的一次性旧数据清理合同仍然有效；已经运行过 0.5.0 的用户升级到 0.6.1 不会再次清理。安装包尚未商业签名，SmartScreen 可能提示“未知发布者”。详见 [Windows 安装说明](./docs/windows-installer.md)。
+> 安装包尚未商业签名，Windows SmartScreen 可能提示“未知发布者”。0.5.0 引入的一次性旧数据清理合同仍然有效；已经运行过 0.5.0 的用户升级到 0.6.1 不会再次清理。详见 [Windows 安装说明](./docs/windows-installer.md)。
 
-### 源码模式
+### 方式二：源码运行
 
-要求 Windows、Miniconda/Anaconda、Node.js 20+ 和 npm：
+需要 Windows、Miniconda/Anaconda、Node.js 20+ 和 npm：
 
 ```powershell
 git clone https://github.com/robbinpanda/Diagnostic-teaching.git
@@ -42,37 +84,40 @@ npm --prefix apps/web install
 .\scripts\start-dev.cmd
 ```
 
-浏览器打开 <http://127.0.0.1:3000>。启动、关闭、环境变量、语音与故障排查见 [本地运行指南](./docs/how-to-run.md)。
+浏览器打开 <http://127.0.0.1:3000>。停止服务时运行 `scripts\stop-dev.cmd`。环境变量、语音模型与故障排查见 [本地运行指南](./docs/how-to-run.md)。
 
-后端核心依赖由 `apps/api/requirements-core.in` 声明、由带哈希的 `requirements-core.txt` 锁定。核心、语音与开发工具必须由 `scripts/install-python-deps.py` 分成独立 pip 调用安装，不能把无哈希的可选层与核心锁放进同一次解析。更新直接依赖时，先安装 `apps/api/requirements-lock.txt` 中固定版本的锁定工具，再运行 `scripts\lock-python-deps.cmd`；不要手工编辑生成的锁文件。
+### 方式三：Docker
 
-### Docker
-
-不需要本地语音时使用轻量版：
+轻量版（不包含本地语音依赖）：
 
 ```powershell
 docker compose -f compose.local.yml up -d --build
 ```
 
-需要 CPU 语音识别时叠加语音配置：
+CPU 语音版：
 
 ```powershell
 docker compose -f compose.local.yml -f compose.speech.yml up -d --build
 ```
 
-Docker 默认只监听本机 `127.0.0.1:3000`。当前 API 不提供用户认证，不应把端口改为全网卡绑定或直接暴露到局域网/公网。
+Docker 默认只监听 `127.0.0.1:3000`。当前 API 不提供多用户认证，请勿直接暴露到局域网或公网。
 
-## 核心逻辑
+## 教学工作流
 
-一轮正式答疑遵循以下稳定边界：
+```mermaid
+flowchart LR
+  A[文字或题图] --> B[确认题目与已有思路]
+  B --> C{需要学生证据?}
+  C -->|是| D[开放问题 / 诊断检查点]
+  D --> B
+  C -->|否| E[局部讲解 / 原理讲解]
+  E --> F{目标已处理?}
+  F -->|否| D
+  F -->|是| G[总结并生成题目卡]
+  E -. 可迁移知识 .-> H[知识卡]
+```
 
-1. 文字或题图先拆成一题一个 session；拆题只决定 session 数量，不决定教学动作。
-2. 学生输入先以稳定幂等键写入 `session_inputs` 和 `messages`，再启动生成。
-3. `session_runs` 串行管理同一 session 的生成生命周期，不同 session 可以并行。
-4. 模型返回 `TutorTurn`；后端校验 action、上下文和附属卡片，并推导 `wait_for_student`。
-5. 完整 action、卡片/checkpoint 副作用和 durable events 在 SQLite 事务中提交；未完整解析的流式半成品不进入历史。
-
-只有以下六种教学 action：
+正式答疑只使用以下六种 action：
 
 | action | 职责 | 是否等待学生 |
 |---|---|---|
@@ -83,7 +128,25 @@ Docker 默认只监听本机 `127.0.0.1:3000`。当前 API 不提供用户认证
 | `RESPOND_TO_CHECKPOINT` | 对检查点结果提供简短反馈 | 否 |
 | `SUMMARIZE` | 在目标确已处理后收束并生成题目卡 | 否 |
 
-状态机、上下文、恢复、事件与数据库合同分别见 [教学状态机](./docs/state-machine.md)、[上下文管理](./docs/context-management.md)、[Session 事件](./docs/session-events.md) 和 [数据库](./docs/database.md)。
+`wait_for_student` 始终由后端根据 action 推导，不交给模型自由决定。详细合同见 [教学状态机](./docs/state-machine.md)。
+
+## 架构与可靠性
+
+```text
+Next.js 工作台
+    │  HTTP / SSE / WebSocket
+    ▼
+FastAPI ─────── 模型供应商 API
+    │
+    ├── SQLite：唯一可恢复业务态
+    └── JSONL / Markdown：只追加诊断日志
+```
+
+- 学生消息和卡片继续命令先通过 `session_inputs` 幂等接纳，再启动生成；网络重试复用原客户端幂等键。
+- `session_runs` 记录生成生命周期；同一 session 串行，不同 session 可以并行。
+- 完整 action、检查点、卡片和 durable events 在同一业务事务边界提交；流式半成品不进入历史。
+- 含题图的 session 固定绑定多模态模型，并保留原始 `problem_image_data_url` 供后续轮次使用。
+- API key 只在后端加密存储，不进入前端持久化、诊断日志或 Git。
 
 ## 仓库结构
 
@@ -91,14 +154,12 @@ Docker 默认只监听本机 `127.0.0.1:3000`。当前 API 不提供用户认证
 apps/api/       FastAPI、教学控制、模型适配、SQLite 仓储与迁移
 apps/web/       Next.js 工作台、前端状态机、流控制和打印视图
 config/         内置模型配置
-docs/           当前架构、运行手册、接口合同与历史记录
+docs/           架构、运行手册、接口合同与改动记录
 scripts/        Windows 开发、诊断和打包脚本
 data/           本地 SQLite 与加密密钥（Git 忽略）
 logs/           JSONL/Markdown 诊断日志（Git 忽略）
 runtime/        Docker 持久化数据与模型缓存（Git 忽略）
 ```
-
-产品边界见 [PRODUCT.md](./PRODUCT.md)，当前视觉与交互合同见 [DESIGN.md](./DESIGN.md)。文档导航见 [docs/README.md](./docs/README.md)。
 
 ## 开发验证
 
@@ -119,8 +180,23 @@ npm run typecheck
 npm test
 ```
 
-涉及构建、路由、样式合同或发布时，再运行 `npm run build`。修改 action、API、环境变量或数据表时，必须同步更新对应现行文档；重要行为变化记录到 [docs/changelog.md](./docs/changelog.md)。
+涉及构建、路由或样式合同时，再运行 `npm run build`。核心 Python 依赖由 `apps/api/requirements-core.in` 声明，并由带哈希的 `requirements-core.txt` 锁定；请使用 `scripts/install-python-deps.py` 和 `scripts\lock-python-deps.cmd` 管理，不要手工编辑生成的锁文件。
 
-## 数据与密钥
+## 文档导航
 
-SQLite 是 session 恢复的唯一权威来源。`logs/sessions/` 下的 JSONL 与 Markdown 都是只追加诊断日志，不能用于业务恢复。模型 API key 只在后端加密保存，不应进入前端持久化、日志或 Git。
+| 文档 | 适合在什么时候读 |
+|---|---|
+| [系统总览](./docs/system-overview.md) | 第一次了解组件职责和端到端流程 |
+| [教学状态机](./docs/state-machine.md) | 修改 prompt、action、检查点或卡片规则 |
+| [上下文管理](./docs/context-management.md) | 修改输入接纳、会话恢复、run 或诊断日志 |
+| [Session 事件](./docs/session-events.md) | 修改 durable event 与 SSE 重放 |
+| [数据库](./docs/database.md) | 修改表结构、迁移、备份与 SQLite 行为 |
+| [模型配置](./docs/ai-model-config-v0.2.md) | 接入或排查模型供应商 |
+| [本地运行](./docs/how-to-run.md) | 安装、启停、语音配置和故障排查 |
+| [Windows 安装](./docs/windows-installer.md) | 构建安装包、升级或处理签名提示 |
+
+产品范围见 [PRODUCT.md](./PRODUCT.md)，当前视觉与交互合同见 [DESIGN.md](./DESIGN.md)，完整文档索引见 [docs/README.md](./docs/README.md)。
+
+## 数据与隐私
+
+SQLite 是 session 恢复的唯一权威来源。`logs/sessions/` 下的 JSONL 与 Markdown 仅用于本地诊断，不参与业务恢复。真实 `.env`、`data/`、`logs/` 和 `runtime/` 均不应提交到 Git。
